@@ -18,7 +18,14 @@ export type MintRule =
 
 export type BurnRule = { amount: number } | { min: number; max: number };
 
-export type RequireRule = { amount: number };
+export type RequireRule = {
+  amount: number;
+  /** When set with `collect` (and no `produce`), starts a timed job after other phases. */
+  seconds?: number;
+};
+
+/** Virtual action id for completing a generator / timed job (POST portal action or game event). */
+export const PLAYER_ECONOMY_GENERATOR_COLLECTED_ACTION = "generator.collected";
 
 export type GeneratorRecipeRule = {
   /**
@@ -36,8 +43,8 @@ export type GeneratorRecipeRule = {
    */
   requires?: string;
   /**
-   * Legacy: id of a separate action whose `collect` completes this job. Omit when the
-   * same action defines `collect` (unified start + collect with `itemId`).
+   * Legacy: id of a separate action whose `collect` completed this job before
+   * {@link PLAYER_ECONOMY_GENERATOR_COLLECTED_ACTION}. Prefer jobs with `sourceActionId` on the server.
    */
   collectActionId?: string;
 };
@@ -66,6 +73,11 @@ export type PlayerEconomyBalanceItem = {
    * and appears in the dashboard production zone when the player owns it.
    */
   generator?: boolean;
+  /**
+   * When true and the player has a positive balance, this item’s art appears in the
+   * economy dashboard trophy zone (checkered area).
+   */
+  trophy?: boolean;
   /** Starting balance for new farms (no persisted minigame doc yet). */
   initialBalance?: number;
 };
@@ -128,6 +140,8 @@ export type GeneratorJob = {
   completesAt: number;
   /** When set, this job counts only toward that cap lane (see `GeneratorRecipeRule.requires`). */
   requires?: string;
+  /** Action that created this job; used to resolve `collect` for {@link PLAYER_ECONOMY_GENERATOR_COLLECTED_ACTION}. */
+  sourceActionId?: string;
 };
 
 export type DailyMintBucket = {
@@ -158,6 +172,7 @@ export type PlayerEconomyRuntimeState = {
 
 export type PlayerEconomyProcessInput = {
   actionId: string;
+  /** Required only when `actionId` is {@link PLAYER_ECONOMY_GENERATOR_COLLECTED_ACTION} (production job id). */
   itemId?: string;
   /** Ranged mint and ranged burn amounts (token key → integer). */
   amounts?: Record<string, number>;

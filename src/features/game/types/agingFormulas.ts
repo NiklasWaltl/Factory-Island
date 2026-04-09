@@ -1,6 +1,17 @@
 import Decimal from "decimal.js-light";
 import { prngChance } from "lib/prng";
 import type { GameState, InventoryItemName } from "./game";
+import { FermentationBait } from "./fishing";
+
+const BAIT_ITEMS = new Set<FermentationBait>([
+  "Capsule Bait",
+  "Umbrella Bait",
+  "Crimson Baitfish",
+]);
+
+export function isBaitItem(item: InventoryItemName): item is FermentationBait {
+  return BAIT_ITEMS.has(item as FermentationBait);
+}
 
 export const PRIME_AGED_XP_MULTIPLIER = 1.3;
 export const PRIME_AGED_BASE_CHANCE = 0.1;
@@ -67,36 +78,37 @@ export function getAgingInputMultiplier(state: GameState): number {
   return skills?.["Ager"] ? 2 : 1;
 }
 
-export function getAgingOutputBonus(state: GameState): number {
-  const skills = state.bumpkin?.skills;
-  return skills?.["Ager"] ? 1 : 0;
-}
-
 export function getAgingOutput(
   state: GameState,
   baseAmount: Decimal,
   item: InventoryItemName,
-  prngArgs: { farmId: number; itemId: number; counter: number },
+  prngArgs?: { farmId: number; itemId: number; counter: number },
 ): Decimal {
   const skills = state.bumpkin?.skills;
-  const { farmId, itemId, counter } = prngArgs;
 
   let output = baseAmount;
   if (skills?.["Ager"]) {
-    output = output.add(1);
+    output = output.mul(2);
   }
 
-  if (item === "Refined Salt" && skills?.Refiner) {
-    const isBonus = prngChance({
-      farmId,
-      itemId,
-      counter,
-      chance: 15,
-      criticalHitName: "Refiner",
-    });
-    if (isBonus) {
-      output = output.add(1);
+  if (prngArgs) {
+    const { farmId, itemId, counter } = prngArgs;
+    if (item === "Refined Salt" && skills?.Refiner) {
+      const isBonus = prngChance({
+        farmId,
+        itemId,
+        counter,
+        chance: 15,
+        criticalHitName: "Refiner",
+      });
+      if (isBonus) {
+        output = output.add(1);
+      }
     }
+  }
+
+  if (skills?.["Bacalhau"] && isBaitItem(item)) {
+    output = output.add(1);
   }
 
   return output;

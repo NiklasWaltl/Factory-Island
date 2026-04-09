@@ -127,6 +127,33 @@ export function getSaltChargeGenerationTime({
 export const BASE_SALT_YIELD = 10; // 10 salt per rake
 export const MAX_STORED_SALT_CHARGES_PER_NODE = 3; // 3 salt charges per node
 
+export const SEA_BLESSED_CHANCE = 5;
+
+export function rechargeAllSaltNodes(
+  game: GameState,
+  createdAt: number,
+): GameState {
+  const interval = getSaltChargeGenerationTime({ gameState: game });
+  const maxCharges = getMaxStoredSaltChargesFromLevel(
+    game.sculptures?.["Salt Sculpture"]?.level ?? 0,
+  );
+  for (const nodeId of Object.keys(game.saltFarm.nodes)) {
+    game.saltFarm.nodes[nodeId].salt.storedCharges = maxCharges;
+    game.saltFarm.nodes[nodeId].salt.nextChargeAt = createdAt + interval;
+  }
+  return game;
+}
+
+export function getSaltYieldPerRake(gameState: GameState): number {
+  let saltYield = BASE_SALT_YIELD;
+
+  if (gameState.bumpkin?.skills["Wide Rakes"]) {
+    saltYield += 2;
+  }
+
+  return saltYield;
+}
+
 function clampStoredCharges(
   value: number,
   max = MAX_STORED_SALT_CHARGES_PER_NODE,

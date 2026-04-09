@@ -60,6 +60,7 @@ import {
   CompostName,
   CropCompostName,
   FruitCompostName,
+  GreenhouseCompostName,
   Worm,
 } from "./composters";
 import { FarmActivityName } from "./farmActivity";
@@ -167,6 +168,11 @@ export type CropFertiliser = {
 
 export type FruitFertiliser = {
   name: FruitCompostName;
+  fertilisedAt: number;
+};
+
+export type GreenhouseFertiliser = {
+  name: GreenhouseCompostName;
   fertilisedAt: number;
 };
 
@@ -818,6 +824,7 @@ export type GreenhousePlant = {
 
 export type GreenhousePot = {
   plant?: GreenhousePlant;
+  fertiliser?: GreenhouseFertiliser;
 };
 
 export type FruitPatch = {

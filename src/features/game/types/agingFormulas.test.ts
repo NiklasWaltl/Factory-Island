@@ -53,7 +53,7 @@ describe("getAgingOutput", () => {
     ).toBe(3);
   });
 
-  it("adds +1 for Ager on any item", () => {
+  it("doubles output for Ager on any item", () => {
     const state = stateWithSkills({ Ager: 1 } as Skills);
     expect(
       getAgingOutput(state, new Decimal(2), "Pickled Radish", {
@@ -61,7 +61,7 @@ describe("getAgingOutput", () => {
         itemId: KNOWN_IDS["Pickled Radish"],
         counter: 0,
       }).toNumber(),
-    ).toBe(3);
+    ).toBe(4);
   });
 
   describe("Refiner bonus on Refined Salt (15% PRNG)", () => {
@@ -134,7 +134,7 @@ describe("getAgingOutput", () => {
       ).toBe(2);
     });
 
-    it("stacks Ager +1 with Refiner bonus on hit", () => {
+    it("stacks Ager 2× with Refiner bonus on hit", () => {
       const agerRefinerState = stateWithSkills({
         Ager: 1,
         Refiner: 1,
@@ -145,7 +145,7 @@ describe("getAgingOutput", () => {
           itemId: refinedSaltId,
           counter: 4,
         }).toNumber(),
-      ).toBe(4);
+      ).toBe(5);
     });
   });
 });

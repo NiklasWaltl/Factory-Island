@@ -165,6 +165,7 @@ export const PlayerEconomyEditorForm: React.FC = () => {
             id: nextId,
             tradeable: false,
             generator: false,
+            trophy: false,
             initialBalance: 0,
           },
         ],
@@ -303,7 +304,7 @@ export const PlayerEconomyEditorForm: React.FC = () => {
           />
         );
       case "json":
-        return <JsonTab form={form} />;
+        return <JsonTab form={form} updateForm={updateForm} />;
     }
   };
 

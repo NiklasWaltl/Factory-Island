@@ -41,6 +41,8 @@ export type CustomMintRowForm = {
   min: number;
   max: number;
   dailyCap: number;
+  /** 0–100; omit or 100 = always mint when the action runs. */
+  chance?: number;
 };
 
 /** Custom rule: burn row with min / max (client passes exact burn in `amounts`). */
@@ -76,6 +78,8 @@ export type ItemForm = {
   tradeable: boolean;
   /** When true, can be chosen as produce "requires" and shown in the dashboard production zone. */
   generator: boolean;
+  /** When true, shown in the economy dashboard trophy zone when the player owns at least one. */
+  trophy: boolean;
   /** Starting balance for new farms (`items[token].initialBalance` in saved config). */
   initialBalance: number;
   /** True while PUT to S3 / presign is in flight (editor-only, not persisted). */
@@ -165,6 +169,7 @@ export const EMPTY_CUSTOM_MINT_ROW: CustomMintRowForm = {
   min: 0,
   max: 0,
   dailyCap: 0,
+  chance: 100,
 };
 
 export const EMPTY_CUSTOM_BURN_ROW: CustomBurnRowForm = {
@@ -175,12 +180,12 @@ export const EMPTY_CUSTOM_BURN_ROW: CustomBurnRowForm = {
 
 export const EMPTY_BURN_ROW: TokenAmount = { token: "", amount: 0 };
 
+/** Rule types offered when adding a new action (Generate is legacy-only in saved configs). */
 export const ACTION_TYPE_OPTIONS: {
-  type: ActionType;
+  type: Exclude<ActionType, "produce">;
   label: string;
-  iconKey: "basket" | "shop" | "settings";
+  iconKey: "shop" | "settings";
 }[] = [
-  { type: "produce", label: "Generate", iconKey: "basket" },
   { type: "shop", label: "Shop", iconKey: "shop" },
   { type: "custom", label: "Custom", iconKey: "settings" },
 ];

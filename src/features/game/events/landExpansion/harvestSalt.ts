@@ -1,15 +1,20 @@
 import Decimal from "decimal.js-light";
 import { GameState } from "features/game/types/game";
 import {
-  BASE_SALT_YIELD,
+  SEA_BLESSED_CHANCE,
   getSaltChargeGenerationTime,
+  getSaltYieldPerRake,
   getStoredSaltCharges,
   materializeSaltRegen,
+  rechargeAllSaltNodes,
   syncSaltNode,
 } from "features/game/types/salt";
 import { getMaxStoredSaltCharges } from "features/game/types/saltSculpture";
 import { produce } from "immer";
 import { hasFeatureAccess } from "lib/flags";
+import { prngChance } from "lib/prng";
+import { KNOWN_IDS } from "features/game/types";
+import { trackFarmActivity } from "features/game/types/farmActivity";
 
 export enum HARVEST_SALT_ERRORS {
   SALT_NODE_NOT_FOUND = "Salt node not found",
@@ -27,12 +32,14 @@ type Options = {
   state: Readonly<GameState>;
   action: HarvestSaltAction;
   createdAt?: number;
+  farmId: number;
 };
 
 export function harvestSalt({
   state,
   action,
   createdAt = Date.now(),
+  farmId,
 }: Options): GameState {
   if (!hasFeatureAccess(state, "SALT_FARM")) {
     throw new Error(HARVEST_SALT_ERRORS.SALT_FARM_NOT_ENABLED);
@@ -61,11 +68,12 @@ export function harvestSalt({
     if (availableRakes.lt(1)) {
       throw new Error(HARVEST_SALT_ERRORS.NOT_ENOUGH_SALT_RAKES);
     }
-    const legacySalt = legacyReadySlots * BASE_SALT_YIELD;
+    const saltPerRake = getSaltYieldPerRake(copy);
+    const legacySalt = legacyReadySlots * saltPerRake;
 
     const saltInInventory = copy.inventory["Salt"] ?? new Decimal(0);
     copy.inventory["Salt Rake"] = availableRakes.sub(1);
-    copy.inventory["Salt"] = saltInInventory.add(BASE_SALT_YIELD + legacySalt);
+    copy.inventory["Salt"] = saltInInventory.add(saltPerRake + legacySalt);
 
     const wasFullBeforeHarvest = storedCharges === maxCharges;
     const syncedNextChargeAt = syncedNode.salt.nextChargeAt;
@@ -89,5 +97,22 @@ export function harvestSalt({
       ...syncedNode,
       salt: finalizedSalt,
     };
+
+    const saltHarvestCount = copy.farmActivity["Salt Harvested"] ?? 0;
+    copy.farmActivity = trackFarmActivity("Salt Harvested", copy.farmActivity);
+
+    if (copy.bumpkin?.skills["Sea Blessed"]) {
+      const seaBlessedHit = prngChance({
+        farmId,
+        itemId: KNOWN_IDS["Salt"],
+        counter: saltHarvestCount,
+        chance: SEA_BLESSED_CHANCE,
+        criticalHitName: "Sea Blessed",
+      });
+
+      if (seaBlessedHit) {
+        rechargeAllSaltNodes(copy, createdAt);
+      }
+    }
   });
 }

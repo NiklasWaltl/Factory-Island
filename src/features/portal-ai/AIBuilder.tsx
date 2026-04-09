@@ -166,6 +166,8 @@ export const AIBuilder: React.FC = () => {
   const [previewMode, setPreviewMode] = useState<"desktop" | "mobile">(
     "desktop",
   );
+  const [showHitboxes, setShowHitboxes] = useState(false);
+  const showHitboxesRef = useRef(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef("");
@@ -177,6 +179,11 @@ export const AIBuilder: React.FC = () => {
     null,
   );
   const reconnectAttemptsRef = useRef(0);
+  const lastSceneRef = useRef<{
+    phaserScene: string;
+    sunflowerAssets: string;
+    sunflowerSDK: string;
+  } | null>(null);
   const maxReconnectAttempts = 10;
   const isUnmountingRef = useRef(false);
 
@@ -217,6 +224,23 @@ export const AIBuilder: React.FC = () => {
       code.includes("SampleFarmScene") &&
       code.includes("// Phaser scene class definition")
     );
+  }, []);
+
+  const toggleHitboxes = useCallback((enabled: boolean) => {
+    const game = currentGameRef.current;
+    if (!game) return;
+    game.scene.scenes.forEach((scene: any) => {
+      if (scene.physics?.world) {
+        scene.physics.world.drawDebug = enabled;
+        if (enabled) {
+          scene.physics.world.createDebugGraphic();
+        } else {
+          scene.physics.world.debugGraphic?.clear();
+          scene.physics.world.debugGraphic?.destroy();
+          scene.physics.world.debugGraphic = null;
+        }
+      }
+    });
   }, []);
 
   const enableGameKeyboard = useCallback(() => {
@@ -281,6 +305,7 @@ export const AIBuilder: React.FC = () => {
   const loadSceneDirectly = useCallback(
     (phaserScene: string, sunflowerAssets: string, sunflowerSDK: string) => {
       try {
+        lastSceneRef.current = { phaserScene, sunflowerAssets, sunflowerSDK };
         cleanupGame();
 
         // Load asset definitions into global scope
@@ -294,48 +319,60 @@ export const AIBuilder: React.FC = () => {
         const sdkFunction = new Function(sunflowerSDK);
         sdkFunction();
 
-        // Intercept the generated config by temporarily proxying Phaser.Game,
-        // then create the game ourselves with the Phaser scene loader directly.
-        let capturedConfig: Phaser.Types.Core.GameConfig | null = null;
-        const OriginalGame = Phaser.Game;
+        // Execute the scene code, capturing the game instance.
+        // The generated code already creates a Phaser.Game with parent "game-container".
+        let modifiedCode = phaserScene;
 
-        (Phaser as any).Game = function (config: Phaser.Types.Core.GameConfig) {
-          capturedConfig = config;
-        };
-
-        try {
-          const sceneFunction = new Function("Phaser", phaserScene);
-          sceneFunction(Phaser);
-        } finally {
-          (Phaser as any).Game = OriginalGame;
+        // Capture the game instance on window so we can track it
+        modifiedCode = modifiedCode.replace(
+          /const game = new Phaser\.Game\(gameConfig\);/,
+          "const game = new Phaser.Game(gameConfig); window.currentPhaserGame = game;",
+        );
+        if (!modifiedCode.includes("window.currentPhaserGame")) {
+          modifiedCode = modifiedCode.replace(
+            /new Phaser\.Game\(gameConfig\)/,
+            "(function(){ const game = new Phaser.Game(gameConfig); window.currentPhaserGame = game; return game; })()",
+          );
         }
 
-        if (!capturedConfig) {
-          throw new Error("No Phaser game config found in generated code");
-        }
+        const gameFunction = new Function(
+          "Phaser",
+          "window",
+          "document",
+          `
+          ${modifiedCode}
+          return window.currentPhaserGame;
+        `,
+        );
 
-        // Create the game with corrected config, letting Phaser load the scenes
-        const game = new Phaser.Game({
-          ...(capturedConfig as Phaser.Types.Core.GameConfig),
-          parent: "aiBuilderGame",
-          scale: {
-            mode: Phaser.Scale.FIT,
-            autoCenter: Phaser.Scale.CENTER_BOTH,
-            width: 800,
-            height: 600,
-          },
-        });
-
-        currentGameRef.current = game;
+        const game = gameFunction(Phaser, window, document);
+        currentGameRef.current = game || (window as any).currentPhaserGame;
 
         // Setup focus handling after canvas is ready
         setTimeout(() => setupCanvasFocusHandling(), 100);
+
+        // Re-apply hitbox state once scenes have started and physics is ready
+        const gameInstance = currentGameRef.current;
+        if (showHitboxesRef.current && gameInstance) {
+          gameInstance.events.once("step", () => {
+            toggleHitboxes(true);
+          });
+        }
       } catch (error: any) {
         showStatus(`Failed to load game: ${error.message}`, "error");
       }
     },
     [cleanupGame, showStatus, setupCanvasFocusHandling],
   );
+
+  // Reload the scene when switching between desktop/mobile preview
+  useEffect(() => {
+    if (lastSceneRef.current) {
+      const { phaserScene, sunflowerAssets, sunflowerSDK } =
+        lastSceneRef.current;
+      loadSceneDirectly(phaserScene, sunflowerAssets, sunflowerSDK);
+    }
+  }, [previewMode, loadSceneDirectly]);
 
   const listVersions = useCallback(() => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
@@ -365,6 +402,7 @@ export const AIBuilder: React.FC = () => {
       const isDeleteOperation =
         message.data.sessionId.includes("delete-version-");
       const isVersionLoad = message.data.sessionId.includes("version-");
+      const isTemplateDemo = message.data.sessionId.includes("template-demo-");
 
       if (isDeleteOperation) {
         setHasSavedFarm(false);
@@ -373,12 +411,17 @@ export const AIBuilder: React.FC = () => {
       } else if (isVersionLoad) {
         setHasSavedFarm(true);
         showStatus("Previous version loaded!", "success");
+      } else if (isTemplateDemo) {
+        setHasSavedFarm(true);
+        currentVersionIdRef.current = "template";
+        showStatus("Template loaded!", "success");
       } else if (isLoadedFarm) {
         const saved = !isTemplateCode(phaserScene);
         setHasSavedFarm(saved);
         if (saved) {
           showStatus(`Loaded saved farm ${farmId}`, "success");
         } else {
+          currentVersionIdRef.current = "template";
           showStatus(
             `No saved game for farm ${farmId} - showing template`,
             "success",
@@ -693,6 +736,7 @@ export const AIBuilder: React.FC = () => {
   useEffect(() => {
     if (
       currentVersionIdRef.current &&
+      currentVersionIdRef.current !== "template" &&
       versions.length > 0 &&
       !versions.some((v) => v.versionId === currentVersionIdRef.current)
     ) {
@@ -1065,8 +1109,8 @@ export const AIBuilder: React.FC = () => {
 
           {/* ===== Game Preview - single instance, responsive sizing ===== */}
           <div className="flex-1 md:w-1/2 flex flex-col gap-1 min-h-0">
-            {/* Aspect ratio tabs - desktop only */}
-            <div className="hidden md:flex gap-1">
+            {/* Aspect ratio tabs + hitbox toggle - desktop only */}
+            <div className="hidden md:flex gap-1 items-center">
               <span
                 className={`text-xs px-3 py-1 rounded-t cursor-pointer ${
                   previewMode === "desktop"
@@ -1087,6 +1131,22 @@ export const AIBuilder: React.FC = () => {
               >
                 {"Mobile"}
               </span>
+              <span className="flex-1" />
+              <span
+                className={`text-xs px-3 py-1 rounded-t cursor-pointer ${
+                  showHitboxes
+                    ? "bg-orange-200 font-semibold"
+                    : "bg-brown-100 hover:bg-brown-200"
+                }`}
+                onClick={() => {
+                  const next = !showHitboxes;
+                  setShowHitboxes(next);
+                  showHitboxesRef.current = next;
+                  toggleHitboxes(next);
+                }}
+              >
+                {"Hitboxes"}
+              </span>
             </div>
             <InnerPanel className="flex-1 flex flex-col p-2 min-h-0 overflow-hidden">
               <div className="flex-1 flex items-center justify-center min-h-0">
@@ -1101,7 +1161,7 @@ export const AIBuilder: React.FC = () => {
                   }}
                 >
                   <div
-                    id="aiBuilderGame"
+                    id="game-container"
                     ref={gameContainerRef}
                     className="w-full h-full flex items-center justify-center"
                     style={{ imageRendering: "pixelated" }}

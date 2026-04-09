@@ -13,7 +13,7 @@ import type { InventoryItemName } from "features/game/types/game";
 import { ITEM_DETAILS } from "features/game/types/images";
 import {
   getAgingInputMultiplier,
-  getAgingOutputBonus,
+  getAgingOutput,
   getRefinedSaltChance,
 } from "features/game/types/agingFormulas";
 import { Context } from "features/game/GameProvider";
@@ -45,9 +45,11 @@ export const SpiceRackInProgress: React.FC<Props> = ({
 
   const recipeDef = useMemo(() => getSpiceRackRecipe(job.recipe), [job.recipe]);
   const outputEntry = getObjectEntries(recipeDef.outputs)[0];
-  const outputItem = outputEntry?.[0] as InventoryItemName | undefined;
-  const outputAmount = (outputEntry?.[1] ?? new Decimal(0)).add(
-    getAgingOutputBonus(state),
+  const outputItem = outputEntry?.[0] as InventoryItemName;
+  const outputAmount = getAgingOutput(
+    state,
+    outputEntry?.[1] ?? new Decimal(0),
+    outputItem,
   );
 
   const timeRemainingMs = Math.max(0, job.readyAt - now);

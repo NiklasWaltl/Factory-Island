@@ -15,6 +15,7 @@ import riceGrowing from "assets/greenhouse/rice_growing.webp";
 import riceAlmost from "assets/greenhouse/rice_almost.webp";
 import riceReady from "assets/greenhouse/rice_ready.webp";
 import barrelIcon from "assets/resources/oil_barrel.webp";
+import powerup from "assets/icons/level_up.png";
 
 import { PIXEL_SCALE } from "features/game/lib/constants";
 import {
@@ -42,6 +43,14 @@ import { secondsToString } from "lib/utils/time";
 import { useAppTranslation } from "lib/i18n/useAppTranslations";
 import { formatNumber } from "lib/utils/formatNumber";
 import { useNow } from "lib/utils/hooks/useNow";
+import {
+  GREENHOUSE_COMPOST,
+  GreenhouseCompostName,
+} from "features/game/types/composters";
+import {
+  GreenhouseFertiliser,
+  InventoryItemName,
+} from "features/game/types/game";
 
 type Stage = "seedling" | "growing" | "almost" | "ready";
 const PLANT_STAGES: Record<
@@ -76,6 +85,42 @@ const _state = (state: MachineState) => state.context.state;
 const _farmId = (state: MachineState) => state.context.farmId;
 const clampPercentage = (value: number) => Math.min(Math.max(value, 0), 100);
 
+const GreenhousePotFertiliserBadges: React.FC<{
+  fertiliser?: GreenhouseFertiliser;
+}> = ({ fertiliser }) => {
+  const name = fertiliser?.name;
+  if (!name) return null;
+
+  return (
+    <>
+      {name === "Greenhouse Goodie" && (
+        <img
+          src={powerup}
+          alt=""
+          className="absolute z-10 pointer-events-none"
+          style={{
+            width: `${PIXEL_SCALE * 5}px`,
+            bottom: `${PIXEL_SCALE * 2}px`,
+            right: `${PIXEL_SCALE * 0}px`,
+          }}
+        />
+      )}
+      {name === "Greenhouse Glow" && (
+        <img
+          src={SUNNYSIDE.icons.stopwatch}
+          alt=""
+          className="absolute z-10 pointer-events-none"
+          style={{
+            width: `${PIXEL_SCALE * 6}px`,
+            bottom: `${PIXEL_SCALE * 2}px`,
+            right: `${PIXEL_SCALE * 0}px`,
+          }}
+        />
+      )}
+    </>
+  );
+};
+
 export const GreenhousePot: React.FC<Props> = ({ id }) => {
   const {
     gameService,
@@ -108,6 +153,7 @@ export const GreenhousePot: React.FC<Props> = ({ id }) => {
 
   const pot = pots[id];
   const growingPlant = pot?.plant;
+  const potFertiliser = pot?.fertiliser;
 
   const plantedAt = growingPlant?.plantedAt ?? 0;
   const readyAt = growingPlant
@@ -154,9 +200,21 @@ export const GreenhousePot: React.FC<Props> = ({ id }) => {
     gameService.send("greenhouse.planted", { id, seed });
   };
 
+  const tryApplyGreenhouseFertiliser = (item?: InventoryItemName) => {
+    const invItem = item ?? selectedItem;
+    if (!invItem || !(invItem in GREENHOUSE_COMPOST) || potFertiliser) {
+      return false;
+    }
+    gameService.send("greenhouse.fertilised", {
+      id,
+      fertiliser: invItem as GreenhouseCompostName,
+    });
+    return true;
+  };
+
   if (!pot?.plant) {
     return (
-      <div style={{ width: `${PIXEL_SCALE * 28}px` }}>
+      <div className="relative" style={{ width: `${PIXEL_SCALE * 28}px` }}>
         {/* Harvest Animation */}
         {showAnimations && (
           <Transition
@@ -228,11 +286,15 @@ export const GreenhousePot: React.FC<Props> = ({ id }) => {
           </Label>
         </Transition>
 
+        <GreenhousePotFertiliserBadges fertiliser={potFertiliser} />
         <img
           src={emptyPot}
           className="cursor-pointer hover:img-highlight"
           style={{ width: `${PIXEL_SCALE * 28}px` }}
-          onClick={() => plantSeed()}
+          onClick={() => {
+            if (tryApplyGreenhouseFertiliser()) return;
+            plantSeed();
+          }}
         />
       </div>
     );
@@ -240,6 +302,15 @@ export const GreenhousePot: React.FC<Props> = ({ id }) => {
 
   const harvest = async () => {
     if (!pot.plant) return;
+    if (
+      selectedItem &&
+      selectedItem in GREENHOUSE_COMPOST &&
+      !potFertiliser &&
+      now < readyAt
+    ) {
+      tryApplyGreenhouseFertiliser();
+      return;
+    }
     if (now < readyAt) {
       setShowTimeRemaining(true);
       await new Promise((res) => setTimeout(res, 2000));
@@ -256,6 +327,7 @@ export const GreenhousePot: React.FC<Props> = ({ id }) => {
           crop: pot.plant.name,
           game: state,
           createdAt: now,
+          fertiliser: potFertiliser?.name,
         }).amount,
     );
 
@@ -281,7 +353,8 @@ export const GreenhousePot: React.FC<Props> = ({ id }) => {
   }
 
   return (
-    <div style={{ width: `${PIXEL_SCALE * 28}px` }}>
+    <div className="relative" style={{ width: `${PIXEL_SCALE * 28}px` }}>
+      <GreenhousePotFertiliserBadges fertiliser={potFertiliser} />
       <img
         src={PLANT_STAGES[pot.plant.name][stage]}
         className="cursor-pointer hover:img-highlight"

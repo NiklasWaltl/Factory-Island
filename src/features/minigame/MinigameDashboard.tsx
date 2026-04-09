@@ -40,6 +40,7 @@ import { MinigameInventoryHud } from "./components/MinigameInventoryHud";
 import { MinigameConfirmPanel } from "./components/MinigameConfirmPanel";
 import { MinigameInventoryModal } from "./components/MinigameInventoryModal";
 import { MinigameTrophySection } from "./components/MinigameTrophySection";
+import { MinigameTrophyDetailModal } from "./components/MinigameTrophyDetailModal";
 import { clonePlayerEconomyRuntimeState } from "./lib/processPlayerEconomyAction";
 import { hasFeatureAccess } from "lib/flags";
 import { MinigameCurrencyWidget } from "./components/MinigameCurrencyWidget";
@@ -111,6 +112,9 @@ export const MinigameDashboard: React.FC = () => {
   const [showActionSyncError, setShowActionSyncError] = useState(false);
   const [actionSyncError, setActionSyncError] = useState<string | null>(null);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const [trophyDetailToken, setTrophyDetailToken] = useState<string | null>(
+    null,
+  );
   const applyRuntime = useCallback((next: PlayerEconomyRuntimeState | null) => {
     runtimeRef.current = next;
     setRuntime(next);
@@ -181,6 +185,10 @@ export const MinigameDashboard: React.FC = () => {
         setShowInventoryModal(false);
         return;
       }
+      if (trophyDetailToken !== null) {
+        setTrophyDetailToken(null);
+        return;
+      }
       if (showMobileShop) {
         setShowMobileShop(false);
         setMobileShopPhase("list");
@@ -225,6 +233,7 @@ export const MinigameDashboard: React.FC = () => {
     showShopConfirm,
     showActionSyncError,
     showWelcomeModal,
+    trophyDetailToken,
   ]);
 
   const openMobileShopList = useCallback(() => {
@@ -406,7 +415,8 @@ export const MinigameDashboard: React.FC = () => {
   const hasShop = payload.ui.shopItems.length > 0;
   const copy = payload.config.descriptions;
   const marketPick = getPrimaryTradableMarketplaceItem(payload.config);
-  const hasCustomAdventureLink = Boolean(payload.config.playUrl?.trim());
+  /** Adventure iframe is always `https://{slug}.economies.sunflower-land.com`. */
+  const hasCustomAdventureLink = true;
 
   return (
     <div
@@ -475,7 +485,12 @@ export const MinigameDashboard: React.FC = () => {
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-row gap-2 overflow-y-hidden px-2 pt-2 md:pl-0 md:pr-2 md:pt-0">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              <MinigameTrophySection />
+              <MinigameTrophySection
+                config={payload.config}
+                balances={runtime.balances}
+                tokenImages={tokenImages}
+                onSelectTrophy={setTrophyDetailToken}
+              />
             </div>
 
             <div className="shrink-0 pr-0.5 pt-0.5 md:pr-1 md:pt-1">
@@ -607,6 +622,15 @@ export const MinigameDashboard: React.FC = () => {
           focusToken={inventoryFocusToken}
         />
 
+        {trophyDetailToken !== null && (
+          <MinigameTrophyDetailModal
+            token={trophyDetailToken}
+            config={payload.config}
+            tokenImages={tokenImages}
+            onClose={() => setTrophyDetailToken(null)}
+          />
+        )}
+
         {hasShop && (
           <MinigameMobileShopModal
             config={payload.config}
@@ -637,7 +661,7 @@ export const MinigameDashboard: React.FC = () => {
         {showPortal && (
           <Portal
             portalName={payload.portalName}
-            playUrl={payload.playUrl}
+            iframeBaseUrl={`https://${payload.slug}.economies.sunflower-land.com`}
             onClose={() => {
               setShowPortal(false);
               setDashboardReloadKey((k) => k + 1);

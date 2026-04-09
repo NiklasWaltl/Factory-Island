@@ -3,8 +3,39 @@ import {
   FRUIT_COMPOST,
   FruitCompostName,
 } from "features/game/types/composters";
-import { BoostName, GameState } from "features/game/types/game";
+import { BoostName, GameState, PlantedFruit } from "features/game/types/game";
+import { PATCH_FRUIT, PATCH_FRUIT_SEEDS } from "features/game/types/fruits";
 import { produce } from "immer";
+import { isFruitReadyToHarvest } from "./fruitPatchReadiness";
+
+/** Shifts plantedAt/harvestedAt so remaining time is multiplied by 0.8 (−20%), matching getFruitPatchTime. */
+function applyTurbofruitMixToRemainingGrowTime(
+  fruit: PlantedFruit,
+  now: number,
+  plantSeconds: number,
+): PlantedFruit {
+  const cycleMs = plantSeconds * 1000;
+
+  if (now - fruit.plantedAt < cycleMs) {
+    const cycleEnd = fruit.plantedAt + cycleMs;
+    const timeReduction = (cycleEnd - now) * 0.2;
+    return {
+      ...fruit,
+      plantedAt: fruit.plantedAt - timeReduction,
+    };
+  }
+
+  if (now - fruit.harvestedAt < cycleMs) {
+    const cycleEnd = fruit.harvestedAt + cycleMs;
+    const timeReduction = (cycleEnd - now) * 0.2;
+    return {
+      ...fruit,
+      harvestedAt: fruit.harvestedAt - timeReduction,
+    };
+  }
+
+  return fruit;
+}
 
 export enum FERTILISE_FRUIT_ERRORS {
   EMPTY_PATCH = "Fruit Patch does not exist!",
@@ -73,9 +104,31 @@ export function fertiliseFruitPatch({
       throw new Error(FERTILISE_FRUIT_ERRORS.NOT_ENOUGH_FERTILISER);
     }
 
-    // Apply fertiliser
+    const fruit = fruitPatch.fruit;
+    let nextFruit: PlantedFruit | undefined = fruit;
+
+    if (nextFruit) {
+      const { seed } = PATCH_FRUIT[nextFruit.name];
+      const { plantSeconds } = PATCH_FRUIT_SEEDS[seed];
+
+      if (
+        isFruitReadyToHarvest(createdAt, nextFruit, PATCH_FRUIT[nextFruit.name])
+      ) {
+        throw new Error(FERTILISE_FRUIT_ERRORS.READY_TO_HARVEST);
+      }
+
+      if (action.fertiliser === "Turbofruit Mix") {
+        nextFruit = applyTurbofruitMixToRemainingGrowTime(
+          nextFruit,
+          createdAt,
+          plantSeconds,
+        );
+      }
+    }
+
     fruitPatches[action.patchID] = {
       ...fruitPatch,
+      ...(nextFruit ? { fruit: nextFruit } : {}),
       fertiliser: {
         name: action.fertiliser,
         fertilisedAt: createdAt,

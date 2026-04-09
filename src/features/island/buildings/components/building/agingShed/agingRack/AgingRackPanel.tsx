@@ -74,10 +74,9 @@ export const AgingRackPanel: React.FC = () => {
 
   const selectedSlot = queue[effectiveSlotIndex];
 
-  const skills = state.bumpkin.skills;
-  const fishCost = getBoostedAgingFishCost(skills);
+  const fishCost = getBoostedAgingFishCost(state);
   const saltNeeded = selectedFish
-    ? getBoostedAgingSaltCost(getFishBaseXP(selectedFish), skills)
+    ? getBoostedAgingSaltCost(getFishBaseXP(selectedFish), state)
     : undefined;
   const hasSalt = saltNeeded
     ? (merged["Salt"] ?? new Decimal(0)).gte(saltNeeded)
@@ -212,7 +211,7 @@ export const AgingRackPanel: React.FC = () => {
           canCollect={canCollect}
           collectError={collectError}
           onCollect={handleCollect}
-          skills={skills}
+          gameState={state}
         />
       ) : (
         <AgingRackEmpty

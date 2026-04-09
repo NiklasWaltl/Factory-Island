@@ -46,7 +46,6 @@ export const FermentationRackInProgress: React.FC<Props> = ({
     },
   ] = useActor(gameService);
 
-  const skills = state.bumpkin.skills;
   const recipeDef = useMemo(
     () => getFermentationRecipe(job.recipe),
     [job.recipe],
@@ -54,7 +53,7 @@ export const FermentationRackInProgress: React.FC<Props> = ({
   const outputEntry = getObjectEntries(recipeDef.outputs)[0];
   const outputItem = outputEntry?.[0] as InventoryItemName | undefined;
   const outputAmount = (outputEntry?.[1] ?? new Decimal(0)).add(
-    getAgingOutputBonus(skills),
+    getAgingOutputBonus(state),
   );
 
   const timeRemainingMs = Math.max(0, job.readyAt - now);
@@ -101,7 +100,7 @@ export const FermentationRackInProgress: React.FC<Props> = ({
 
             {getObjectEntries(recipeDef.ingredients).map(([itemName, need]) => {
               const needDecimal = new Decimal(need ?? 0).mul(
-                getAgingInputMultiplier(skills),
+                getAgingInputMultiplier(state),
               );
               const balanceDecimal =
                 state.inventory[itemName] ?? new Decimal(0);

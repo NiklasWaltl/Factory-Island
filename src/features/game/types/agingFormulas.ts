@@ -1,6 +1,6 @@
 import Decimal from "decimal.js-light";
 import { prngChance } from "lib/prng";
-import type { InventoryItemName, Skills } from "./game";
+import type { GameState, InventoryItemName } from "./game";
 
 export const PRIME_AGED_XP_MULTIPLIER = 1.3;
 export const PRIME_AGED_BASE_CHANCE = 0.1;
@@ -35,44 +35,58 @@ export function getAgingSlotCount(agingShedLevel: number): number {
   return Math.min(agingShedLevel, 6);
 }
 
-export function getBoostedAgingTimeMs(baseXP: number, skills: Skills): number {
+export function getBoostedAgingTimeMs(
+  baseXP: number,
+  state: GameState,
+): number {
+  const skills = state.bumpkin?.skills;
   let timeMs = getAgingTimeMs(baseXP);
-  if (skills["Speedy Aging"]) {
+  if (skills?.["Speedy Aging"]) {
     timeMs *= 0.9;
+  }
+  if ((state.sculptures?.["Salt Sculpture"]?.level ?? 0) >= 5) {
+    timeMs *= 0.97;
   }
   return timeMs;
 }
 
-export function getPrimeAgedChance(skills: Skills): number {
+export function getPrimeAgedChance(state: GameState): number {
+  const skills = state.bumpkin?.skills;
   let chance = PRIME_AGED_BASE_CHANCE * 100;
-  if (skills["Fish Smoking"]) {
+  if (skills?.["Fish Smoking"]) {
     chance *= 2;
+  }
+  if ((state.sculptures?.["Salt Sculpture"]?.level ?? 0) >= 2) {
+    chance += 2;
   }
   return chance;
 }
 
-export function getAgingInputMultiplier(skills: Skills): number {
-  return skills["Ager"] ? 2 : 1;
+export function getAgingInputMultiplier(state: GameState): number {
+  const skills = state.bumpkin?.skills;
+  return skills?.["Ager"] ? 2 : 1;
 }
 
-export function getAgingOutputBonus(skills: Skills): number {
-  return skills["Ager"] ? 1 : 0;
+export function getAgingOutputBonus(state: GameState): number {
+  const skills = state.bumpkin?.skills;
+  return skills?.["Ager"] ? 1 : 0;
 }
 
 export function getAgingOutput(
-  skills: Skills,
+  state: GameState,
   baseAmount: Decimal,
   item: InventoryItemName,
   prngArgs: { farmId: number; itemId: number; counter: number },
 ): Decimal {
+  const skills = state.bumpkin?.skills;
   const { farmId, itemId, counter } = prngArgs;
 
   let output = baseAmount;
-  if (skills["Ager"]) {
+  if (skills?.["Ager"]) {
     output = output.add(1);
   }
 
-  if (item === "Refined Salt" && skills.Refiner) {
+  if (item === "Refined Salt" && skills?.Refiner) {
     const isBonus = prngChance({
       farmId,
       itemId,
@@ -90,15 +104,16 @@ export function getAgingOutput(
 
 export function getBoostedAgingSaltCost(
   baseXP: number,
-  skills: Skills,
+  state: GameState,
 ): number {
-  return getAgingSaltCost(baseXP) * getAgingInputMultiplier(skills);
+  return getAgingSaltCost(baseXP) * getAgingInputMultiplier(state);
 }
 
-export function getBoostedAgingFishCost(skills: Skills): number {
-  return 1 * getAgingInputMultiplier(skills);
+export function getBoostedAgingFishCost(state: GameState): number {
+  return 1 * getAgingInputMultiplier(state);
 }
 
-export function getRefinedSaltChance(skills: Skills): number {
-  return skills["Refiner"] ? 15 : 0;
+export function getRefinedSaltChance(state: GameState): number {
+  const skills = state.bumpkin?.skills;
+  return skills?.["Refiner"] ? 15 : 0;
 }

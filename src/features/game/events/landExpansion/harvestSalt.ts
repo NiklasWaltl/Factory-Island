@@ -2,12 +2,12 @@ import Decimal from "decimal.js-light";
 import { GameState } from "features/game/types/game";
 import {
   BASE_SALT_YIELD,
-  MAX_STORED_SALT_CHARGES_PER_NODE,
   getSaltChargeGenerationTime,
   getStoredSaltCharges,
   materializeSaltRegen,
   syncSaltNode,
 } from "features/game/types/salt";
+import { getMaxStoredSaltCharges } from "features/game/types/saltSculpture";
 import { produce } from "immer";
 import { hasFeatureAccess } from "lib/flags";
 
@@ -45,7 +45,10 @@ export function harvestSalt({
     }
 
     const interval = getSaltChargeGenerationTime({ gameState: copy });
-    const syncOpts = { chargeIntervalMs: interval };
+    const maxCharges = getMaxStoredSaltCharges(
+      copy.sculptures?.["Salt Sculpture"]?.level ?? 0,
+    );
+    const syncOpts = { chargeIntervalMs: interval, maxCharges };
     const syncedNode = syncSaltNode(saltNode, createdAt, syncOpts);
     const storedCharges = getStoredSaltCharges(syncedNode, createdAt, syncOpts);
 
@@ -64,8 +67,7 @@ export function harvestSalt({
     copy.inventory["Salt Rake"] = availableRakes.sub(1);
     copy.inventory["Salt"] = saltInInventory.add(BASE_SALT_YIELD + legacySalt);
 
-    const wasFullBeforeHarvest =
-      storedCharges === MAX_STORED_SALT_CHARGES_PER_NODE;
+    const wasFullBeforeHarvest = storedCharges === maxCharges;
     const syncedNextChargeAt = syncedNode.salt.nextChargeAt;
     const baselineNextChargeAt = Number.isFinite(syncedNextChargeAt)
       ? syncedNextChargeAt

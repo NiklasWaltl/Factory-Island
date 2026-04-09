@@ -8594,5 +8594,19 @@
   "description.goblinRug": "Still looks a little mischievous.",
   "description.petRug": "Too cute to step on. Almost.",
   "description.jesterInABox": "Wind it up and prepare for chaos.",
-  "description.theSunflowerManStatue": "Stories say this statue is from a hero of the legend. I think someone just thought it was funny and made it."
+  "description.theSunflowerManStatue": "Stories say this statue is from a hero of the legend. I think someone just thought it was funny and made it.",
+  "description.saltSculpture": "A progressive sculpture providing Salt & Aging buffs",
+  "description.saltSculpture.boost": "Cumulative Salt & Aging buffs per level",
+  "saltSculpture.buff.1": "-2% salt charge replenishment time",
+  "saltSculpture.buff.2": "+2% Prime Aging chance",
+  "saltSculpture.buff.3": "+1 max salt harvest cap per node",
+  "saltSculpture.buff.4": "-5% Salt Rake coin cost",
+  "saltSculpture.buff.5": "+3% Aging Rack speed",
+  "saltSculpture.buff.6": "+1 max salt harvest cap per node",
+  "saltSculpture.title": "Salt Sculpture",
+  "saltSculpture.level": "Level {{level}}",
+  "saltSculpture.activeBuffs": "Active Buffs",
+  "saltSculpture.nextLevel": "Next Level",
+  "saltSculpture.maxLevel": "Max level reached",
+  "saltSculpture.upgrade": "Upgrade to Level {{level}}"
 }

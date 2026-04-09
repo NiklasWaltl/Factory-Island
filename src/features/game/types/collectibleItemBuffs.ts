@@ -2088,4 +2088,11 @@ export const COLLECTIBLE_BUFF_LABELS: Partial<
           ]);
       }),
   ),
+  "Salt Sculpture": () => [
+    {
+      shortDescription: translate("description.saltSculpture.boost"),
+      labelType: "success",
+      boostTypeIcon: powerup,
+    },
+  ],
 };

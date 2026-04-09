@@ -126,6 +126,7 @@ import { Buff, BuffName } from "./buffs";
 import { CrustaceanChum, CrustaceanName, WaterTrapName } from "./crustaceans";
 import { SaltFarm } from "./salt";
 import type { AgingShed } from "../lib/agingShed";
+import type { SculptureName } from "./saltSculpture";
 
 export type CraftingQueueItem = {
   id: string;
@@ -1979,6 +1980,9 @@ export interface GameState {
   barn: AnimalBuilding;
   waterWell: UpgradableBuilding;
   agingShed: AgingShed;
+  sculptures?: Partial<
+    Record<SculptureName, { level: number; upgradedAt?: number }>
+  >;
   petHouse: PetHouseBuilding;
 
   craftingBox: {

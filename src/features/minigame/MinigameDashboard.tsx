@@ -15,26 +15,33 @@ import * as AuthProvider from "features/auth/lib/Provider";
 import { Context as GameContext } from "features/game/GameProvider";
 import { PIXEL_SCALE } from "features/game/lib/constants";
 import checkeredBg from "assets/land/checkered_bg.webp";
+import flowerIcon from "assets/icons/flower_token.webp";
 import { minigameDashboardBackdropStyle } from "./lib/minigameBoardPixels";
 import { SUNNYSIDE } from "assets/sunnyside";
 import { CONFIG } from "lib/config";
 import { useSafeAreaPaddingTop } from "lib/utils/hooks/useSafeAreaPaddingTop";
 import { Portal } from "features/world/ui/portals/Portal";
 import { loadMinigameDashboard } from "./lib/loadMinigameDashboard";
-import { postPlayerEconomyActionedEvent } from "./lib/minigameSessionApi";
+import {
+  postEconomyPurchasedEvent,
+  postPlayerEconomyActionedEvent,
+} from "./lib/minigameSessionApi";
 import { processPlayerEconomyAction } from "./lib/processPlayerEconomyAction";
 import type { PlayerEconomyRuntimeState } from "./lib/types";
 import type {
   MinigameDashboardData,
+  MinigameFlowerPurchaseItemUi,
   MinigameShopItemUi,
 } from "./lib/minigameDashboardTypes";
 import { getMinigameTokenImage } from "./lib/minigameTokenIcons";
 import {
+  canAttemptFlowerPurchase,
   canAttemptShopPurchase,
   isShopItemBoughtOrDisabled,
 } from "./lib/minigameShopAvailability";
 import { MinigameShopPanel } from "./components/MinigameShopPanel";
 import { MinigameShopDetailBody } from "./components/MinigameShopDetailBody";
+import { MinigameFlowerPurchaseDetailBody } from "./components/MinigameFlowerPurchaseDetailBody";
 import { MinigameMobileShopModal } from "./components/MinigameMobileShopModal";
 import { MinigameInventoryHud } from "./components/MinigameInventoryHud";
 import { MinigameConfirmPanel } from "./components/MinigameConfirmPanel";
@@ -44,9 +51,29 @@ import { MinigameTrophyDetailModal } from "./components/MinigameTrophyDetailModa
 import { clonePlayerEconomyRuntimeState } from "./lib/processPlayerEconomyAction";
 import { hasFeatureAccess } from "lib/flags";
 import { MinigameCurrencyWidget } from "./components/MinigameCurrencyWidget";
+import { MinigameHighscoreWidget } from "./components/MinigameHighscoreWidget";
 import { getPrimaryTradableMarketplaceItem } from "./lib/minigameConfigHelpers";
 import { useAppTranslation } from "lib/i18n/useAppTranslations";
+import { formatNumber } from "lib/utils/formatNumber";
 import type { MinigameLoadError } from "./lib/minigameDashboardTypes";
+import { makeGame } from "features/game/lib/transforms";
+import type { GameState } from "features/game/types/game";
+
+function runtimeAfterFlowerMint(
+  runtime: PlayerEconomyRuntimeState,
+  tokenKey: string,
+  amount: number,
+): PlayerEconomyRuntimeState {
+  const prev = runtime.balances[tokenKey] ?? 0;
+  return {
+    ...runtime,
+    balances: {
+      ...runtime.balances,
+      [tokenKey]: Math.max(0, Math.floor(prev)) + amount,
+    },
+    activity: (runtime.activity ?? 0) + 1,
+  };
+}
 
 function MinigameDashboardBackdrop() {
   return (
@@ -84,7 +111,10 @@ export const MinigameDashboard: React.FC = () => {
 
   const [pendingShopItem, setPendingShopItem] =
     useState<MinigameShopItemUi | null>(null);
+  const [pendingFlowerItem, setPendingFlowerItem] =
+    useState<MinigameFlowerPurchaseItemUi | null>(null);
   const [showShopConfirm, setShowShopConfirm] = useState(false);
+  const [showFlowerConfirm, setShowFlowerConfirm] = useState(false);
   const [shopActionError, setShopActionError] = useState<string | null>(null);
 
   const [showAdventureConfirm, setShowAdventureConfirm] = useState(false);
@@ -193,6 +223,13 @@ export const MinigameDashboard: React.FC = () => {
         setShowMobileShop(false);
         setMobileShopPhase("list");
         setPendingShopItem(null);
+        setPendingFlowerItem(null);
+        setShopActionError(null);
+        return;
+      }
+      if (showFlowerConfirm) {
+        setShowFlowerConfirm(false);
+        setPendingFlowerItem(null);
         setShopActionError(null);
         return;
       }
@@ -230,6 +267,7 @@ export const MinigameDashboard: React.FC = () => {
     showInventoryModal,
     showPortal,
     showMobileShop,
+    showFlowerConfirm,
     showShopConfirm,
     showActionSyncError,
     showWelcomeModal,
@@ -239,6 +277,7 @@ export const MinigameDashboard: React.FC = () => {
   const openMobileShopList = useCallback(() => {
     setShopActionError(null);
     setPendingShopItem(null);
+    setPendingFlowerItem(null);
     setShowMobileShop(true);
     setMobileShopPhase("list");
   }, []);
@@ -255,6 +294,7 @@ export const MinigameDashboard: React.FC = () => {
       return;
     }
     setShopActionError(null);
+    setPendingFlowerItem(null);
     setPendingShopItem(item);
     const desktop =
       typeof window !== "undefined" &&
@@ -273,7 +313,32 @@ export const MinigameDashboard: React.FC = () => {
       return;
     }
     setShopActionError(null);
+    setPendingFlowerItem(null);
     setPendingShopItem(item);
+    setMobileShopPhase("detail");
+  };
+
+  const onFlowerItemClick = (item: MinigameFlowerPurchaseItemUi) => {
+    if (!runtime) return;
+    setShopActionError(null);
+    setPendingShopItem(null);
+    setPendingFlowerItem(item);
+    const desktop =
+      typeof window !== "undefined" &&
+      window.matchMedia("(min-width: 768px)").matches;
+    if (desktop) {
+      setShowFlowerConfirm(true);
+    } else {
+      setShowMobileShop(true);
+      setMobileShopPhase("detail");
+    }
+  };
+
+  const onMobileFlowerListPick = (item: MinigameFlowerPurchaseItemUi) => {
+    if (!runtime) return;
+    setShopActionError(null);
+    setPendingShopItem(null);
+    setPendingFlowerItem(item);
     setMobileShopPhase("detail");
   };
 
@@ -338,6 +403,121 @@ export const MinigameDashboard: React.FC = () => {
         setShowActionSyncError(true);
       }
     })();
+  };
+
+  const confirmFlowerPurchase = () => {
+    if (!payload || !pendingFlowerItem) return;
+    const prev = runtimeRef.current;
+    if (!prev) return;
+    const item = pendingFlowerItem;
+    if (
+      !canAttemptFlowerPurchase(item.flower, gameState.context.state.balance)
+    ) {
+      return;
+    }
+
+    const balanceSnapshot = gameState.context.state.balance;
+    const cost = new Decimal(item.flower);
+    const nextBalance = balanceSnapshot.sub(cost);
+    if (nextBalance.lt(0) || nextBalance.gt(balanceSnapshot)) {
+      return;
+    }
+
+    const nextRuntime = runtimeAfterFlowerMint(
+      prev,
+      item.tokenKey,
+      item.economyAmount,
+    );
+
+    if (!CONFIG.API_URL) {
+      applyRuntime(nextRuntime);
+      gameService.send({
+        type: "UPDATE",
+        state: makeGame({
+          ...gameState.context.state,
+          balance: nextBalance,
+        } as GameState),
+      });
+      setShowFlowerConfirm(false);
+      setShowMobileShop(false);
+      setMobileShopPhase("list");
+      setPendingFlowerItem(null);
+      setPendingShopItem(null);
+      setShopActionError(null);
+      return;
+    }
+
+    if (!userToken || farmId == null) {
+      setShopActionError(t("minigame.dashboard.signInToAction"));
+      return;
+    }
+
+    const snapshotRuntime = clonePlayerEconomyRuntimeState(prev);
+    const purchaseId = item.purchaseId;
+
+    applyRuntime(nextRuntime);
+    gameService.send({
+      type: "UPDATE",
+      state: makeGame({
+        ...gameState.context.state,
+        balance: nextBalance,
+      } as GameState),
+    });
+
+    setShowFlowerConfirm(false);
+    setShowMobileShop(false);
+    setMobileShopPhase("list");
+    setPendingFlowerItem(null);
+    setPendingShopItem(null);
+    setShopActionError(null);
+
+    void (async () => {
+      const remoteSeq = ++minigameRemoteActionSeqRef.current;
+      try {
+        const { gameState: gsPatch } = await postEconomyPurchasedEvent({
+          farmId,
+          userToken,
+          portalId: payload.portalName,
+          purchaseId,
+        });
+        if (!dashboardMountedRef.current) return;
+        if (remoteSeq !== minigameRemoteActionSeqRef.current) return;
+        if (gsPatch && typeof gsPatch === "object") {
+          const cur = gameService.getSnapshot().context.state as GameState;
+          gameService.send({
+            type: "UPDATE",
+            state: makeGame({
+              ...cur,
+              ...(gsPatch as Partial<GameState>),
+            } as GameState),
+          });
+        }
+      } catch (e) {
+        if (!dashboardMountedRef.current) return;
+        if (remoteSeq !== minigameRemoteActionSeqRef.current) return;
+        applyRuntime(snapshotRuntime);
+        const cur = gameService.getSnapshot().context.state as GameState;
+        gameService.send({
+          type: "UPDATE",
+          state: makeGame({
+            ...cur,
+            balance: balanceSnapshot,
+          } as GameState),
+        });
+        setActionSyncError(
+          e instanceof Error ? e.message : t("minigame.dashboard.actionFailed"),
+        );
+        setShowActionSyncError(true);
+      }
+    })();
+  };
+
+  const confirmMobileShopBuy = () => {
+    if (pendingFlowerItem) {
+      confirmFlowerPurchase();
+    } else {
+      confirmShopPurchase();
+    }
   };
 
   const headerToken = payload?.ui.headerBalanceToken ?? "";
@@ -412,11 +592,17 @@ export const MinigameDashboard: React.FC = () => {
   }
 
   const tokenImages = payload.ui.tokenImages;
-  const hasShop = payload.ui.shopItems.length > 0;
+  const farmFlowerBalance = gameState.context.state.balance;
+  const hasFlowerPurchases = payload.ui.flowerPurchaseItems.length > 0;
+  const hasTokenShop = payload.ui.shopItems.length > 0;
+  const hasShop = hasFlowerPurchases || hasTokenShop;
   const copy = payload.config.descriptions;
   const marketPick = getPrimaryTradableMarketplaceItem(payload.config);
   /** Adventure iframe is always `https://{slug}.economies.sunflower-land.com`. */
   const hasCustomAdventureLink = true;
+  const playerHighscore =
+    gameState.context.state.minigames?.games?.[payload.portalName]?.highscore ??
+    0;
 
   return (
     <div
@@ -437,16 +623,29 @@ export const MinigameDashboard: React.FC = () => {
             ) : null}
           </div>
 
-          <div className="z-10 flex items-center">
-            <img
-              src={getMinigameTokenImage(headerToken, tokenImages)}
-              alt=""
-              className="mr-1 w-8 object-contain"
-              style={{ imageRendering: "pixelated" }}
-            />
-            <p className="text-sm text-white tabular-nums">
-              {headerBalance.toString()}
-            </p>
+          <div className="z-10 flex flex-col items-end gap-0.5 pr-0.5">
+            <div className="flex items-center">
+              <img
+                src={flowerIcon}
+                alt=""
+                className="mr-1 w-7 object-contain"
+                style={{ imageRendering: "pixelated" }}
+              />
+              <p className="text-xs text-white tabular-nums text-shadow sm:text-sm">
+                {formatNumber(farmFlowerBalance, { decimalPlaces: 4 })}
+              </p>
+            </div>
+            <div className="flex items-center">
+              <img
+                src={getMinigameTokenImage(headerToken, tokenImages)}
+                alt=""
+                className="mr-1 w-8 object-contain"
+                style={{ imageRendering: "pixelated" }}
+              />
+              <p className="text-sm text-white tabular-nums text-shadow">
+                {headerBalance.toString()}
+              </p>
+            </div>
           </div>
 
           <img
@@ -465,11 +664,15 @@ export const MinigameDashboard: React.FC = () => {
           {hasShop && (
             <div className="hidden min-h-0 w-[min(42vw,220px)] shrink-0 md:flex md:flex-col md:gap-2">
               <MinigameShopPanel
+                flowerPurchaseItems={payload.ui.flowerPurchaseItems}
+                farmFlowerBalance={farmFlowerBalance}
                 items={payload.ui.shopItems}
                 balances={runtime.balances}
                 tokenImages={tokenImages}
-                highlightedId={pendingShopItem?.id}
-                onItemClick={onShopItemClick}
+                highlightedFlowerId={pendingFlowerItem?.id}
+                highlightedShopId={pendingShopItem?.id}
+                onFlowerItemClick={onFlowerItemClick}
+                onShopItemClick={onShopItemClick}
               />
               {marketPick && (
                 <MinigameCurrencyWidget
@@ -480,17 +683,23 @@ export const MinigameDashboard: React.FC = () => {
                   tokenImages={tokenImages}
                 />
               )}
+              <MinigameHighscoreWidget highscore={playerHighscore} />
             </div>
           )}
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-row gap-2 overflow-y-hidden px-2 pt-2 md:pl-0 md:pr-2 md:pt-0">
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden gap-2">
               <MinigameTrophySection
                 config={payload.config}
                 balances={runtime.balances}
                 tokenImages={tokenImages}
                 onSelectTrophy={setTrophyDetailToken}
               />
+              {!hasShop && (
+                <div className="hidden shrink-0 self-start md:block w-full max-w-[min(42vw,220px)]">
+                  <MinigameHighscoreWidget highscore={playerHighscore} />
+                </div>
+              )}
             </div>
 
             <div className="shrink-0 pr-0.5 pt-0.5 md:pr-1 md:pt-1">
@@ -503,6 +712,12 @@ export const MinigameDashboard: React.FC = () => {
                 onOpenShop={hasShop ? openMobileShopList : undefined}
               />
             </div>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 justify-start px-2 pb-1 md:hidden">
+          <div className="w-full max-w-[min(42vw,220px)]">
+            <MinigameHighscoreWidget highscore={playerHighscore} />
           </div>
         </div>
 
@@ -546,6 +761,34 @@ export const MinigameDashboard: React.FC = () => {
               item={pendingShopItem}
               tokenImages={tokenImages}
               balances={runtime.balances}
+              shopActionError={shopActionError}
+            />
+          )}
+        </MinigameConfirmPanel>
+
+        <MinigameConfirmPanel
+          show={showFlowerConfirm && !!pendingFlowerItem}
+          title={t("minigame.dashboard.confirmFlowerTitle")}
+          confirmLabel={t("buy")}
+          confirmDisabled={
+            !pendingFlowerItem ||
+            !canAttemptFlowerPurchase(
+              pendingFlowerItem.flower,
+              farmFlowerBalance,
+            )
+          }
+          onClose={() => {
+            setShowFlowerConfirm(false);
+            setPendingFlowerItem(null);
+            setShopActionError(null);
+          }}
+          onConfirm={confirmFlowerPurchase}
+        >
+          {pendingFlowerItem && (
+            <MinigameFlowerPurchaseDetailBody
+              config={payload.config}
+              item={pendingFlowerItem}
+              farmBalance={farmFlowerBalance}
               shopActionError={shopActionError}
             />
           )}
@@ -640,21 +883,28 @@ export const MinigameDashboard: React.FC = () => {
               setShowMobileShop(false);
               setMobileShopPhase("list");
               setPendingShopItem(null);
+              setPendingFlowerItem(null);
               setShopActionError(null);
             }}
             onBackToList={() => {
               setMobileShopPhase("list");
               setPendingShopItem(null);
+              setPendingFlowerItem(null);
               setShopActionError(null);
             }}
+            flowerPurchaseItems={payload.ui.flowerPurchaseItems}
+            farmFlowerBalance={farmFlowerBalance}
             items={payload.ui.shopItems}
             balances={runtime.balances}
             tokenImages={tokenImages}
-            highlightedId={pendingShopItem?.id}
-            onListItemClick={onMobileShopListPick}
-            detailItem={pendingShopItem}
+            highlightedFlowerId={pendingFlowerItem?.id}
+            highlightedShopId={pendingShopItem?.id}
+            onFlowerListClick={onMobileFlowerListPick}
+            onShopListClick={onMobileShopListPick}
+            detailFlowerItem={pendingFlowerItem}
+            detailShopItem={pendingShopItem}
             shopActionError={shopActionError}
-            onBuy={confirmShopPurchase}
+            onBuy={confirmMobileShopBuy}
           />
         )}
 

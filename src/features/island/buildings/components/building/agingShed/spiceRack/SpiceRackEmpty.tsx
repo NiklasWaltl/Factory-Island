@@ -105,7 +105,7 @@ export const SpiceRackEmpty: React.FC<Props> = ({
         </Label>
         {selectedRecipeId &&
           COLLECTIBLE_BUFF_LABELS[selectedRecipeId]?.({
-            skills,
+            skills: gameState.bumpkin?.skills ?? {},
             collectibles: gameState.collectibles,
           }).map((label) => {
             return (

@@ -84,7 +84,7 @@ export const FermentationRackInProgress: React.FC<Props> = ({
         <div className="flex flex-wrap mt-1">
           {outputItem &&
             COLLECTIBLE_BUFF_LABELS[outputItem]?.({
-              skills,
+              skills: state.bumpkin?.skills ?? {},
               collectibles: state.collectibles,
             }).map((label) => {
               return (

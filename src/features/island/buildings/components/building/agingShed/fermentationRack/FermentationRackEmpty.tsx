@@ -131,7 +131,7 @@ export const FermentationRackEmpty: React.FC<Props> = ({
         </Label>
         {selectedGroup?.item &&
           COLLECTIBLE_BUFF_LABELS[selectedGroup.item]?.({
-            skills,
+            skills: gameState.bumpkin?.skills ?? {},
             collectibles: gameState.collectibles,
           }).map((label) => {
             return (

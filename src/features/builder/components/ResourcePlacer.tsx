@@ -212,11 +212,12 @@ export const ResourcePlacer: React.FC<Props> = ({
           >
             <div
               draggable={false}
-              className=" w-full h-full relative img-highlight pointer-events-none"
+              className="w-full h-full relative img-highlight pointer-events-none"
               style={{
                 //   zIndex: 100 + coordinates.y + 1,
                 width: `${dimensions.width * GRID_WIDTH_PX}px`,
                 height: `${dimensions.height * GRID_WIDTH_PX}px`,
+                fontSize: "250%"
               }}
             >
               <Component />

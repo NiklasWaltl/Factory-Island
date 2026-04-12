@@ -8,6 +8,9 @@ export const adminFeatureFlag = ({ wardrobe, inventory }: GameState) =>
   CONFIG.NETWORK === "amoy" ||
   (!!((wardrobe["Gift Giver"] ?? 0) > 0) && !!inventory["Beta Pass"]?.gt(0));
 
+const betaFeatureFlag = ({ inventory }: GameState) =>
+  testnetFeatureFlag() || !!inventory["Beta Pass"]?.gt(0);
+
 const usernameFeatureFlag = (game: GameState) => {
   return (
     testnetFeatureFlag() ||
@@ -16,9 +19,6 @@ const usernameFeatureFlag = (game: GameState) => {
     )
   );
 };
-
-const betaFeatureFlag = ({ inventory }: GameState) =>
-  CONFIG.NETWORK === "amoy" || !!inventory["Beta Pass"]?.gt(0);
 
 export const testnetFeatureFlag = () => CONFIG.NETWORK === "amoy";
 
@@ -136,9 +136,9 @@ const FEATURE_FLAGS = {
     !!((game.wardrobe.Halo ?? 0) > 0) && !!game.inventory["Beta Pass"]?.gt(0),
 
   CHAACS_TEMPLE_BETA: betaFeatureFlag,
-  SALT_FARM: betaFeatureFlag,
+  SALT_FARM: () => true,
 
-  AGING_SHED: betaFeatureFlag,
+  AGING_SHED: () => true,
 
   SALT_SKILLS: testnetFeatureFlag,
 

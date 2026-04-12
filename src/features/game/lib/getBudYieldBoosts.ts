@@ -27,6 +27,11 @@ export type Resource =
   | GreenHouseFruitName
   | AnimalResource;
 
+// Cached at module level since ANIMAL_RESOURCE_DROP is constant
+const UNIQUE_ANIMAL_RESOURCES = new Set<AnimalResource>(
+  getUniqueAnimalResources(),
+);
+
 export const isPlotCrop = (resource: Resource): resource is CropName => {
   return resource in CROPS;
 };
@@ -38,7 +43,7 @@ export const isCrop = (resource: Resource): resource is CropName => {
 export const isAnimalProduce = (
   resource: Resource,
 ): resource is AnimalResource => {
-  return getUniqueAnimalResources().includes(resource as AnimalResource);
+  return UNIQUE_ANIMAL_RESOURCES.has(resource as AnimalResource);
 };
 
 const isMineral = (resource: Resource): boolean => {

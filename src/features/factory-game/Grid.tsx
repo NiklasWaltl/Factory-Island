@@ -17,7 +17,7 @@ import {
   type Direction,
 } from "./game";
 import { ASSET_SPRITES, GRASS_TILE_SPRITES, FLOOR_SPRITES, WAREHOUSE_INPUT_SPRITE } from "./sprites";
-import { EnergyDebugOverlay, EnergyDebugHud } from "./EnergyDebugOverlay";
+import { EnergyDebugOverlay, EnergyDebugHud } from "../../ui/panels/EnergyDebugOverlay";
 
 const WORLD_W = GRID_W * CELL_PX;
 const WORLD_H = GRID_H * CELL_PX;

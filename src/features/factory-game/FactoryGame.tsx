@@ -21,7 +21,7 @@ import { GeneratorPanel } from "./GeneratorPanel";
 import { BatteryPanel } from "./BatteryPanel";
 import { PowerPolePanel } from "./PowerPolePanel";
 import { AutoMinerPanel } from "./AutoMinerPanel";
-import { ManualAssemblerPanel } from "./ManualAssemblerPanel";
+import { ManualAssemblerPanel } from "../../ui/panels/ManualAssemblerPanel";
 import { BuildMenu } from "./BuildMenu";
 import { Notifications } from "./Notifications";
 import { ResourceBar } from "./ResourceBar";

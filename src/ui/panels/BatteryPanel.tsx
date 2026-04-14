@@ -16,7 +16,7 @@ interface BatteryPanelProps {
 
 const ENERGY_PER_NET_TICK = Math.round((GENERATOR_ENERGY_PER_TICK * ENERGY_NET_TICK_MS) / GENERATOR_TICK_MS);
 
-export const BatteryPanel: React.FC<BatteryPanelProps> = ({ state, dispatch }) => {
+export const BatteryPanel: React.FC<BatteryPanelProps> = React.memo(({ state, dispatch }) => {
   const b = state.battery;
   const storedPct = b.capacity > 0 ? (b.stored / b.capacity) * 100 : 0;
 
@@ -110,4 +110,4 @@ export const BatteryPanel: React.FC<BatteryPanelProps> = ({ state, dispatch }) =
       </p>
     </div>
   );
-};
+});

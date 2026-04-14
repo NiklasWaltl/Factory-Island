@@ -6,7 +6,7 @@ interface HotbarProps {
   dispatch: React.Dispatch<GameAction>;
 }
 
-export const Hotbar: React.FC<HotbarProps> = ({ state, dispatch }) => {
+export const Hotbar: React.FC<HotbarProps> = React.memo(({ state, dispatch }) => {
   const handleDragStart = (e: React.DragEvent<HTMLButtonElement>, idx: number) => {
     if (state.hotbarSlots[idx].toolKind === "empty") { e.preventDefault(); return; }
     e.dataTransfer.setData("source", "hotbar");
@@ -59,4 +59,4 @@ export const Hotbar: React.FC<HotbarProps> = ({ state, dispatch }) => {
       })}
     </div>
   );
-};
+});

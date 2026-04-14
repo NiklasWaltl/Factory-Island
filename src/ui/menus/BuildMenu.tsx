@@ -51,7 +51,7 @@ const BUILDING_DESCRIPTIONS: Record<BuildingType, string> = {
   conveyor_corner: "Leitet Items in einer 90°-Ecke weiter. Benötigt Energie. R zum Drehen.",
 };
 
-export const BuildMenu: React.FC<BuildMenuProps> = ({ state, dispatch }) => {
+export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch }) => {
   const selected = state.selectedBuildingType;
 
   const canAfford = (bType: BuildingType): boolean => {
@@ -206,4 +206,4 @@ export const BuildMenu: React.FC<BuildMenuProps> = ({ state, dispatch }) => {
       </div>
     </div>
   );
-};
+});

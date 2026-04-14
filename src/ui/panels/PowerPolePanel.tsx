@@ -31,7 +31,7 @@ function assetInPoleRange(
   return false;
 }
 
-export const PowerPolePanel: React.FC<PowerPolePanelProps> = ({ state, dispatch }) => {
+export const PowerPolePanel: React.FC<PowerPolePanelProps> = React.memo(({ state, dispatch }) => {
   const poleId = state.selectedPowerPoleId;
   const pole = poleId ? state.assets[poleId] : null;
 
@@ -103,4 +103,4 @@ export const PowerPolePanel: React.FC<PowerPolePanelProps> = ({ state, dispatch 
       </p>
     </div>
   );
-};
+});

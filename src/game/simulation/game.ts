@@ -1220,6 +1220,7 @@ export type GameAction =
   | { type: "MANUAL_ASSEMBLER_START"; recipe: "metal_plate" | "gear" }
   | { type: "MANUAL_ASSEMBLER_TICK" }
   | { type: "GROW_SAPLING"; assetId: string }
+  | { type: "GROW_SAPLINGS"; assetIds: string[] }
   | { type: "NATURAL_SPAWN" }
   | { type: "REMOVE_BUILDING"; buildingType: BuildingType }
   | { type: "REMOVE_FROM_HOTBAR"; slot: number }
@@ -1729,6 +1730,28 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const placed = placeAsset(removed.assets, removed.cellMap, "tree", asset.x, asset.y, 1);
       if (!placed) return state;
       return { ...state, assets: placed.assets, cellMap: placed.cellMap, saplingGrowAt: removed.saplingGrowAt };
+    }
+
+    case "GROW_SAPLINGS": {
+      let { assets, cellMap, saplingGrowAt } = state;
+      let changed = false;
+      for (const assetId of action.assetIds) {
+        const asset = assets[assetId];
+        if (!asset || asset.type !== "sapling") continue;
+        const removed = removeAsset({ ...state, assets, cellMap, saplingGrowAt }, assetId);
+        const placed = placeAsset(removed.assets, removed.cellMap, "tree", asset.x, asset.y, 1);
+        if (placed) {
+          assets = placed.assets;
+          cellMap = placed.cellMap;
+        } else {
+          assets = removed.assets;
+          cellMap = removed.cellMap;
+        }
+        saplingGrowAt = removed.saplingGrowAt;
+        changed = true;
+      }
+      if (!changed) return state;
+      return { ...state, assets, cellMap, saplingGrowAt };
     }
 
     case "NATURAL_SPAWN": {

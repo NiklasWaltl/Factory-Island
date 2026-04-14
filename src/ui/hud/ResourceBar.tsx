@@ -5,7 +5,7 @@ interface ResourceBarProps {
   state: GameState;
 }
 
-export const ResourceBar: React.FC<ResourceBarProps> = ({ state }) => {
+export const ResourceBar: React.FC<ResourceBarProps> = React.memo(({ state }) => {
   return (
     <div className="fi-resource-bar">
       <div className="fi-resource-item fi-resource-item--coins">
@@ -15,4 +15,4 @@ export const ResourceBar: React.FC<ResourceBarProps> = ({ state }) => {
       </div>
     </div>
   );
-};
+});

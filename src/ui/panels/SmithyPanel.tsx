@@ -6,7 +6,7 @@ interface SmithyPanelProps {
   dispatch: React.Dispatch<GameAction>;
 }
 
-export const SmithyPanel: React.FC<SmithyPanelProps> = ({ state, dispatch }) => {
+export const SmithyPanel: React.FC<SmithyPanelProps> = React.memo(({ state, dispatch }) => {
   const s = state.smithy;
   const isIron = s.selectedRecipe === "iron";
   const rawInQueue = isIron ? s.iron : s.copper;
@@ -146,4 +146,4 @@ export const SmithyPanel: React.FC<SmithyPanelProps> = ({ state, dispatch }) => 
       </p>
     </div>
   );
-};
+});

@@ -21,7 +21,7 @@ const WOOD_PER_SEC = (1000 / GENERATOR_TICK_MS / GENERATOR_TICKS_PER_WOOD).toFix
 /** Energy produced per net-tick period */
 const ENERGY_PER_NET_TICK = Math.round((GENERATOR_ENERGY_PER_TICK * ENERGY_NET_TICK_MS) / GENERATOR_TICK_MS);
 
-export const GeneratorPanel: React.FC<GeneratorPanelProps> = ({ state, dispatch }) => {
+export const GeneratorPanel: React.FC<GeneratorPanelProps> = React.memo(({ state, dispatch }) => {
   const g = state.generator;
   const woodInInventory = state.inventory.wood;
   const fuelPct = g.fuel > 0 ? (1 - g.progress) * 100 : 0;
@@ -175,4 +175,4 @@ export const GeneratorPanel: React.FC<GeneratorPanelProps> = ({ state, dispatch 
       </div>
     </div>
   );
-};
+});

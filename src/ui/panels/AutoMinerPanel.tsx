@@ -13,7 +13,7 @@ interface AutoMinerPanelProps {
   dispatch: React.Dispatch<GameAction>;
 }
 
-export const AutoMinerPanel: React.FC<AutoMinerPanelProps> = ({ state, dispatch }) => {
+export const AutoMinerPanel: React.FC<AutoMinerPanelProps> = React.memo(({ state, dispatch }) => {
   const panelRef = useRef<HTMLDivElement>(null);
   const minerId = state.selectedAutoMinerId;
   const minerAsset = minerId ? state.assets[minerId] : null;
@@ -107,4 +107,4 @@ export const AutoMinerPanel: React.FC<AutoMinerPanelProps> = ({ state, dispatch 
       </div>
     </div>
   );
-};
+});

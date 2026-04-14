@@ -33,7 +33,7 @@ const EQUIPPABLE_ITEMS: { key: keyof Inventory; kind: "axe" | "wood_pickaxe" | "
   { key: "sapling", kind: "sapling" },
 ];
 
-export const WarehousePanel: React.FC<WarehousePanelProps> = ({ state, dispatch }) => {
+export const WarehousePanel: React.FC<WarehousePanelProps> = React.memo(({ state, dispatch }) => {
   const cap = state.mode === "debug" ? Infinity : WAREHOUSE_CAPACITY;
   const selectedWarehouseId = state.selectedWarehouseId;
   const selectedWarehouseInv = selectedWarehouseId ? state.warehouseInventories[selectedWarehouseId] : null;
@@ -127,4 +127,4 @@ export const WarehousePanel: React.FC<WarehousePanelProps> = ({ state, dispatch 
       </p>
     </div>
   );
-};
+});

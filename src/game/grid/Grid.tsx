@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect } from "react";
+import React, { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import {
   GRID_W,
   GRID_H,
@@ -212,10 +212,26 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
       const wy = (my - cam.y) / zoom;
       const gx = Math.floor(wx / CELL_PX);
       const gy = Math.floor(wy / CELL_PX);
-      setHover({ x: gx, y: gy });
+      setHover(prev => (prev && prev.x === gx && prev.y === gy) ? prev : { x: gx, y: gy });
     },
     [onMouseMove, cam, zoom]
   );
+
+  // O(1) lookup set for connected assets
+  const connectedSet = useMemo(() => new Set(state.connectedAssetIds), [state.connectedAssetIds]);
+
+  // Viewport culling: compute visible cell range
+  const el = containerRef.current;
+  const vw = el?.clientWidth ?? window.innerWidth;
+  const vh = el?.clientHeight ?? window.innerHeight;
+  const worldX1 = -cam.x / zoom;
+  const worldY1 = -cam.y / zoom;
+  const worldX2 = worldX1 + vw / zoom;
+  const worldY2 = worldY1 + vh / zoom;
+  const minCellX = Math.max(0, Math.floor(worldX1 / CELL_PX) - 1);
+  const minCellY = Math.max(0, Math.floor(worldY1 / CELL_PX) - 1);
+  const maxCellX = Math.min(GRID_W - 1, Math.ceil(worldX2 / CELL_PX) + 1);
+  const maxCellY = Math.min(GRID_H - 1, Math.ceil(worldY2 / CELL_PX) + 1);
 
   // Render grid with assets rendered per-asset (not per-cell for 2x2)
   const renderedAssets = new Set<string>();
@@ -227,6 +243,8 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
   for (const asset of Object.values(state.assets)) {
     if (renderedAssets.has(asset.id)) continue;
     renderedAssets.add(asset.id);
+    // Viewport culling: skip assets outside visible range
+    if (asset.x + asset.size < minCellX || asset.x > maxCellX || asset.y + asset.size < minCellY || asset.y > maxCellY) continue;
     const px = asset.x * CELL_PX;
     const py = asset.y * CELL_PX;
     const w = asset.size * CELL_PX;
@@ -234,7 +252,7 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
     const label = ASSET_LABELS[asset.type];
     const sprite = ASSET_SPRITES[asset.type];
 
-    const isConnected = state.connectedAssetIds.includes(asset.id);
+    const isConnected = connectedSet.has(asset.id);
     const isPowerPole = asset.type === "power_pole";
     const isConveyor = asset.type === "conveyor" || asset.type === "conveyor_corner";
     const isAutoMiner = asset.type === "auto_miner";
@@ -341,6 +359,8 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
     const inputX = asset.x;
     const inputY = asset.y + asset.size; // directly below bottom-left cell
     if (inputX >= GRID_W || inputY >= GRID_H) continue;
+    // Viewport culling
+    if (inputX < minCellX || inputX > maxCellX || inputY < minCellY || inputY > maxCellY) continue;
 
     // Determine whether the tile currently has a correctly-oriented conveyor on it
     const tileAssetId = state.cellMap[cellKey(inputX, inputY)];
@@ -596,7 +616,7 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
           }
         }
         if (!inRange) continue;
-        const isConn = state.connectedAssetIds.includes(asset.id);
+        const isConn = connectedSet.has(asset.id);
         inRangeElements.push(
           <div
             key={`hover-range-${asset.id}`}
@@ -673,23 +693,28 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
           height={WORLD_H}
           style={{ position: "absolute", top: 0, left: 0, zIndex: 0 }}
         >
-          {/* Grid cells – pixel-art grass tiles */}
-          {Array.from({ length: GRID_H }, (_, y) =>
-            Array.from({ length: GRID_W }, (_, x) => (
-              <image
-                key={`${x},${y}`}
-                href={GRASS_TILE_SPRITES[(x + y) % 2]}
-                x={x * CELL_PX}
-                y={y * CELL_PX}
-                width={CELL_PX}
-                height={CELL_PX}
-                style={{ imageRendering: "pixelated" }}
-              />
-            ))
+          {/* Grid cells – pixel-art grass tiles (viewport-culled) */}
+          {Array.from({ length: maxCellY - minCellY + 1 }, (_, iy) =>
+            Array.from({ length: maxCellX - minCellX + 1 }, (_, ix) => {
+              const x = minCellX + ix;
+              const y = minCellY + iy;
+              return (
+                <image
+                  key={`${x},${y}`}
+                  href={GRASS_TILE_SPRITES[(x + y) % 2]}
+                  x={x * CELL_PX}
+                  y={y * CELL_PX}
+                  width={CELL_PX}
+                  height={CELL_PX}
+                  style={{ imageRendering: "pixelated" }}
+                />
+              );
+            })
           )}
-          {/* Stone floor tiles */}
+          {/* Stone floor tiles (viewport-culled) */}
           {Object.entries(state.floorMap).map(([key]) => {
             const [gx, gy] = key.split(",").map(Number);
+            if (gx < minCellX || gx > maxCellX || gy < minCellY || gy > maxCellY) return null;
             return (
               <image
                 key={`floor-${key}`}
@@ -702,21 +727,6 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
               />
             );
           })}
-          {/* Coordinates */}
-          {Array.from({ length: GRID_H }, (_, y) =>
-            Array.from({ length: GRID_W }, (_, x) => (
-              <text
-                key={`t${x},${y}`}
-                x={x * CELL_PX + 3}
-                y={y * CELL_PX + 10}
-                fontSize={8}
-                fill="rgba(255,255,255,0.2)"
-                fontFamily="monospace"
-              >
-                {x},{y}
-              </text>
-            ))
-          )}
         </svg>
 
         {/* Assets */}

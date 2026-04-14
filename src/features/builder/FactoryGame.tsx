@@ -41,13 +41,61 @@ import {
 } from "./debug";
 import type { MockAction } from "./debug";
 
+const SAVE_KEY = "factory-island-save";
+
+/* Error boundary to prevent white-screen crashes */
+class GameErrorBoundary extends React.Component<
+  { children: React.ReactNode; onReset?: () => void },
+  { hasError: boolean; error: Error | null }
+> {
+  state = { hasError: false, error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 40, color: "#fff", background: "#1a1a2e", textAlign: "center", minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+          <h2>Etwas ist schiefgelaufen</h2>
+          <p style={{ color: "#aaa", maxWidth: 500 }}>{this.state.error?.message}</p>
+          <button
+            style={{ marginTop: 16, padding: "8px 24px", fontSize: 16, cursor: "pointer" }}
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+              this.props.onReset?.();
+            }}
+          >
+            Erneut versuchen
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 /* Inner game component that gets remounted per mode via key */
 const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
-  // Try to restore HMR state, fall back to fresh state
+  // Try to restore HMR state (dev), localStorage save (prod), or fresh state
   const [state, dispatch] = useReducer(
     gameReducer,
     mode,
-    (m) => (IS_DEV ? loadHmrState() : null) ?? createInitialState(m),
+    (m) => {
+      if (IS_DEV) {
+        const hmr = loadHmrState();
+        if (hmr) return hmr;
+      }
+      try {
+        const saved = localStorage.getItem(SAVE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.mode === m) return parsed;
+        }
+      } catch { /* corrupt save, ignore */ }
+      return createInitialState(m);
+    },
   );
 
   // Persist state for HMR on every change
@@ -57,6 +105,16 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
     if (!IS_DEV) return;
     saveHmrState(state);
   }, [state]);
+
+  // Periodic localStorage save (every 10s + on unload)
+  useEffect(() => {
+    const save = () => {
+      try { localStorage.setItem(SAVE_KEY, JSON.stringify(stateRef.current)); } catch { /* quota */ }
+    };
+    const id = setInterval(save, 10_000);
+    window.addEventListener("beforeunload", save);
+    return () => { clearInterval(id); window.removeEventListener("beforeunload", save); };
+  }, []);
 
   // HMR status tracking
   const [hmrModules, setHmrModules] = useState<string[]>(() =>
@@ -125,18 +183,22 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
     return () => clearInterval(id);
   }, []);
 
-  // Sapling growth timer
+  // Sapling growth timer – uses ref to avoid stale closure + batch dispatch
+  const saplingGrowAtRef = useRef(state.saplingGrowAt);
+  saplingGrowAtRef.current = state.saplingGrowAt;
+
   useEffect(() => {
     const id = setInterval(() => {
       const now = Date.now();
-      for (const [assetId, growAt] of Object.entries(state.saplingGrowAt)) {
-        if (now >= growAt) {
-          dispatch({ type: "GROW_SAPLING", assetId });
-        }
+      const readyIds = Object.entries(saplingGrowAtRef.current)
+        .filter(([, growAt]) => now >= growAt)
+        .map(([assetId]) => assetId);
+      if (readyIds.length > 0) {
+        dispatch({ type: "GROW_SAPLINGS", assetIds: readyIds });
       }
     }, 1000);
     return () => clearInterval(id);
-  }, [state.saplingGrowAt]);
+  }, []);
 
   // Smithy processing tick
   useEffect(() => {
@@ -267,7 +329,9 @@ export const FactoryGame: React.FC = () => {
 
   return (
     <div className="fi-root">
-      <GameInner key={mode} mode={mode} />
+      <GameErrorBoundary onReset={() => { try { localStorage.removeItem(SAVE_KEY); } catch {} }}>
+        <GameInner key={mode} mode={mode} />
+      </GameErrorBoundary>
     </div>
   );
 };

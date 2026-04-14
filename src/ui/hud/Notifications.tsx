@@ -5,7 +5,7 @@ interface NotificationsProps {
   notifications: GameNotification[];
 }
 
-export const Notifications: React.FC<NotificationsProps> = ({
+export const Notifications: React.FC<NotificationsProps> = React.memo(({
   notifications,
 }) => {
   if (notifications.length === 0) return null;
@@ -24,4 +24,4 @@ export const Notifications: React.FC<NotificationsProps> = ({
       ))}
     </div>
   );
-};
+});

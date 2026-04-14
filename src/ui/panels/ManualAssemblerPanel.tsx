@@ -12,7 +12,7 @@ interface ManualAssemblerPanelProps {
   dispatch: React.Dispatch<GameAction>;
 }
 
-export const ManualAssemblerPanel: React.FC<ManualAssemblerPanelProps> = ({ state, dispatch }) => {
+export const ManualAssemblerPanel: React.FC<ManualAssemblerPanelProps> = React.memo(({ state, dispatch }) => {
   const hasAssembler = Object.values(state.assets).some((a) => a.type === "manual_assembler");
   if (!hasAssembler) return null;
 
@@ -79,4 +79,4 @@ export const ManualAssemblerPanel: React.FC<ManualAssemblerPanelProps> = ({ stat
       </div>
     </div>
   );
-};
+});

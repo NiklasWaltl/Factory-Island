@@ -12,7 +12,7 @@ interface WorkbenchPanelProps {
   dispatch: React.Dispatch<GameAction>;
 }
 
-export const WorkbenchPanel: React.FC<WorkbenchPanelProps> = ({
+export const WorkbenchPanel: React.FC<WorkbenchPanelProps> = React.memo(({
   state,
   dispatch,
 }) => {
@@ -60,4 +60,4 @@ export const WorkbenchPanel: React.FC<WorkbenchPanelProps> = ({
       </p>
     </div>
   );
-};
+});

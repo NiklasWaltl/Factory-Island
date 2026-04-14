@@ -12,7 +12,7 @@ interface MapShopPanelProps {
   dispatch: React.Dispatch<GameAction>;
 }
 
-export const MapShopPanel: React.FC<MapShopPanelProps> = ({ state, dispatch }) => {
+export const MapShopPanel: React.FC<MapShopPanelProps> = React.memo(({ state, dispatch }) => {
   return (
     <div className="fi-panel fi-map-shop" onClick={(e) => e.stopPropagation()}>
       <h2>🧑‍🌾 Händler</h2>
@@ -56,4 +56,4 @@ export const MapShopPanel: React.FC<MapShopPanelProps> = ({ state, dispatch }) =
       </p>
     </div>
   );
-};
+});

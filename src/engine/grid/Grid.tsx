@@ -16,7 +16,7 @@ import {
   type GameAction,
   type Direction,
 } from "../simulation/game";
-import { ASSET_SPRITES, GRASS_TILE_SPRITES, FLOOR_SPRITES, WAREHOUSE_INPUT_SPRITE } from "../../features/factory-game/sprites";
+import { ASSET_SPRITES, GRASS_TILE_SPRITES, FLOOR_SPRITES, WAREHOUSE_INPUT_SPRITE } from "../../assets/sprites/sprites";
 import { EnergyDebugOverlay, EnergyDebugHud } from "../../ui/panels/EnergyDebugOverlay";
 
 const WORLD_W = GRID_W * CELL_PX;

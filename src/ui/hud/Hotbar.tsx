@@ -1,5 +1,5 @@
 import React from "react";
-import type { GameState, GameAction, BuildingType } from "./game";
+import type { GameState, GameAction, BuildingType } from "../../features/factory-game/game";
 
 interface HotbarProps {
   state: GameState;

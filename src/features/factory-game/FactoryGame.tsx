@@ -12,7 +12,7 @@ import {
 } from "./game";
 import { ModeSelect } from "../../ui/menus/ModeSelect";
 import { Grid } from "./Grid";
-import { Hotbar } from "./Hotbar";
+import { Hotbar } from "../../ui/hud/Hotbar";
 import { MapShopPanel } from "./MapShopPanel";
 import { WorkbenchPanel } from "./WorkbenchPanel";
 import { WarehousePanel } from "./WarehousePanel";

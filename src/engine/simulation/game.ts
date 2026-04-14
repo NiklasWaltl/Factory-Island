@@ -2,7 +2,7 @@
 // Factory Island - Game State & Logic
 // ============================================================
 
-import { debugLog } from "../../features/factory-game/debug/debugLogger";
+import { debugLog } from "../../features/builder/debug/debugLogger";
 
 export type GameMode = "release" | "debug";
 

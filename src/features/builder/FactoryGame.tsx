@@ -38,8 +38,8 @@ import {
   getHmrModules,
   getHmrStatus,
   debugLog,
-} from "../factory-game/debug";
-import type { MockAction } from "../factory-game/debug";
+} from "./debug";
+import type { MockAction } from "./debug";
 
 /* Inner game component that gets remounted per mode via key */
 const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {

@@ -5,7 +5,7 @@ import {
   RESOURCE_EMOJIS,
   type GameState,
   type GameAction,
-} from "./game";
+} from "../../features/factory-game/game";
 
 interface WorkbenchPanelProps {
   state: GameState;

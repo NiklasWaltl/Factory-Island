@@ -14,7 +14,7 @@ import { ModeSelect } from "../../ui/menus/ModeSelect";
 import { Grid } from "./Grid";
 import { Hotbar } from "../../ui/hud/Hotbar";
 import { MapShopPanel } from "../../ui/panels/MapShopPanel";
-import { WorkbenchPanel } from "./WorkbenchPanel";
+import { WorkbenchPanel } from "../../ui/panels/WorkbenchPanel";
 import { WarehousePanel } from "./WarehousePanel";
 import { SmithyPanel } from "./SmithyPanel";
 import { GeneratorPanel } from "./GeneratorPanel";

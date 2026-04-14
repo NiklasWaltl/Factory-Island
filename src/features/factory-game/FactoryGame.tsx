@@ -20,7 +20,7 @@ import { SmithyPanel } from "../../ui/panels/SmithyPanel";
 import { GeneratorPanel } from "../../ui/panels/GeneratorPanel";
 import { BatteryPanel } from "../../ui/panels/BatteryPanel";
 import { PowerPolePanel } from "../../ui/panels/PowerPolePanel";
-import { AutoMinerPanel } from "./AutoMinerPanel";
+import { AutoMinerPanel } from "../../ui/panels/AutoMinerPanel";
 import { ManualAssemblerPanel } from "../../ui/panels/ManualAssemblerPanel";
 import { BuildMenu } from "../../ui/menus/BuildMenu";
 import { Notifications } from "../../ui/hud/Notifications";

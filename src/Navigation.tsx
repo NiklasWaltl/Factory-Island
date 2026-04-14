@@ -41,7 +41,7 @@ import {
 } from "features/playerEconomyEditor/PlayerEconomyEditor";
 
 // Factory Island
-const FactoryGame = lazy(() => import("features/factory-game/FactoryGame"));
+const FactoryGame = lazy(() => import("features/builder/FactoryGame"));
 
 // Lazy load routes
 const World = lazy(() =>

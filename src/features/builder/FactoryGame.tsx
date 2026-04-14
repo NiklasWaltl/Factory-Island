@@ -9,9 +9,9 @@ import {
   ENERGY_NET_TICK_MS,
   LOGISTICS_TICK_MS,
   type GameMode,
-} from "./game";
+} from "../factory-game/game";
 import { ModeSelect } from "../../ui/menus/ModeSelect";
-import { Grid } from "./Grid";
+import { Grid } from "../factory-game/Grid";
 import { Hotbar } from "../../ui/hud/Hotbar";
 import { MapShopPanel } from "../../ui/panels/MapShopPanel";
 import { WorkbenchPanel } from "../../ui/panels/WorkbenchPanel";
@@ -25,7 +25,7 @@ import { ManualAssemblerPanel } from "../../ui/panels/ManualAssemblerPanel";
 import { BuildMenu } from "../../ui/menus/BuildMenu";
 import { Notifications } from "../../ui/hud/Notifications";
 import { ResourceBar } from "../../ui/hud/ResourceBar";
-import "./factory-game.css";
+import "../factory-game/factory-game.css";
 
 // Debug system (tree-shaken in production)
 import {
@@ -38,8 +38,8 @@ import {
   getHmrModules,
   getHmrStatus,
   debugLog,
-} from "./debug";
-import type { MockAction } from "./debug";
+} from "../factory-game/debug";
+import type { MockAction } from "../factory-game/debug";
 
 /* Inner game component that gets remounted per mode via key */
 const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {

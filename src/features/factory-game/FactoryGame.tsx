@@ -18,7 +18,7 @@ import { WorkbenchPanel } from "../../ui/panels/WorkbenchPanel";
 import { WarehousePanel } from "../../ui/panels/WarehousePanel";
 import { SmithyPanel } from "../../ui/panels/SmithyPanel";
 import { GeneratorPanel } from "../../ui/panels/GeneratorPanel";
-import { BatteryPanel } from "./BatteryPanel";
+import { BatteryPanel } from "../../ui/panels/BatteryPanel";
 import { PowerPolePanel } from "./PowerPolePanel";
 import { AutoMinerPanel } from "./AutoMinerPanel";
 import { ManualAssemblerPanel } from "../../ui/panels/ManualAssemblerPanel";

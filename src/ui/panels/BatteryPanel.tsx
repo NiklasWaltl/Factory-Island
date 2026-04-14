@@ -7,7 +7,7 @@ import {
   ENERGY_DRAIN,
   type GameState,
   type GameAction,
-} from "./game";
+} from "../../features/factory-game/game";
 
 interface BatteryPanelProps {
   state: GameState;

@@ -1,5 +1,5 @@
 import React from "react";
-import type { GameMode } from "./game";
+import type { GameMode } from "../../features/factory-game/game";
 
 interface ModeSelectProps {
   onSelect: (mode: GameMode) => void;

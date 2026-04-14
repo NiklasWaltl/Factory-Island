@@ -10,7 +10,7 @@ import {
   LOGISTICS_TICK_MS,
   type GameMode,
 } from "./game";
-import { ModeSelect } from "./ModeSelect";
+import { ModeSelect } from "../../ui/menus/ModeSelect";
 import { Grid } from "./Grid";
 import { Hotbar } from "./Hotbar";
 import { MapShopPanel } from "./MapShopPanel";

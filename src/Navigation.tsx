@@ -40,6 +40,9 @@ import {
   PlayerEconomyEditorEdit,
 } from "features/playerEconomyEditor/PlayerEconomyEditor";
 
+// Factory Island
+const FactoryGame = lazy(() => import("features/factory-game/FactoryGame"));
+
 // Lazy load routes
 const World = lazy(() =>
   import("features/world/World").then((m) => ({ default: m.World })),
@@ -99,6 +102,7 @@ export const Navigation: React.FC = () => {
           <Routes>
             {/* Public routes that don't require authentication */}
             <Route path="/flower-dashboard" element={<FlowerDashboard />} />
+            <Route path="/factory" element={<FactoryGame />} />
 
             {/* Protected routes that require authentication */}
             <Route

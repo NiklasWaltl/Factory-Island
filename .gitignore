@@ -13,6 +13,7 @@
 # production
 /build
 /dist
+/release
 
 tilesheet.png
 easter-tilesheet.png

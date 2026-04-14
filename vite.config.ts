@@ -20,6 +20,29 @@ export default defineConfig(() => {
 
   return {
     plugins: [
+      // Dev-only: serve a kill-switch SW so stale cached service workers
+      // from previous sessions are cleared automatically on the next SW update check.
+      {
+        name: "sw-kill-switch",
+        configureServer(server) {
+          server.middlewares.use("/sw.js", (_req, res) => {
+            res.setHeader("Content-Type", "application/javascript");
+            res.end(`
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (evt) => {
+  evt.waitUntil((async () => {
+    await self.clients.claim();
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+    const clients = await self.clients.matchAll({ includeUncontrolled: true, type: "window" });
+    await Promise.all(clients.map((c) => c.navigate(c.url).catch(() => {})));
+    await self.registration.unregister();
+  })());
+});
+`);
+          });
+        },
+      },
       react({
         babel: {
           plugins: ["babel-plugin-react-compiler"],
@@ -41,7 +64,7 @@ export default defineConfig(() => {
         : []),
       VitePWA({
         devOptions: {
-          enabled: true,
+          enabled: false,
           type: "module",
           navigateFallback: "offline.html",
         },

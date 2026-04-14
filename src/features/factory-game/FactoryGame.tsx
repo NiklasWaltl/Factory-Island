@@ -16,7 +16,7 @@ import { Hotbar } from "../../ui/hud/Hotbar";
 import { MapShopPanel } from "../../ui/panels/MapShopPanel";
 import { WorkbenchPanel } from "../../ui/panels/WorkbenchPanel";
 import { WarehousePanel } from "../../ui/panels/WarehousePanel";
-import { SmithyPanel } from "./SmithyPanel";
+import { SmithyPanel } from "../../ui/panels/SmithyPanel";
 import { GeneratorPanel } from "./GeneratorPanel";
 import { BatteryPanel } from "./BatteryPanel";
 import { PowerPolePanel } from "./PowerPolePanel";

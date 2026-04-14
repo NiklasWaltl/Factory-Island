@@ -23,7 +23,7 @@ import { PowerPolePanel } from "./PowerPolePanel";
 import { AutoMinerPanel } from "./AutoMinerPanel";
 import { ManualAssemblerPanel } from "../../ui/panels/ManualAssemblerPanel";
 import { BuildMenu } from "./BuildMenu";
-import { Notifications } from "./Notifications";
+import { Notifications } from "../../ui/hud/Notifications";
 import { ResourceBar } from "../../ui/hud/ResourceBar";
 import "./factory-game.css";
 

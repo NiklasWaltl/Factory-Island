@@ -11,7 +11,7 @@ import {
   type GameMode,
 } from "../factory-game/game";
 import { ModeSelect } from "../../ui/menus/ModeSelect";
-import { Grid } from "../factory-game/Grid";
+import { Grid } from "../../engine/grid/Grid";
 import { Hotbar } from "../../ui/hud/Hotbar";
 import { MapShopPanel } from "../../ui/panels/MapShopPanel";
 import { WorkbenchPanel } from "../../ui/panels/WorkbenchPanel";

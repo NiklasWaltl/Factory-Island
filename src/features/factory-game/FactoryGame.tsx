@@ -19,7 +19,7 @@ import { WarehousePanel } from "../../ui/panels/WarehousePanel";
 import { SmithyPanel } from "../../ui/panels/SmithyPanel";
 import { GeneratorPanel } from "../../ui/panels/GeneratorPanel";
 import { BatteryPanel } from "../../ui/panels/BatteryPanel";
-import { PowerPolePanel } from "./PowerPolePanel";
+import { PowerPolePanel } from "../../ui/panels/PowerPolePanel";
 import { AutoMinerPanel } from "./AutoMinerPanel";
 import { ManualAssemblerPanel } from "../../ui/panels/ManualAssemblerPanel";
 import { BuildMenu } from "../../ui/menus/BuildMenu";

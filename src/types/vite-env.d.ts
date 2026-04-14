@@ -1,6 +1,1 @@
-/// <reference types="vite/client" />
-
-interface Window {
-  ethereum: any;
-  grecaptcha: any;
-}
+/// <reference path="../core/types/vite-env.d.ts" />

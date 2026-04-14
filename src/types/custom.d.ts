@@ -1,7 +1,1 @@
-import { PhaserNavMeshPlugin } from "phaser-navmesh";
-
-declare module "phaser" {
-  interface Scene {
-    navMeshPlugin: PhaserNavMeshPlugin;
-  }
-}
+/// <reference path="../core/types/custom.d.ts" />

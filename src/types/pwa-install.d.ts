@@ -1,1 +1,1 @@
-declare module "@khmyznikov/pwa-install/dist/pwa-install.react.js";
+/// <reference path="../core/types/pwa-install.d.ts" />

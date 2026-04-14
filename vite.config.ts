@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import path from "node:path";
 import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { minifyHtml, injectHtml } from "vite-plugin-html";
@@ -139,6 +140,12 @@ self.addEventListener("activate", (evt) => {
     // Addresses web3 issue
     resolve: {
       alias: {
+        "src/assets": path.resolve(__dirname, "src/core/assets"),
+        "src/components": path.resolve(__dirname, "src/core/components"),
+        "src/features": path.resolve(__dirname, "src/core/features"),
+        "src/lib": path.resolve(__dirname, "src/core/lib"),
+        "src/engine": path.resolve(__dirname, "src/game"),
+        "src/ui": path.resolve(__dirname, "src/ui"),
         process: "process/browser",
         stream: "stream-browserify",
         zlib: "browserify-zlib",

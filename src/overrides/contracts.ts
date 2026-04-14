@@ -2,7 +2,8 @@ export type OverrideKey =
   | "appRoot"
   | "navigation"
   | "loadingFallback"
-  | "globalStyles";
+  | "globalStyles"
+  | "portalApp";
 
 export interface OverrideEntry<T = unknown> {
   key: OverrideKey;

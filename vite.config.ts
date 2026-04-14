@@ -140,6 +140,11 @@ self.addEventListener("activate", (evt) => {
     // Addresses web3 issue
     resolve: {
       alias: {
+        // Portal override: redirect to Factory Island portal wrapper
+        "features/portal/PortalApp": path.resolve(
+          __dirname,
+          "src/features/portal/PortalApp",
+        ),
         "src/assets": path.resolve(__dirname, "src/core/assets"),
         "src/components": path.resolve(__dirname, "src/core/components"),
         "src/features": path.resolve(__dirname, "src/core/features"),

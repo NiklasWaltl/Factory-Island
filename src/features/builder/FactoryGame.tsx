@@ -75,7 +75,7 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
     return () => clearInterval(id);
   }, []);
 
-  // Mock data handler – dispatches directly into the reducer
+  // Mock data handler ï¿½ dispatches directly into the reducer
   const handleMock = useCallback(
     (action: MockAction["type"]) => {
       if (!IS_DEV) return;
@@ -173,7 +173,7 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
     return () => clearInterval(id);
   }, [state.generator.running]);
 
-  // Unified energy-network balance: production – consumption ? battery
+  // Unified energy-network balance: production ï¿½ consumption ? battery
   useEffect(() => {
     const id = setInterval(() => {
       dispatch({ type: "ENERGY_NET_TICK" });
@@ -229,7 +229,7 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
       <button
         className={`fi-build-toggle ${state.buildMode ? "fi-build-toggle--active" : ""}`}
         onClick={() => dispatch({ type: "TOGGLE_BUILD_MODE" })}
-        title="Bau-Menü öffnen/schließen (B)"
+        title="Bau-Menï¿½ ï¿½ffnen/schlieï¿½en (B)"
       >
         ??? {state.buildMode ? "Bauen ?" : "Bauen"}
       </button>

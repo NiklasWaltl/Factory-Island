@@ -14,7 +14,7 @@ import {
   type GameAction,
   type BuildingType,
   type FloorTileType,
-} from "../../features/factory-game/game";
+} from "../../engine/simulation/game";
 import { ASSET_SPRITES, FLOOR_SPRITES, GRASS_TILE_SPRITES } from "../../features/factory-game/sprites";
 
 interface BuildMenuProps {

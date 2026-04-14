@@ -5,7 +5,7 @@ import {
   RESOURCE_LABELS,
   type GameAction,
   type GameState,
-} from "../../features/factory-game/game";
+} from "../../engine/simulation/game";
 
 interface ManualAssemblerPanelProps {
   state: GameState;

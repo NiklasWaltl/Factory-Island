@@ -6,7 +6,7 @@ import {
   type GameState,
   type GameAction,
   type AssetType,
-} from "../../features/factory-game/game";
+} from "../../engine/simulation/game";
 
 interface PowerPolePanelProps {
   state: GameState;

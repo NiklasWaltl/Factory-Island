@@ -7,7 +7,7 @@ import {
   type GameState,
   type GameAction,
   type BuildingType,
-} from "../../features/factory-game/game";
+} from "../../engine/simulation/game";
 
 interface ShopPanelProps {
   state: GameState;

@@ -20,7 +20,7 @@
  *   purple-dark    #4a3a80   purple-mid     #6a5acd  purple-light #8a7ae8
  */
 
-import type { AssetType, FloorTileType } from "./game";
+import type { AssetType, FloorTileType } from "../../engine/simulation/game";
 
 // ---------------------------------------------------------------------------
 // Helper: build a data-URI from an SVG string

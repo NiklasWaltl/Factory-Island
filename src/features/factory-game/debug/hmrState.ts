@@ -5,7 +5,7 @@
 // doesn't lose progress during development.
 // Tree-shaken in production.
 
-import type { GameState } from "../game";
+import type { GameState } from "../../../engine/simulation/game";
 import { debugLog } from "./debugLogger";
 
 const HMR_STATE_KEY = "__FI_HMR_STATE__";

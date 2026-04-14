@@ -15,7 +15,7 @@ import {
   type GameState,
   type GameAction,
   type Direction,
-} from "../../features/factory-game/game";
+} from "../simulation/game";
 import { ASSET_SPRITES, GRASS_TILE_SPRITES, FLOOR_SPRITES, WAREHOUSE_INPUT_SPRITE } from "../../features/factory-game/sprites";
 import { EnergyDebugOverlay, EnergyDebugHud } from "../../ui/panels/EnergyDebugOverlay";
 

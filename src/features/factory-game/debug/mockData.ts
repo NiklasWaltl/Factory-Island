@@ -5,8 +5,8 @@
 // Completely tree-shaken in production because every public function
 // exits early when `!import.meta.env.DEV`.
 
-import type { GameState, GameAction, Inventory } from "../game";
-import { createInitialHotbar, HOTBAR_STACK_MAX } from "../game";
+import type { GameState, GameAction, Inventory } from "../../../engine/simulation/game";
+import { createInitialHotbar, HOTBAR_STACK_MAX } from "../../../engine/simulation/game";
 import { debugLog } from "./debugLogger";
 
 // ---- Mock presets ----

@@ -9,7 +9,7 @@ import {
   ENERGY_NET_TICK_MS,
   LOGISTICS_TICK_MS,
   type GameMode,
-} from "../factory-game/game";
+} from "../../engine/simulation/game";
 import { ModeSelect } from "../../ui/menus/ModeSelect";
 import { Grid } from "../../engine/grid/Grid";
 import { Hotbar } from "../../ui/hud/Hotbar";

@@ -6,7 +6,7 @@ import {
   type GameState,
   type GameAction,
   type MachinePriority,
-} from "../../features/factory-game/game";
+} from "../../engine/simulation/game";
 
 interface AutoMinerPanelProps {
   state: GameState;

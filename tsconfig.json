@@ -17,10 +17,13 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "features/*": ["src/features/*"],
-      "assets/*": ["src/assets/*"],
-      "lib/*": ["src/lib/*"],
-      "components/*": ["src/components/*"]
+      "features/*": ["src/core/features/*", "src/features/*"],
+      "assets/*": ["src/core/assets/*"],
+      "lib/*": ["src/core/lib/*"],
+      "components/*": ["src/core/components/*"],
+      "game/*": ["src/game/*"],
+      "ui/*": ["src/ui/*"],
+      "overrides/*": ["src/overrides/*"]
     }
   },
   "include": [

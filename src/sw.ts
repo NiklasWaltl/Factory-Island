@@ -8,10 +8,10 @@ import { registerRoute } from "workbox-routing";
 import { cleanupOutdatedCaches, precacheAndRoute } from "workbox-precaching";
 import { StaleWhileRevalidate } from "workbox-strategies";
 import { ExpirationPlugin } from "workbox-expiration";
-import { CONFIG } from "./lib/config";
+import { CONFIG } from "./core/lib/config";
 import { getMessaging, isSupported } from "firebase/messaging/sw";
 import { onBackgroundMessage } from "firebase/messaging/sw";
-import "./lib/firebase";
+import "./core/lib/firebase";
 declare let self: ServiceWorkerGlobalScope;
 
 const isTestnet = CONFIG.NETWORK === "amoy";

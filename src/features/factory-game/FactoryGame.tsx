@@ -24,7 +24,7 @@ import { AutoMinerPanel } from "./AutoMinerPanel";
 import { ManualAssemblerPanel } from "../../ui/panels/ManualAssemblerPanel";
 import { BuildMenu } from "./BuildMenu";
 import { Notifications } from "./Notifications";
-import { ResourceBar } from "./ResourceBar";
+import { ResourceBar } from "../../ui/hud/ResourceBar";
 import "./factory-game.css";
 
 // Debug system (tree-shaken in production)

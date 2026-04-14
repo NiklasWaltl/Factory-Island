@@ -1,5 +1,5 @@
 import React from "react";
-import { RESOURCE_LABELS, RESOURCE_EMOJIS, type GameState } from "./game";
+import { RESOURCE_LABELS, RESOURCE_EMOJIS, type GameState } from "../../features/factory-game/game";
 
 interface ResourceBarProps {
   state: GameState;

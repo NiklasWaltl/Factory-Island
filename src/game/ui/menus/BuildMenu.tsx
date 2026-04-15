@@ -14,8 +14,8 @@ import {
   type GameAction,
   type BuildingType,
   type FloorTileType,
-} from "../../game/simulation/game";
-import { ASSET_SPRITES, FLOOR_SPRITES, GRASS_TILE_SPRITES } from "../../game/assets/sprites/sprites";
+} from "../../simulation/game";
+import { ASSET_SPRITES, FLOOR_SPRITES, GRASS_TILE_SPRITES } from "../../assets/sprites/sprites";
 
 interface BuildMenuProps {
   state: GameState;
@@ -30,7 +30,7 @@ interface BuildCategory {
 
 const CATEGORIES: BuildCategory[] = [
   { label: "Energie", emoji: "⚡", buildings: ["generator", "cable", "power_pole", "battery"] },
-  { label: "Produktion", emoji: "🔨", buildings: ["workbench", "smithy", "auto_miner", "manual_assembler"] },
+  { label: "Produktion", emoji: "🔨", buildings: ["workbench", "smithy", "auto_miner", "manual_assembler", "auto_smelter"] },
   { label: "Logistik", emoji: "➡️", buildings: ["conveyor", "conveyor_corner"] },
   { label: "Lager", emoji: "📦", buildings: ["warehouse"] },
 ];
@@ -47,6 +47,7 @@ const BUILDING_DESCRIPTIONS: Record<BuildingType, string> = {
   warehouse: "Erhöht die Lagerkapazität für Ressourcen.",
   auto_miner: "Baut automatisch Ressourcen von Vorkommen ab. Nur auf 2×2 Deposits. Benötigt Energie. R zum Drehen.",
   manual_assembler: "Stellt per Hand Metallplatten und Zahnräder her. Keine Energie nötig.",
+  auto_smelter: "Automatisches Schmelzen per Förderband. 2×1, rotierbar, Input/Output auf gegenüberliegenden Seiten.",
   conveyor: "Transportiert Items automatisch in eine Richtung. Benötigt Energie. R zum Drehen.",
   conveyor_corner: "Leitet Items in einer 90°-Ecke weiter. Benötigt Energie. R zum Drehen.",
 };

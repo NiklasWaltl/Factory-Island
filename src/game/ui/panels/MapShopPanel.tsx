@@ -1,11 +1,11 @@
-import React from "react";
+﻿import React from "react";
 import {
   MAP_SHOP_ITEMS,
   RESOURCE_EMOJIS,
   RESOURCE_LABELS,
   type GameState,
   type GameAction,
-} from "../../game/simulation/game";
+} from "../../simulation/game";
 
 interface MapShopPanelProps {
   state: GameState;

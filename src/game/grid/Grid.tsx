@@ -16,8 +16,9 @@ import {
   type GameAction,
   type Direction,
 } from "../simulation/game";
-import { ASSET_SPRITES, GRASS_TILE_SPRITES, FLOOR_SPRITES, WAREHOUSE_INPUT_SPRITE } from "../assets/sprites/sprites";
-import { EnergyDebugOverlay, EnergyDebugHud } from "../../ui/panels/EnergyDebugOverlay";
+import { ASSET_SPRITES, WAREHOUSE_INPUT_SPRITE } from "../assets/sprites/sprites";
+import { EnergyDebugOverlay, EnergyDebugHud } from "../ui/panels/EnergyDebugOverlay";
+import { PhaserHost } from "../world/PhaserHost";
 
 const WORLD_W = GRID_W * CELL_PX;
 const WORLD_H = GRID_H * CELL_PX;
@@ -36,6 +37,9 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
   const didDrag = useRef(false);
   // Direction for auto_miner / conveyor placement (cycles with R key)
   const [buildDirection, setBuildDirection] = useState<Direction>("east");
+
+  const assetW = useCallback((asset: { size: 1 | 2; width?: 1 | 2 }) => asset.width ?? asset.size, []);
+  const assetH = useCallback((asset: { size: 1 | 2; height?: 1 | 2 }) => asset.height ?? asset.size, []);
 
   const clampCam = useCallback(
     (cx: number, cy: number, z: number) => {
@@ -236,19 +240,30 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
   // Render grid with assets rendered per-asset (not per-cell for 2x2)
   const renderedAssets = new Set<string>();
   const assetElements: React.ReactNode[] = [];
+  const warehouseMarkers: Array<{ id: string; x: number; y: number; hasFeedingBelt: boolean }> = [];
 
   const DIRECTION_ROTATION: Record<Direction, number> = { north: 270, east: 0, south: 90, west: 180 };
-  const ITEM_COLORS: Record<string, string> = { stone: "#808080", iron: "#A0A0B0", copper: "#CD7F32" };
+  const ITEM_COLORS: Record<string, string> = {
+    stone: "#808080",
+    iron: "#A0A0B0",
+    copper: "#CD7F32",
+    ironIngot: "#d4d7e0",
+    copperIngot: "#d88f54",
+    metalPlate: "#8c95a6",
+    gear: "#a1a7b8",
+  };
 
   for (const asset of Object.values(state.assets)) {
     if (renderedAssets.has(asset.id)) continue;
     renderedAssets.add(asset.id);
     // Viewport culling: skip assets outside visible range
-    if (asset.x + asset.size < minCellX || asset.x > maxCellX || asset.y + asset.size < minCellY || asset.y > maxCellY) continue;
+    const aw = assetW(asset);
+    const ah = assetH(asset);
+    if (asset.x + aw < minCellX || asset.x > maxCellX || asset.y + ah < minCellY || asset.y > maxCellY) continue;
     const px = asset.x * CELL_PX;
     const py = asset.y * CELL_PX;
-    const w = asset.size * CELL_PX;
-    const h = asset.size * CELL_PX;
+    const w = aw * CELL_PX;
+    const h = ah * CELL_PX;
     const label = ASSET_LABELS[asset.type];
     const sprite = ASSET_SPRITES[asset.type];
 
@@ -256,11 +271,12 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
     const isPowerPole = asset.type === "power_pole";
     const isConveyor = asset.type === "conveyor" || asset.type === "conveyor_corner";
     const isAutoMiner = asset.type === "auto_miner";
-    const hasDir = (isConveyor || isAutoMiner) && asset.direction;
+    const isAutoSmelter = asset.type === "auto_smelter";
+    const hasDir = (isConveyor || isAutoMiner || isAutoSmelter) && asset.direction;
     const rotDeg = hasDir ? DIRECTION_ROTATION[asset.direction!] : 0;
 
-    // Conveyor item indicator
-    const convItem = isConveyor ? state.conveyors[asset.id]?.item : null;
+    // Conveyor item indicators
+    const convQueue = isConveyor ? state.conveyors[asset.id]?.queue ?? [] : [];
     // Auto-miner progress indicator
     const minerEntry = isAutoMiner ? state.autoMiners[asset.id] : null;
 
@@ -300,21 +316,82 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
             transform: hasDir ? `rotate(${rotDeg}deg)` : "none",
           }}
         />
-        {/* Conveyor item dot */}
-        {convItem && (
-          <div style={{
-            position: "absolute",
-            top: h / 2 - 6,
-            left: w / 2 - 6,
-            width: 12,
-            height: 12,
-            borderRadius: "50%",
-            background: ITEM_COLORS[convItem] ?? "#fff",
-            border: "2px solid rgba(0,0,0,0.6)",
-            pointerEvents: "none",
-            zIndex: 4,
-          }} />
+        {/* Conveyor item dots (up to 4 visible slots) */}
+        {isConveyor && convQueue.slice(0, 4).map((item, idx) => {
+          const slotSize = 10;
+          const gap = 2;
+          const startX = w / 2 - ((slotSize * 2 + gap) / 2);
+          const startY = h / 2 - ((slotSize * 2 + gap) / 2);
+          const col = idx % 2;
+          const row = Math.floor(idx / 2);
+          return (
+            <div
+              key={`${asset.id}-item-${idx}`}
+              style={{
+                position: "absolute",
+                left: startX + col * (slotSize + gap),
+                top: startY + row * (slotSize + gap),
+                width: slotSize,
+                height: slotSize,
+                borderRadius: "50%",
+                background: ITEM_COLORS[item] ?? "#fff",
+                border: "2px solid rgba(0,0,0,0.6)",
+                pointerEvents: "none",
+                zIndex: 4,
+              }}
+            />
+          );
+        })}
+        {isConveyor && state.energyDebugOverlay && (
+          <span
+            style={{
+              position: "absolute",
+              top: 2,
+              right: 2,
+              fontSize: 10,
+              lineHeight: 1,
+              color: "#fff",
+              background: "rgba(0,0,0,0.75)",
+              borderRadius: 4,
+              padding: "2px 4px",
+              zIndex: 5,
+            }}
+          >
+            {convQueue.length}
+          </span>
         )}
+        {isAutoSmelter && (() => {
+          const status = state.autoSmelters?.[asset.id]?.status ?? "IDLE";
+          const statusColor = status === "PROCESSING"
+            ? "#22c55e"
+            : status === "OUTPUT_BLOCKED" || status === "NO_POWER" || status === "MISCONFIGURED"
+              ? "#ef4444"
+              : "#9ca3af";
+          const dir = asset.direction ?? "east";
+          const inputBox =
+            dir === "east"
+              ? { left: -CELL_PX, top: 0 }
+              : dir === "west"
+                ? { left: w, top: 0 }
+                : dir === "north"
+                  ? { left: 0, top: h }
+                  : { left: 0, top: -CELL_PX };
+          const outputBox =
+            dir === "east"
+              ? { left: w, top: 0 }
+              : dir === "west"
+                ? { left: -CELL_PX, top: 0 }
+                : dir === "north"
+                  ? { left: 0, top: -CELL_PX }
+                  : { left: 0, top: h };
+          return (
+            <>
+              <div style={{ position: "absolute", left: inputBox.left, top: inputBox.top, width: CELL_PX, height: CELL_PX, border: "2px dashed rgba(80,160,255,0.9)", borderRadius: 6, pointerEvents: "none", zIndex: 4 }} />
+              <div style={{ position: "absolute", left: outputBox.left, top: outputBox.top, width: CELL_PX, height: CELL_PX, border: "2px dashed rgba(255,200,80,0.9)", borderRadius: 6, pointerEvents: "none", zIndex: 4 }} />
+              <div style={{ position: "absolute", left: 2, top: 2, width: 10, height: 10, borderRadius: "50%", background: statusColor, border: "1px solid rgba(0,0,0,0.6)", zIndex: 5 }} />
+            </>
+          );
+        })()}
         {/* Auto-miner progress arc */}
         {minerEntry !== null && minerEntry !== undefined && (
           <div style={{
@@ -357,7 +434,7 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
   for (const asset of Object.values(state.assets)) {
     if (asset.type !== "warehouse") continue;
     const inputX = asset.x;
-    const inputY = asset.y + asset.size; // directly below bottom-left cell
+    const inputY = asset.y + assetH(asset); // directly below bottom-left cell
     if (inputX >= GRID_W || inputY >= GRID_H) continue;
     // Viewport culling
     if (inputX < minCellX || inputX > maxCellX || inputY < minCellY || inputY > maxCellY) continue;
@@ -369,34 +446,77 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
       tileAsset?.type === "conveyor" &&
       isValidWarehouseInput(tileAsset.x, tileAsset.y, tileAsset.direction ?? "east", asset);
 
-    assetElements.push(
-      <div
-        key={`wh-input-${asset.id}`}
-        style={{
-          position: "absolute",
-          left: inputX * CELL_PX,
-          top: inputY * CELL_PX,
-          width: CELL_PX,
-          height: CELL_PX,
-          pointerEvents: "none",
-          zIndex: 1,
-        }}
-      >
-        <img
-          src={WAREHOUSE_INPUT_SPRITE}
-          alt="Lagerhaus Eingang"
-          draggable={false}
+    warehouseMarkers.push({
+      id: asset.id,
+      x: inputX,
+      y: inputY,
+      hasFeedingBelt,
+    });
+  }
+
+  // Render warehouse input markers in React
+  const warehouseMarkerElements = warehouseMarkers.map((m) => (
+    <div
+      key={`wh-marker-${m.id}`}
+      style={{
+        position: "absolute",
+        left: m.x * CELL_PX,
+        top: m.y * CELL_PX,
+        width: CELL_PX,
+        height: CELL_PX,
+        zIndex: 2,
+      }}
+    >
+      {m.hasFeedingBelt && (
+        <div
           style={{
-            width: CELL_PX,
-            height: CELL_PX,
-            imageRendering: "pixelated",
-            opacity: hasFeedingBelt ? 0.6 : 0.85,
-            filter: hasFeedingBelt ? "drop-shadow(0 0 4px #ffd700)" : "none",
+            position: "absolute",
+            inset: 5,
+            border: "2px solid rgba(255,215,0,0.7)",
+            background: "rgba(255,215,0,0.16)",
+            borderRadius: 4,
+            pointerEvents: "none",
           }}
         />
-      </div>
-    );
-  }
+      )}
+      <img
+        src={WAREHOUSE_INPUT_SPRITE}
+        alt=""
+        draggable={false}
+        style={{
+          width: CELL_PX,
+          height: CELL_PX,
+          opacity: m.hasFeedingBelt ? 0.6 : 0.85,
+          pointerEvents: "none",
+          imageRendering: "pixelated",
+        }}
+      />
+    </div>
+  ));
+
+  const worldTransformStyle: React.CSSProperties = {
+    position: "absolute",
+    left: cam.x,
+    top: cam.y,
+    width: WORLD_W,
+    height: WORLD_H,
+    transform: `scale(${zoom})`,
+    transformOrigin: "0 0",
+  };
+
+  const worldCanvasLayerStyle: React.CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    zIndex: 0,
+    pointerEvents: "none",
+  };
+
+  const worldOverlayLayerStyle: React.CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    zIndex: 2,
+    pointerEvents: "none",
+  };
 
   // Hover highlight for building placement
   const slot = state.hotbarSlots[state.activeSlot];
@@ -408,8 +528,14 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
 
   if (isPlacingBuilding && hover && !dragging) {
     const { x, y } = hover;
-    const bSize: 1 | 2 = (activeBuildingType && BUILDING_SIZES[activeBuildingType]) ?? 2;
-    let valid = x >= 0 && y >= 0 && x + bSize <= GRID_W && y + bSize <= GRID_H;
+    const isAutoSmelterPlacement = activeBuildingType === "auto_smelter";
+    const bWidth: 1 | 2 = isAutoSmelterPlacement
+      ? (buildDirection === "east" || buildDirection === "west" ? 2 : 1)
+      : ((activeBuildingType && BUILDING_SIZES[activeBuildingType]) ?? 2);
+    const bHeight: 1 | 2 = isAutoSmelterPlacement
+      ? (buildDirection === "east" || buildDirection === "west" ? 1 : 2)
+      : ((activeBuildingType && BUILDING_SIZES[activeBuildingType]) ?? 2);
+    let valid = x >= 0 && y >= 0 && x + bWidth <= GRID_W && y + bHeight <= GRID_H;
 
     if (valid && activeBuildingType === "auto_miner") {
       // Auto-miner: must be placed on a deposit cell with no existing miner
@@ -422,26 +548,42 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
       }
     } else if (valid) {
       // Normal cell collision check
-      for (let dy = 0; dy < bSize && valid; dy++) {
-        for (let dx = 0; dx < bSize && valid; dx++) {
+      for (let dy = 0; dy < bHeight && valid; dy++) {
+        for (let dx = 0; dx < bWidth && valid; dx++) {
           if (state.cellMap[cellKey(x + dx, y + dy)]) valid = false;
         }
       }
     }
     if (valid && activeBuildingType && REQUIRES_STONE_FLOOR.has(activeBuildingType)) {
-      for (let dy = 0; dy < bSize && valid; dy++) {
-        for (let dx = 0; dx < bSize && valid; dx++) {
+      for (let dy = 0; dy < bHeight && valid; dy++) {
+        for (let dx = 0; dx < bWidth && valid; dx++) {
           if (!state.floorMap[cellKey(x + dx, y + dy)]) valid = false;
         }
       }
     }
 
     // Direction arrow label for directional buildings
-    const isDirectional = activeBuildingType === "auto_miner" || activeBuildingType === "conveyor" || activeBuildingType === "conveyor_corner";
+    const isDirectional = activeBuildingType === "auto_miner" || activeBuildingType === "conveyor" || activeBuildingType === "conveyor_corner" || activeBuildingType === "auto_smelter";
     const dirLabels: Record<Direction, string> = { north: "↑ Nord", east: "→ Ost", south: "↓ Süd", west: "← West" };
     const [aDx, aDy] = directionOffset(buildDirection);
     const arrowX = (x + aDx) * CELL_PX;
     const arrowY = (y + aDy) * CELL_PX;
+    const ghostInput =
+      buildDirection === "east"
+        ? { left: x * CELL_PX - CELL_PX, top: y * CELL_PX }
+        : buildDirection === "west"
+          ? { left: (x + bWidth) * CELL_PX, top: y * CELL_PX }
+          : buildDirection === "north"
+            ? { left: x * CELL_PX, top: (y + bHeight) * CELL_PX }
+            : { left: x * CELL_PX, top: y * CELL_PX - CELL_PX };
+    const ghostOutput =
+      buildDirection === "east"
+        ? { left: (x + bWidth) * CELL_PX, top: y * CELL_PX }
+        : buildDirection === "west"
+          ? { left: x * CELL_PX - CELL_PX, top: y * CELL_PX }
+          : buildDirection === "north"
+            ? { left: x * CELL_PX, top: y * CELL_PX - CELL_PX }
+            : { left: x * CELL_PX, top: (y + bHeight) * CELL_PX };
 
     const placementBox = (
       <>
@@ -451,11 +593,11 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
             position: "absolute",
             left: x * CELL_PX,
             top: y * CELL_PX,
-            width: bSize * CELL_PX,
-            height: bSize * CELL_PX,
+            width: bWidth * CELL_PX,
+            height: bHeight * CELL_PX,
             background: valid ? "rgba(0, 255, 0, 0.25)" : "rgba(255, 0, 0, 0.25)",
             border: valid ? "2px solid rgba(0,255,0,0.6)" : "2px solid rgba(255,0,0,0.6)",
-            borderRadius: bSize === 2 ? 8 : 6,
+            borderRadius: bWidth === 2 || bHeight === 2 ? 8 : 6,
             zIndex: 10,
             pointerEvents: "none",
           }}
@@ -493,6 +635,89 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
             >
               Richtung: {dirLabels[buildDirection]} (R)
             </div>
+            {isAutoSmelterPlacement && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: x * CELL_PX,
+                  top: y * CELL_PX - 36,
+                  background: "rgba(0,0,0,0.75)",
+                  color: "#ddd",
+                  fontSize: 10,
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  zIndex: 11,
+                  pointerEvents: "none",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                IN: blau, OUT: gelb
+              </div>
+            )}
+            {isAutoSmelterPlacement && (
+              <>
+                <div
+                  style={{
+                    position: "absolute",
+                    left: ghostInput.left,
+                    top: ghostInput.top,
+                    width: CELL_PX,
+                    height: CELL_PX,
+                    border: "2px dashed rgba(80,160,255,0.9)",
+                    borderRadius: 6,
+                    background: "rgba(80,160,255,0.12)",
+                    zIndex: 10,
+                    pointerEvents: "none",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    left: ghostOutput.left,
+                    top: ghostOutput.top,
+                    width: CELL_PX,
+                    height: CELL_PX,
+                    border: "2px dashed rgba(255,200,80,0.9)",
+                    borderRadius: 6,
+                    background: "rgba(255,200,80,0.12)",
+                    zIndex: 10,
+                    pointerEvents: "none",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    left: ghostInput.left + 6,
+                    top: ghostInput.top + 4,
+                    fontSize: 11,
+                    color: "#9cd3ff",
+                    background: "rgba(0,0,0,0.7)",
+                    padding: "1px 4px",
+                    borderRadius: 4,
+                    zIndex: 11,
+                    pointerEvents: "none",
+                  }}
+                >
+                  IN
+                </div>
+                <div
+                  style={{
+                    position: "absolute",
+                    left: ghostOutput.left + 4,
+                    top: ghostOutput.top + 4,
+                    fontSize: 11,
+                    color: "#ffd28a",
+                    background: "rgba(0,0,0,0.7)",
+                    padding: "1px 4px",
+                    borderRadius: 4,
+                    zIndex: 11,
+                    pointerEvents: "none",
+                  }}
+                >
+                  OUT
+                </div>
+              </>
+            )}
           </>
         )}
       </>
@@ -511,8 +736,8 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
       const rangeConnectedElements: React.ReactNode[] = [];
       for (const asset of Object.values(state.assets)) {
         let inRange = false;
-        for (let cy = 0; cy < asset.size && !inRange; cy++) {
-          for (let cx = 0; cx < asset.size && !inRange; cx++) {
+        for (let cy = 0; cy < assetH(asset) && !inRange; cy++) {
+          for (let cx = 0; cx < assetW(asset) && !inRange; cx++) {
             const dx = Math.abs((asset.x + cx) - x);
             const dy = Math.abs((asset.y + cy) - y);
             if (Math.max(dx, dy) <= POWER_POLE_RANGE) inRange = true;
@@ -526,8 +751,8 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
               position: "absolute",
               left: asset.x * CELL_PX + 2,
               top: asset.y * CELL_PX + 2,
-              width: asset.size * CELL_PX - 4,
-              height: asset.size * CELL_PX - 4,
+              width: assetW(asset) * CELL_PX - 4,
+              height: assetH(asset) * CELL_PX - 4,
               border: "2px dashed rgba(255, 200, 0, 0.8)",
               borderRadius: 6,
               zIndex: 9,
@@ -608,8 +833,8 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
       for (const asset of Object.values(state.assets)) {
         if (asset.id === hoveredId) continue;
         let inRange = false;
-        for (let cy = 0; cy < asset.size && !inRange; cy++) {
-          for (let cx = 0; cx < asset.size && !inRange; cx++) {
+        for (let cy = 0; cy < assetH(asset) && !inRange; cy++) {
+          for (let cx = 0; cx < assetW(asset) && !inRange; cx++) {
             const dx = Math.abs((asset.x + cx) - x);
             const dy = Math.abs((asset.y + cy) - y);
             if (Math.max(dx, dy) <= POWER_POLE_RANGE) inRange = true;
@@ -624,8 +849,8 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
               position: "absolute",
               left: asset.x * CELL_PX + 2,
               top: asset.y * CELL_PX + 2,
-              width: asset.size * CELL_PX - 4,
-              height: asset.size * CELL_PX - 4,
+              width: assetW(asset) * CELL_PX - 4,
+              height: assetH(asset) * CELL_PX - 4,
               border: `2px dashed ${isConn ? "rgba(0,255,100,0.8)" : "rgba(255,80,80,0.7)"}`,
               borderRadius: 6,
               zIndex: 9,
@@ -676,57 +901,23 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
         background: "#1a3a1a",
       }}
     >
-      <div
-        style={{
-          position: "absolute",
-          left: cam.x,
-          top: cam.y,
-          width: WORLD_W,
-          height: WORLD_H,
-          transform: `scale(${zoom})`,
-          transformOrigin: "0 0",
-        }}
-      >
+      <div style={worldTransformStyle}>
+        {/* Phaser world layer: shares the same world transform as all React world overlays. */}
+        <div style={worldCanvasLayerStyle}>
+          <PhaserHost floorMap={state.floorMap} />
+        </div>
+
+        {/* React world overlays: intentionally share the exact same transformed world root. */}
+        <div style={worldOverlayLayerStyle}>
+          {warehouseMarkerElements}
+        </div>
+
         {/* Grid lines & coordinates */}
         <svg
           width={WORLD_W}
           height={WORLD_H}
           style={{ position: "absolute", top: 0, left: 0, zIndex: 0 }}
         >
-          {/* Grid cells – pixel-art grass tiles (viewport-culled) */}
-          {Array.from({ length: maxCellY - minCellY + 1 }, (_, iy) =>
-            Array.from({ length: maxCellX - minCellX + 1 }, (_, ix) => {
-              const x = minCellX + ix;
-              const y = minCellY + iy;
-              return (
-                <image
-                  key={`${x},${y}`}
-                  href={GRASS_TILE_SPRITES[(x + y) % 2]}
-                  x={x * CELL_PX}
-                  y={y * CELL_PX}
-                  width={CELL_PX}
-                  height={CELL_PX}
-                  style={{ imageRendering: "pixelated" }}
-                />
-              );
-            })
-          )}
-          {/* Stone floor tiles (viewport-culled) */}
-          {Object.entries(state.floorMap).map(([key]) => {
-            const [gx, gy] = key.split(",").map(Number);
-            if (gx < minCellX || gx > maxCellX || gy < minCellY || gy > maxCellY) return null;
-            return (
-              <image
-                key={`floor-${key}`}
-                href={FLOOR_SPRITES.stone_floor}
-                x={gx * CELL_PX}
-                y={gy * CELL_PX}
-                width={CELL_PX}
-                height={CELL_PX}
-                style={{ imageRendering: "pixelated" }}
-              />
-            );
-          })}
         </svg>
 
         {/* Assets */}

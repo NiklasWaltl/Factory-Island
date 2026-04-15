@@ -1,10 +1,10 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import FactoryGame from "../../features/builder/FactoryGame";
+import FactoryApp from "./FactoryApp";
 
 const root = document.getElementById("root")!;
 createRoot(root).render(
   <React.StrictMode>
-    <FactoryGame />
+    <FactoryApp />
   </React.StrictMode>,
 );

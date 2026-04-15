@@ -1,5 +1,5 @@
-import React from "react";
-import type { GameState, GameAction, BuildingType } from "../../game/simulation/game";
+﻿import React from "react";
+import type { GameState, GameAction, BuildingType } from "../../simulation/game";
 
 interface HotbarProps {
   state: GameState;

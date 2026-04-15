@@ -16,9 +16,9 @@ module.exports = {
 
   // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
   moduleNameMapper: {
-    "^lib/(.*)": "<rootDir>/src/lib/$1",
-    "^features/(.*)": "<rootDir>/src/features/$1",
-    "^components/(.*)": "<rootDir>/src/components/$1",
+    "^lib/(.*)": "<rootDir>/src/core/lib/$1",
+    "^features/(.*)": ["<rootDir>/src/core/features/$1", "<rootDir>/src/features/$1"],
+    "^components/(.*)": "<rootDir>/src/core/components/$1",
     "^assets/(.*)": "<rootDir>/test/fileTransform.js",
 
     ".+\\.(css|styl|less|sass|scss|png|jpg|ttf|woff|woff2)$":

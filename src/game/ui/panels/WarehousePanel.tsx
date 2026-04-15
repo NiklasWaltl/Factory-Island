@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import {
   RESOURCE_LABELS,
   RESOURCE_EMOJIS,
@@ -6,7 +6,7 @@ import {
   type GameState,
   type GameAction,
   type Inventory,
-} from "../../game/simulation/game";
+} from "../../simulation/game";
 
 interface WarehousePanelProps {
   state: GameState;

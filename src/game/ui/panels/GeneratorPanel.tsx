@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import {
   GENERATOR_TICKS_PER_WOOD,
   GENERATOR_ENERGY_PER_TICK,
@@ -7,7 +7,7 @@ import {
   ENERGY_DRAIN,
   type GameState,
   type GameAction,
-} from "../../game/simulation/game";
+} from "../../simulation/game";
 
 interface GeneratorPanelProps {
   state: GameState;

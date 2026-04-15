@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import {
   CELL_PX,
   GRID_W,
@@ -10,7 +10,7 @@ import {
   ENERGY_NET_TICK_MS,
   type GameState,
   type PlacedAsset,
-} from "../../game/simulation/game";
+} from "../../simulation/game";
 
 const WORLD_W = GRID_W * CELL_PX;
 const WORLD_H = GRID_H * CELL_PX;
@@ -54,6 +54,8 @@ function getEnergyStats(state: GameState): EnergyStats {
  * - Production vs. consumption HUD
  */
 export const EnergyDebugOverlay: React.FC<EnergyDebugOverlayProps> = ({ state }) => {
+    const aw = (asset: PlacedAsset) => asset.width ?? asset.size;
+    const ah = (asset: PlacedAsset) => asset.height ?? asset.size;
   const allAssets = Object.values(state.assets);
   const connectedSet = new Set(state.connectedAssetIds);
   const poweredSet = new Set(state.poweredMachineIds ?? []);
@@ -129,8 +131,8 @@ export const EnergyDebugOverlay: React.FC<EnergyDebugOverlayProps> = ({ state })
 
         {/* Generator markers */}
         {generators.map((gen) => {
-          const cx = (gen.x + gen.size / 2) * CELL_PX;
-          const cy = (gen.y + gen.size / 2) * CELL_PX;
+          const cx = (gen.x + aw(gen) / 2) * CELL_PX;
+          const cy = (gen.y + ah(gen) / 2) * CELL_PX;
           return (
             <React.Fragment key={`gen-${gen.id}`}>
               <circle
@@ -159,8 +161,8 @@ export const EnergyDebugOverlay: React.FC<EnergyDebugOverlayProps> = ({ state })
           if (!color) return null;
           const px = asset.x * CELL_PX;
           const py = asset.y * CELL_PX;
-          const w = asset.size * CELL_PX;
-          const h = asset.size * CELL_PX;
+          const w = aw(asset) * CELL_PX;
+          const h = ah(asset) * CELL_PX;
           return (
             <rect
               key={`consumer-${asset.id}`}
@@ -180,8 +182,8 @@ export const EnergyDebugOverlay: React.FC<EnergyDebugOverlayProps> = ({ state })
         {allAssets
           .filter((a) => a.type === "battery")
           .map((bat) => {
-            const cx = (bat.x + bat.size / 2) * CELL_PX;
-            const cy = (bat.y + bat.size / 2) * CELL_PX;
+            const cx = (bat.x + aw(bat) / 2) * CELL_PX;
+            const cy = (bat.y + ah(bat) / 2) * CELL_PX;
             const pct = state.battery.capacity > 0
               ? Math.round((state.battery.stored / state.battery.capacity) * 100)
               : 0;

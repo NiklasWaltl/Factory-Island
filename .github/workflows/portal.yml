@@ -1,5 +1,5 @@
-# Example Portal Deploy
-name: Portal deploy
+# Factory Island – Portal Deploy
+name: Factory Island portal deploy
 
 on:
   push:
@@ -37,7 +37,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=6144
           CI: false
 
-          VITE_PORTAL_APP: "portal-example"
+          VITE_PORTAL_APP: "factory-island"
           VITE_CLIENT_VERSION: ${{ steps.date.outputs.date }}
           VITE_RELEASE_VERSION: ${{ steps.get_version.outputs.VERSION }}
           VITE_PRIVATE_IMAGE_URL: "https://sunflower-land.com/game-assets"
@@ -52,4 +52,4 @@ jobs:
           aws-region: ap-southeast-2
 
       - name: Deploy static site to S3 subdomain
-        run: aws s3 sync ./dist/ s3://portal-example.sunflower-land.com --delete
+        run: aws s3 sync ./dist/ s3://factory-island.sunflower-land.com --delete

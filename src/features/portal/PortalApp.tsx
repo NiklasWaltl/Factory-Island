@@ -8,11 +8,11 @@
  * The override mechanism:
  *   src/core/main.tsx imports "features/portal/PortalApp"
  *   → Vite alias redirects to this file (src/features/portal/PortalApp.tsx)
- *   → This renders FactoryGame directly
+ *   → This renders FactoryApp directly
  */
 import React from "react";
-import FactoryGame from "../builder/FactoryGame";
+import FactoryApp from "../../game/entry/FactoryApp";
 
 export const PortalApp: React.FC = () => {
-  return <FactoryGame />;
+  return <FactoryApp />;
 };

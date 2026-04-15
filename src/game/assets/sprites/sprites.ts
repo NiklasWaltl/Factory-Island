@@ -588,6 +588,23 @@ function makeManualAssembler(): string {
   return svgURI(64, 64, s);
 }
 
+function makeAutoSmelter(): string {
+  let s = "";
+  // 2x1 machine body
+  s += r(2, 8, 60, 24, "#6c1616");
+  s += r(4, 10, 56, 20, "#a62828");
+  // Furnace chamber
+  s += r(10, 14, 18, 12, "#2a0909");
+  s += r(12, 16, 14, 8, "#ff6a00");
+  // Conveyor-facing ports
+  s += r(0, 16, 6, 8, "#444");
+  s += r(58, 16, 6, 8, "#444");
+  // Accent / status strip
+  s += r(30, 12, 24, 4, "#ffd166");
+  s += r(30, 24, 24, 3, "#1a1a2e");
+  return svgURI(64, 32, s);
+}
+
 // ---------------------------------------------------------------------------
 // WAREHOUSE INPUT TILE  (32×32 SVG)
 // ---------------------------------------------------------------------------
@@ -644,6 +661,7 @@ export const ASSET_SPRITES: Record<AssetType, string> = {
   conveyor: makeConveyor(),
   conveyor_corner: makeConveyorCorner(),
   manual_assembler: makeManualAssembler(),
+  auto_smelter: makeAutoSmelter(),
 };
 
 /** Grass tile variants (0 / 1 for checkerboard) */

@@ -1,5 +1,5 @@
-import React from "react";
-import { RESOURCE_EMOJIS, type GameNotification } from "../../game/simulation/game";
+﻿import React from "react";
+import { RESOURCE_EMOJIS, type GameNotification } from "../../simulation/game";
 
 interface NotificationsProps {
   notifications: GameNotification[];

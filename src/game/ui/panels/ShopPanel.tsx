@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import {
   BUILDING_COSTS,
   BUILDING_LABELS,
@@ -7,7 +7,7 @@ import {
   type GameState,
   type GameAction,
   type BuildingType,
-} from "../../game/simulation/game";
+} from "../../simulation/game";
 
 interface ShopPanelProps {
   state: GameState;

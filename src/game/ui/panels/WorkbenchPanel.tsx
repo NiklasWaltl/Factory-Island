@@ -1,11 +1,11 @@
-import React from "react";
+﻿import React from "react";
 import {
-  WORKBENCH_RECIPES,
   RESOURCE_LABELS,
   RESOURCE_EMOJIS,
   type GameState,
   type GameAction,
-} from "../../game/simulation/game";
+} from "../../simulation/game";
+import { WORKBENCH_RECIPES } from "../../simulation/recipes";
 
 interface WorkbenchPanelProps {
   state: GameState;

@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import {
   POWER_POLE_RANGE,
   ASSET_EMOJIS,
@@ -6,7 +6,7 @@ import {
   type GameState,
   type GameAction,
   type AssetType,
-} from "../../game/simulation/game";
+} from "../../simulation/game";
 
 interface PowerPolePanelProps {
   state: GameState;
@@ -18,11 +18,13 @@ const NETWORK_ASSET_TYPES = new Set<AssetType>(["generator", "cable", "battery",
 function assetInPoleRange(
   poleX: number,
   poleY: number,
-  candidate: { x: number; y: number; size: 1 | 2 },
+  candidate: { x: number; y: number; size: 1 | 2; width?: 1 | 2; height?: 1 | 2 },
   range: number
 ): boolean {
-  for (let cy = 0; cy < candidate.size; cy++) {
-    for (let cx = 0; cx < candidate.size; cx++) {
+  const w = candidate.width ?? candidate.size;
+  const h = candidate.height ?? candidate.size;
+  for (let cy = 0; cy < h; cy++) {
+    for (let cx = 0; cx < w; cx++) {
       const dx = Math.abs((candidate.x + cx) - poleX);
       const dy = Math.abs((candidate.y + cy) - poleY);
       if (Math.max(dx, dy) <= range) return true;

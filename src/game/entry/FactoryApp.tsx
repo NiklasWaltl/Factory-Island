@@ -9,23 +9,26 @@ import {
   ENERGY_NET_TICK_MS,
   LOGISTICS_TICK_MS,
   type GameMode,
-} from "../../game/simulation/game";
-import { ModeSelect } from "../../ui/menus/ModeSelect";
-import { Grid } from "../../game/grid/Grid";
-import { Hotbar } from "../../ui/hud/Hotbar";
-import { MapShopPanel } from "../../ui/panels/MapShopPanel";
-import { WorkbenchPanel } from "../../ui/panels/WorkbenchPanel";
-import { WarehousePanel } from "../../ui/panels/WarehousePanel";
-import { SmithyPanel } from "../../ui/panels/SmithyPanel";
-import { GeneratorPanel } from "../../ui/panels/GeneratorPanel";
-import { BatteryPanel } from "../../ui/panels/BatteryPanel";
-import { PowerPolePanel } from "../../ui/panels/PowerPolePanel";
-import { AutoMinerPanel } from "../../ui/panels/AutoMinerPanel";
-import { ManualAssemblerPanel } from "../../ui/panels/ManualAssemblerPanel";
-import { BuildMenu } from "../../ui/menus/BuildMenu";
-import { Notifications } from "../../ui/hud/Notifications";
-import { ResourceBar } from "../../ui/hud/ResourceBar";
-import "../../ui/styles/factory-game.css";
+  type GameState,
+  type ConveyorItem,
+} from "../simulation/game";
+import { ModeSelect } from "../ui/menus/ModeSelect";
+import { Grid } from "../grid/Grid";
+import { Hotbar } from "../ui/hud/Hotbar";
+import { MapShopPanel } from "../ui/panels/MapShopPanel";
+import { WorkbenchPanel } from "../ui/panels/WorkbenchPanel";
+import { WarehousePanel } from "../ui/panels/WarehousePanel";
+import { SmithyPanel } from "../ui/panels/SmithyPanel";
+import { GeneratorPanel } from "../ui/panels/GeneratorPanel";
+import { BatteryPanel } from "../ui/panels/BatteryPanel";
+import { PowerPolePanel } from "../ui/panels/PowerPolePanel";
+import { AutoMinerPanel } from "../ui/panels/AutoMinerPanel";
+import { AutoSmelterPanel } from "../ui/panels/AutoSmelterPanel";
+import { ManualAssemblerPanel } from "../ui/panels/ManualAssemblerPanel";
+import { BuildMenu } from "../ui/menus/BuildMenu";
+import { Notifications } from "../ui/hud/Notifications";
+import { ResourceBar } from "../ui/hud/ResourceBar";
+import "../ui/styles/factory-game.css";
 
 // Debug system (tree-shaken in production)
 import {
@@ -38,10 +41,64 @@ import {
   getHmrModules,
   getHmrStatus,
   debugLog,
-} from "./debug";
-import type { MockAction } from "./debug";
+} from "../debug";
+import type { MockAction } from "../debug";
 
 const SAVE_KEY = "factory-island-save";
+
+function normalizeLoadedState(raw: unknown, mode: GameMode): GameState {
+  const base = createInitialState(mode);
+  if (!raw || typeof raw !== "object") return base;
+  const data = raw as Record<string, unknown>;
+
+  const conveyorItems: ConveyorItem[] = ["stone", "iron", "copper", "ironIngot", "copperIngot", "metalPlate", "gear"];
+  const isConveyorItem = (value: unknown): value is ConveyorItem =>
+    typeof value === "string" && conveyorItems.includes(value as ConveyorItem);
+
+  const normalizedConveyors: Record<string, { queue: ConveyorItem[] }> = {};
+  const conveyorsRaw = data.conveyors;
+  if (conveyorsRaw && typeof conveyorsRaw === "object") {
+    for (const [id, value] of Object.entries(conveyorsRaw as Record<string, unknown>)) {
+      const conv = value as { queue?: unknown[]; item?: unknown } | null;
+      if (conv && Array.isArray(conv.queue)) {
+        normalizedConveyors[id] = { queue: conv.queue.filter(isConveyorItem) };
+      } else if (conv && isConveyorItem(conv.item)) {
+        normalizedConveyors[id] = { queue: [conv.item] };
+      } else {
+        normalizedConveyors[id] = { queue: [] };
+      }
+    }
+  }
+
+  const autoSmelters = data.autoSmelters && typeof data.autoSmelters === "object"
+    ? Object.entries(data.autoSmelters as Record<string, unknown>).reduce((acc, [id, smelter]) => {
+        const smelterObj = (smelter as any) || {};
+        acc[id] = {
+          ...smelterObj,
+          selectedRecipe: (smelterObj.selectedRecipe === "iron" || smelterObj.selectedRecipe === "copper")
+            ? smelterObj.selectedRecipe
+            : "iron",
+        };
+        return acc;
+      }, {} as GameState["autoSmelters"])
+    : {};
+
+  const machinePowerRatio = data.machinePowerRatio && typeof data.machinePowerRatio === "object"
+    ? (data.machinePowerRatio as Record<string, number>)
+    : {};
+
+  return {
+    ...base,
+    ...data,
+    conveyors: {
+      ...base.conveyors,
+      ...normalizedConveyors,
+    },
+    autoSmelters,
+    selectedAutoSmelterId: (data.selectedAutoSmelterId as string | null | undefined) ?? null,
+    machinePowerRatio,
+  };
+}
 
 /* Error boundary to prevent white-screen crashes */
 class GameErrorBoundary extends React.Component<
@@ -85,13 +142,13 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
     (m) => {
       if (IS_DEV) {
         const hmr = loadHmrState();
-        if (hmr) return hmr;
+        if (hmr) return normalizeLoadedState(hmr, m);
       }
       try {
         const saved = localStorage.getItem(SAVE_KEY);
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (parsed && parsed.mode === m) return parsed;
+          if (parsed && parsed.mode === m) return normalizeLoadedState(parsed, m);
         }
       } catch { /* corrupt save, ignore */ }
       return createInitialState(m);
@@ -280,6 +337,9 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
       )}
       {state.openPanel === "auto_miner" && (
         <AutoMinerPanel state={state} dispatch={dispatch} />
+      )}
+      {state.openPanel === "auto_smelter" && (
+        <AutoSmelterPanel state={state} dispatch={dispatch} />
       )}
       {state.openPanel === "manual_assembler" && (
         <ManualAssemblerPanel state={state} dispatch={dispatch} />

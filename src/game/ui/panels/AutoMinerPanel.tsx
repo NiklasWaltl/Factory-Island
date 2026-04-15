@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+﻿import React, { useEffect, useRef } from "react";
 import {
   AUTO_MINER_PRODUCE_TICKS,
   DEFAULT_MACHINE_PRIORITY,
@@ -6,7 +6,7 @@ import {
   type GameState,
   type GameAction,
   type MachinePriority,
-} from "../../game/simulation/game";
+} from "../../simulation/game";
 
 interface AutoMinerPanelProps {
   state: GameState;

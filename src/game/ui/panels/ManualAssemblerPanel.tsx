@@ -1,11 +1,11 @@
-import React from "react";
+﻿import React from "react";
 import {
   MANUAL_ASSEMBLER_PROCESS_MS,
   RESOURCE_EMOJIS,
   RESOURCE_LABELS,
   type GameAction,
   type GameState,
-} from "../../game/simulation/game";
+} from "../../simulation/game";
 
 interface ManualAssemblerPanelProps {
   state: GameState;

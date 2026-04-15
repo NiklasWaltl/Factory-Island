@@ -2,7 +2,13 @@
 // Factory Island - Game State & Logic
 // ============================================================
 
-import { debugLog } from "../../features/builder/debug/debugLogger";
+import { debugLog } from "../debug/debugLogger";
+import {
+  getManualAssemblerRecipe,
+  getSmeltingRecipe,
+  getWorkbenchRecipe,
+  SMELTING_RECIPES,
+} from "./recipes";
 
 export type GameMode = "release" | "debug";
 
@@ -26,9 +32,10 @@ export type AssetType =
   | "auto_miner"
   | "conveyor"
   | "conveyor_corner"
-  | "manual_assembler";
+  | "manual_assembler"
+  | "auto_smelter";
 
-export type BuildingType = "workbench" | "warehouse" | "smithy" | "generator" | "cable" | "battery" | "power_pole" | "auto_miner" | "conveyor" | "conveyor_corner" | "manual_assembler";
+export type BuildingType = "workbench" | "warehouse" | "smithy" | "generator" | "cable" | "battery" | "power_pole" | "auto_miner" | "conveyor" | "conveyor_corner" | "manual_assembler" | "auto_smelter";
 
 /** Floor tiles that can be placed on the ground layer */
 export type FloorTileType = "stone_floor" | "grass_block";
@@ -41,6 +48,8 @@ export interface PlacedAsset {
   x: number;
   y: number;
   size: 1 | 2;
+  width?: 1 | 2;
+  height?: 1 | 2;
   fixed?: boolean;
   direction?: Direction;
   /** Energy scheduling priority (1 highest, 5 lowest) for consumer machines */
@@ -69,6 +78,7 @@ export interface Inventory {
   battery: number;
   power_pole: number;
   manual_assembler: number;
+  auto_smelter: number;
 }
 
 export type ToolKind =
@@ -114,6 +124,44 @@ export interface AutoMinerEntry {
   progress: number;
 }
 
+export type ConveyorItem =
+  | "stone"
+  | "iron"
+  | "copper"
+  | "ironIngot"
+  | "copperIngot"
+  | "metalPlate"
+  | "gear";
+
+export interface ConveyorState {
+  queue: ConveyorItem[];
+}
+
+export type AutoSmelterStatus =
+  | "IDLE"
+  | "PROCESSING"
+  | "OUTPUT_BLOCKED"
+  | "NO_POWER"
+  | "MISCONFIGURED";
+
+export interface AutoSmelterProcessing {
+  inputItem: ConveyorItem;
+  outputItem: ConveyorItem;
+  progressMs: number;
+  durationMs: number;
+}
+
+export interface AutoSmelterEntry {
+  inputBuffer: ConveyorItem[];
+  processing: AutoSmelterProcessing | null;
+  pendingOutput: ConveyorItem[];
+  status: AutoSmelterStatus;
+  lastRecipeInput: string | null;
+  lastRecipeOutput: string | null;
+  throughputEvents: number[];
+  selectedRecipe: "iron" | "copper";
+}
+
 export type UIPanel =
   | "map_shop"
   | "building_shop"
@@ -124,6 +172,7 @@ export type UIPanel =
   | "battery"
   | "power_pole"
   | "auto_miner"
+  | "auto_smelter"
   | "manual_assembler"
   | null;
 
@@ -196,11 +245,17 @@ export interface GameState {
   /** Per-auto-miner production state (keyed by asset ID) */
   autoMiners: Record<string, AutoMinerEntry>;
   /** Per-conveyor item state (keyed by asset ID) */
-  conveyors: Record<string, { item: "stone" | "iron" | "copper" | null }>;
+  conveyors: Record<string, ConveyorState>;
   /** ID of the auto-miner whose panel is currently open */
   selectedAutoMinerId: string | null;
+  /** Per-auto-smelter processing state (keyed by asset ID) */
+  autoSmelters: Record<string, AutoSmelterEntry>;
+  /** ID of the auto-smelter whose panel is currently open */
+  selectedAutoSmelterId: string | null;
   /** Manual assembler production state */
   manualAssembler: ManualAssemblerState;
+  /** Per-machine power ratio in [0,1] from the latest ENERGY_NET_TICK */
+  machinePowerRatio: Record<string, number>;
   /** Whether the energy debug overlay is visible */
   energyDebugOverlay: boolean;
 }
@@ -212,6 +267,7 @@ export interface GameState {
 export const GRID_W = 80;
 export const GRID_H = 50;
 export const CELL_PX = 64;
+export const CONVEYOR_TILE_CAPACITY = 4;
 
 export const BUILDING_COSTS: Record<
   BuildingType,
@@ -228,6 +284,7 @@ export const BUILDING_COSTS: Record<
   conveyor: { iron: 2 },
   conveyor_corner: { iron: 3 },
   manual_assembler: { wood: 10, ironIngot: 2 },
+  auto_smelter: { stone: 12, ironIngot: 4, copperIngot: 2 },
 };
 
 export const BUILDING_LABELS: Record<BuildingType, string> = {
@@ -242,6 +299,7 @@ export const BUILDING_LABELS: Record<BuildingType, string> = {
   conveyor: "Förderband",
   conveyor_corner: "Förderband-Ecke",
   manual_assembler: "Manueller Assembler",
+  auto_smelter: "Auto Smelter",
 };
 
 /** Grid size each building type occupies (1×1 or 2×2) */
@@ -257,10 +315,11 @@ export const BUILDING_SIZES: Record<BuildingType, 1 | 2> = {
   conveyor: 1,
   conveyor_corner: 1,
   manual_assembler: 2,
+  auto_smelter: 2,
 };
 
 /** Building types that can be purchased/placed multiple times */
-export const STACKABLE_BUILDINGS = new Set<BuildingType>(["cable", "power_pole", "auto_miner", "conveyor", "conveyor_corner"]);
+export const STACKABLE_BUILDINGS = new Set<BuildingType>(["cable", "power_pole", "auto_miner", "conveyor", "conveyor_corner", "auto_smelter"]);
 
 /** Floor tile costs (paid from inventory) */
 export const FLOOR_TILE_COSTS: Record<FloorTileType, Partial<Record<keyof Inventory, number>>> = {
@@ -307,6 +366,7 @@ export const ASSET_LABELS: Record<AssetType, string> = {
   conveyor: "Förderband",
   conveyor_corner: "Förderband-Ecke",
   manual_assembler: "Manueller Assembler",
+  auto_smelter: "Auto Smelter",
 };
 
 export const ASSET_COLORS: Record<AssetType, string> = {
@@ -330,6 +390,7 @@ export const ASSET_COLORS: Record<AssetType, string> = {
   conveyor: "#ffa500",
   conveyor_corner: "#ff8c00",
   manual_assembler: "#4da6ff",
+  auto_smelter: "#e64545",
 };
 
 export const ASSET_EMOJIS: Record<AssetType, string> = {
@@ -353,6 +414,7 @@ export const ASSET_EMOJIS: Record<AssetType, string> = {
   conveyor: "\u27A1\uFE0F",
   conveyor_corner: "\u21A9\uFE0F",
   manual_assembler: "\u{1F9F0}",
+  auto_smelter: "\u{1F525}",
 };
 
 /** 2\u00d72 infinite resource deposits (unbreakable, require Auto-Miner) */
@@ -431,20 +493,6 @@ export const MAP_SHOP_ITEMS: MapShopItem[] = [
   { key: "axe", label: "Axt", emoji: "\u{1FA93}", costCoins: 10, inventoryKey: "axe" },
 ];
 
-export interface WorkbenchRecipe {
-  key: string;
-  label: string;
-  emoji: string;
-  costs: Partial<Record<keyof Inventory, number>>;
-  outputKey: keyof Inventory;
-  outputAmount: number;
-}
-
-export const WORKBENCH_RECIPES: WorkbenchRecipe[] = [
-  { key: "wood_pickaxe", label: "Holzspitzhacke", emoji: "\u26CF\uFE0F", costs: { wood: 5 }, outputKey: "wood_pickaxe", outputAmount: 1 },
-  { key: "stone_pickaxe", label: "Steinspitzhacke", emoji: "\u26CF\uFE0F", costs: { wood: 10, stone: 5 }, outputKey: "stone_pickaxe", outputAmount: 1 },
-];
-
 export const SAPLING_GROW_MS = 30_000;
 export const NATURAL_SPAWN_MS = 60_000;
 export const NATURAL_SPAWN_CHANCE = 0.2;
@@ -479,6 +527,7 @@ export const ENERGY_DRAIN: Record<string, number> = {
   auto_miner: 5,
   conveyor: 1,
   conveyor_corner: 1,
+  auto_smelter: 10,
 };
 
 export const DEFAULT_MACHINE_PRIORITY: MachinePriority = 3;
@@ -503,6 +552,11 @@ function withDefaultMachinePriority(type: AssetType): Pick<PlacedAsset, "priorit
 export const LOGISTICS_TICK_MS = 500;
 /** Number of logistics ticks for one auto-miner production cycle (6 × 500ms = 3s) */
 export const AUTO_MINER_PRODUCE_TICKS = 6;
+export const AUTO_SMELTER_BUFFER_CAPACITY = 5;
+export const AUTO_SMELTER_IDLE_ENERGY_PER_SEC = 5;
+export const AUTO_SMELTER_PROCESSING_ENERGY_PER_SEC = 30;
+export const AUTO_SMELTER_IDLE_DRAIN_PER_PERIOD = Math.round((AUTO_SMELTER_IDLE_ENERGY_PER_SEC * ENERGY_NET_TICK_MS) / 1000);
+export const AUTO_SMELTER_PROCESSING_DRAIN_PER_PERIOD = Math.round((AUTO_SMELTER_PROCESSING_ENERGY_PER_SEC * ENERGY_NET_TICK_MS) / 1000);
 
 /** Maps deposit asset type to the resource it produces */
 export const DEPOSIT_RESOURCE: Record<string, "stone" | "iron" | "copper"> = {
@@ -542,6 +596,7 @@ function createEmptyInventory(): Inventory {
     battery: 0,
     power_pole: 0,
     manual_assembler: 0,
+    auto_smelter: 0,
   };
 }
 
@@ -561,6 +616,7 @@ export const MAP_SHOP_POS = { x: Math.floor(GRID_W / 2) - 1, y: Math.floor(GRID_
 // ============================================================
 
 let _idCounter = 0;
+let _smelterRecipesLogged = false;
 export function makeId(): string {
   return `a${Date.now()}_${_idCounter++}`;
 }
@@ -579,9 +635,33 @@ export function directionOffset(dir: Direction): [number, number] {
   }
 }
 
+function assetWidth(asset: PlacedAsset): number {
+  return asset.width ?? asset.size;
+}
+
+function assetHeight(asset: PlacedAsset): number {
+  return asset.height ?? asset.size;
+}
+
+function getAutoSmelterIoCells(asset: PlacedAsset): { input: { x: number; y: number }; output: { x: number; y: number } } {
+  const dir = asset.direction ?? "east";
+  const w = assetWidth(asset);
+  const h = assetHeight(asset);
+  switch (dir) {
+    case "east":
+      return { input: { x: asset.x - 1, y: asset.y }, output: { x: asset.x + w, y: asset.y } };
+    case "west":
+      return { input: { x: asset.x + w, y: asset.y }, output: { x: asset.x - 1, y: asset.y } };
+    case "north":
+      return { input: { x: asset.x, y: asset.y + h }, output: { x: asset.x, y: asset.y - 1 } };
+    case "south":
+      return { input: { x: asset.x, y: asset.y - 1 }, output: { x: asset.x, y: asset.y + h } };
+  }
+}
+
 /**
  * The warehouse has exactly one input tile located directly below its bottom-left cell
- * (i.e. at { x: warehouse.x, y: warehouse.y + warehouse.size }).
+ * (i.e. at { x: warehouse.x, y: warehouse.y + warehouse height }).
  * Only a conveyor/miner facing "north" and positioned on that tile may feed items in.
  */
 export function isValidWarehouseInput(
@@ -593,7 +673,7 @@ export function isValidWarehouseInput(
   return (
     entityDir === "north" &&
     entityX === warehouse.x &&
-    entityY === warehouse.y + warehouse.size
+    entityY === warehouse.y + assetHeight(warehouse)
   );
 }
 
@@ -627,8 +707,8 @@ function removeAsset(
   const newAssets = { ...state.assets };
   delete newAssets[assetId];
   const newCellMap = { ...state.cellMap };
-  for (let dy = 0; dy < asset.size; dy++) {
-    for (let dx = 0; dx < asset.size; dx++) {
+  for (let dy = 0; dy < assetHeight(asset); dy++) {
+    for (let dx = 0; dx < assetWidth(asset); dx++) {
       delete newCellMap[cellKey(asset.x + dx, asset.y + dy)];
     }
   }
@@ -644,15 +724,19 @@ function placeAsset(
   x: number,
   y: number,
   size: 1 | 2,
+  width?: 1 | 2,
+  height?: 1 | 2,
   fixed?: boolean
 ): {
   assets: Record<string, PlacedAsset>;
   cellMap: Record<string, string>;
   id: string;
 } | null {
-  if (x + size > GRID_W || y + size > GRID_H) return null;
-  for (let dy = 0; dy < size; dy++) {
-    for (let dx = 0; dx < size; dx++) {
+  const w = width ?? size;
+  const h = height ?? size;
+  if (x + w > GRID_W || y + h > GRID_H) return null;
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) {
       if (cellMap[cellKey(x + dx, y + dy)]) return null;
     }
   }
@@ -665,13 +749,15 @@ function placeAsset(
       x,
       y,
       size,
+      width: w,
+      height: h,
       ...(fixed ? { fixed: true } : {}),
       ...withDefaultMachinePriority(type),
     } as PlacedAsset,
   };
   const newCellMap = { ...cellMap };
-  for (let dy = 0; dy < size; dy++) {
-    for (let dx = 0; dx < size; dx++) {
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) {
       newCellMap[cellKey(x + dx, y + dy)] = id;
     }
   }
@@ -780,8 +866,8 @@ export function hotbarDecrement(slots: HotbarSlot[], idx: number): HotbarSlot[] 
  * top-left cell of `pole` (which is always 1×1).
  */
 function assetInPoleRange(pole: PlacedAsset, candidate: PlacedAsset, range: number): boolean {
-  for (let cy = 0; cy < candidate.size; cy++) {
-    for (let cx = 0; cx < candidate.size; cx++) {
+  for (let cy = 0; cy < assetHeight(candidate); cy++) {
+    for (let cx = 0; cx < assetWidth(candidate); cx++) {
       const dx = Math.abs((candidate.x + cx) - pole.x);
       const dy = Math.abs((candidate.y + cy) - pole.y);
       if (Math.max(dx, dy) <= range) return true;
@@ -822,8 +908,8 @@ export function computeConnectedAssetIds(state: Pick<GameState, "assets" | "cell
   function enqueueCable(asset: PlacedAsset) {
     if (cableVisitedIds.has(asset.id)) return;
     cableVisitedIds.add(asset.id);
-    for (let dy = 0; dy < asset.size; dy++) {
-      for (let dx = 0; dx < asset.size; dx++) {
+    for (let dy = 0; dy < assetHeight(asset); dy++) {
+      for (let dx = 0; dx < assetWidth(asset); dx++) {
         cableVisitedCells.add(cellKey(asset.x + dx, asset.y + dy));
       }
     }
@@ -840,8 +926,8 @@ export function computeConnectedAssetIds(state: Pick<GameState, "assets" | "cell
 
   while (cableQueue.length > 0) {
     const current = cableQueue.shift()!;
-    for (let dy = 0; dy < current.size; dy++) {
-      for (let dx = 0; dx < current.size; dx++) {
+    for (let dy = 0; dy < assetHeight(current); dy++) {
+      for (let dx = 0; dx < assetWidth(current); dx++) {
         for (const [ndx, ndy] of [[0, 1], [0, -1], [1, 0], [-1, 0]] as [number, number][]) {
           const nx = current.x + dx + ndx;
           const ny = current.y + dy + ndy;
@@ -981,7 +1067,8 @@ export function createInitialState(mode: GameMode): GameState {
   const isDebug = mode === "debug";
   const floorMap: Record<string, "stone_floor"> = {};
   const autoMiners: Record<string, AutoMinerEntry> = {};
-  const conveyors: Record<string, { item: "stone" | "iron" | "copper" | null }> = {};
+  const conveyors: Record<string, ConveyorState> = {};
+  const autoSmelters: Record<string, AutoSmelterEntry> = {};
   let generatorState: GeneratorState = { fuel: 0, progress: 0, running: false };
   let selectedPowerPoleId: string | null = null;
 
@@ -991,8 +1078,8 @@ export function createInitialState(mode: GameMode): GameState {
     const a = assets[id];
     if (!a || a.fixed) return;
     delete assets[id];
-    for (let dy = 0; dy < a.size; dy++) {
-      for (let dx = 0; dx < a.size; dx++) {
+    for (let dy = 0; dy < assetHeight(a); dy++) {
+      for (let dx = 0; dx < assetWidth(a); dx++) {
         const k = cellKey(a.x + dx, a.y + dy);
         if (cellMap[k] === id) delete cellMap[k];
       }
@@ -1016,105 +1103,146 @@ export function createInitialState(mode: GameMode): GameState {
   }
 
   if (isDebug) {
-    // Deterministic autonomous debug setup:
-    // stone deposit -> auto-miner -> conveyors (incl. corner) -> warehouse,
-    // all powered through generator + overlapping power poles.
-    const BASE_W = 80;
-    const BASE_H = 50;
-    const scaleX = (v: number) => Math.round((v / BASE_W) * GRID_W);
-    const scaleY = (v: number) => Math.round((v / BASE_H) * GRID_H);
-    const clampCell = (v: number, max: number) => Math.max(0, Math.min(max, v));
-
-    const baseMinerPos = { x: scaleX(3), y: scaleY(3) };
-    const minerPos = { x: baseMinerPos.x, y: baseMinerPos.y, dir: "east" as Direction };
-    const scaledDepositId = cellMap[cellKey(minerPos.x, minerPos.y)];
-    const scaledDeposit = scaledDepositId ? assets[scaledDepositId] : null;
-    if (!scaledDeposit || !DEPOSIT_TYPES.has(scaledDeposit.type)) {
-      const fallbackStone = DEPOSIT_POSITIONS.find((d) => d.type === "stone_deposit");
-      if (fallbackStone) {
-        minerPos.x = fallbackStone.x + 1;
-        minerPos.y = fallbackStone.y + 1;
-      }
-    }
-
-    const shiftX = minerPos.x - baseMinerPos.x;
-    const shiftY = minerPos.y - baseMinerPos.y;
-
-    const generatorPos = {
-      x: clampCell(scaleX(6) + shiftX, GRID_W - 2),
-      y: clampCell(scaleY(6) + shiftY, GRID_H - 2),
-    };
-    const warehousePos = {
-      x: clampCell(scaleX(10) + shiftX, GRID_W - 2),
-      y: clampCell(scaleY(1) + shiftY, GRID_H - 2),
-    };
-    const polePositions = [
-      { x: clampCell(scaleX(8) + shiftX, GRID_W - 1), y: clampCell(scaleY(6) + shiftY, GRID_H - 1) },
-      { x: clampCell(scaleX(8) + shiftX, GRID_W - 1), y: clampCell(scaleY(4) + shiftY, GRID_H - 1) },
-      { x: clampCell(scaleX(5) + shiftX, GRID_W - 1), y: clampCell(scaleY(4) + shiftY, GRID_H - 1) },
-      { x: clampCell(scaleX(11) + shiftX, GRID_W - 1), y: clampCell(scaleY(4) + shiftY, GRID_H - 1) },
-    ];
-    const conveyorBlueprint: { type: AssetType; x: number; y: number; dir: Direction }[] = [
-      { type: "conveyor", x: clampCell(scaleX(4) + shiftX, GRID_W - 1), y: clampCell(scaleY(3) + shiftY, GRID_H - 1), dir: "east" },
-      { type: "conveyor", x: clampCell(scaleX(5) + shiftX, GRID_W - 1), y: clampCell(scaleY(3) + shiftY, GRID_H - 1), dir: "east" },
-      { type: "conveyor", x: clampCell(scaleX(6) + shiftX, GRID_W - 1), y: clampCell(scaleY(3) + shiftY, GRID_H - 1), dir: "east" },
-      { type: "conveyor", x: clampCell(scaleX(7) + shiftX, GRID_W - 1), y: clampCell(scaleY(3) + shiftY, GRID_H - 1), dir: "east" },
-      { type: "conveyor", x: clampCell(scaleX(8) + shiftX, GRID_W - 1), y: clampCell(scaleY(3) + shiftY, GRID_H - 1), dir: "east" },
-      { type: "conveyor", x: clampCell(scaleX(9) + shiftX, GRID_W - 1), y: clampCell(scaleY(3) + shiftY, GRID_H - 1), dir: "east" },
-      { type: "conveyor", x: clampCell(scaleX(10) + shiftX, GRID_W - 1), y: clampCell(scaleY(3) + shiftY, GRID_H - 1), dir: "north" },
-    ];
-
-    // Prepare build area (non-fixed assets only) and generator floor.
-    clearAreaForDebug(generatorPos.x, generatorPos.y, 2);
-    clearAreaForDebug(warehousePos.x, warehousePos.y, 2);
-    for (const p of polePositions) clearAreaForDebug(p.x, p.y, 1);
-    for (const c of conveyorBlueprint) clearAreaForDebug(c.x, c.y, 1);
-    for (let dy = 0; dy < 2; dy++) {
-      for (let dx = 0; dx < 2; dx++) {
-        floorMap[cellKey(generatorPos.x + dx, generatorPos.y + dy)] = "stone_floor";
-      }
-    }
-
-    // Place warehouse endpoint and generator power source.
-    tryPlace("warehouse", warehousePos.x, warehousePos.y, 2);
-    tryPlace("generator", generatorPos.x, generatorPos.y, 2);
-
-    // Place overlapping power poles (single shared energy network).
-    for (const p of polePositions) {
-      const poleId = placeDirectedForDebug("power_pole", p.x, p.y, "north");
-      if (!selectedPowerPoleId && poleId) selectedPowerPoleId = poleId;
-    }
-
-    // Place auto-miner on stone deposit and bind miner state to that deposit.
-    const depositCellId = cellMap[cellKey(minerPos.x, minerPos.y)];
-    const depositAsset = depositCellId ? assets[depositCellId] : null;
-    if (depositAsset && DEPOSIT_TYPES.has(depositAsset.type)) {
-      const minerId = makeId();
-      assets[minerId] = {
-        id: minerId,
-        type: "auto_miner",
-        x: minerPos.x,
+    // Deterministisches Debug-Setup:
+    // Auto-Miner (Eisen) -> 3 Förderbänder -> Auto Smelter -> 3 Förderbänder -> Lagerhaus,
+    // plus 2 Generatoren + Stromknoten für stabile Vollversorgung.
+    const ironDeposit = Object.values(assets).find((a) => a.type === "iron_deposit") ?? null;
+    if (ironDeposit) {
+      const minerPos = { x: ironDeposit.x, y: ironDeposit.y, dir: "west" as Direction };
+      const autoSmelterPos = {
+        x: Math.max(2, minerPos.x - 5),
         y: minerPos.y,
-        size: 1,
-        direction: minerPos.dir,
-        priority: DEFAULT_MACHINE_PRIORITY,
       };
-      cellMap[cellKey(minerPos.x, minerPos.y)] = minerId;
-      autoMiners[minerId] = {
-        depositId: depositCellId,
-        resource: DEPOSIT_RESOURCE[depositAsset.type],
-        progress: 0,
+      const warehousePos = {
+        x: Math.max(1, minerPos.x - 8),
+        y: Math.max(0, minerPos.y - 2),
       };
-    }
+      const generatorA = {
+        x: Math.max(0, autoSmelterPos.x - 2),
+        y: Math.min(GRID_H - 2, autoSmelterPos.y + 3),
+      };
+      const generatorB = {
+        x: Math.min(GRID_W - 2, autoSmelterPos.x + 1),
+        y: Math.min(GRID_H - 2, autoSmelterPos.y + 3),
+      };
+      const polePositions = [
+        { x: autoSmelterPos.x + 1, y: autoSmelterPos.y + 2 },
+        { x: autoSmelterPos.x - 1, y: autoSmelterPos.y + 2 },
+        { x: warehousePos.x + 1, y: warehousePos.y + 2 },
+      ].filter((p) => p.x >= 0 && p.x < GRID_W && p.y >= 0 && p.y < GRID_H);
 
-    // Place full conveyor route and initialize conveyor item states.
-    for (const c of conveyorBlueprint) {
-      const convId = placeDirectedForDebug(c.type, c.x, c.y, c.dir);
-      if (convId) conveyors[convId] = { item: null };
-    }
+      const inputBelts = [
+        { x: minerPos.x - 1, y: minerPos.y, dir: "west" as Direction },
+        { x: minerPos.x - 2, y: minerPos.y, dir: "west" as Direction },
+        { x: minerPos.x - 3, y: minerPos.y, dir: "west" as Direction },
+      ];
+      const outputBelts = [
+        { x: autoSmelterPos.x - 1, y: autoSmelterPos.y, dir: "west" as Direction },
+        { x: autoSmelterPos.x - 2, y: autoSmelterPos.y, dir: "west" as Direction },
+        { x: autoSmelterPos.x - 3, y: autoSmelterPos.y, dir: "west" as Direction },
+      ];
 
-    // Start generator immediately with enough reserve for continuous autonomous operation.
-    generatorState = { fuel: 250, progress: 0, running: true };
+      clearAreaForDebug(warehousePos.x, warehousePos.y, 2);
+      clearAreaForDebug(autoSmelterPos.x, autoSmelterPos.y, 2);
+      clearAreaForDebug(generatorA.x, generatorA.y, 2);
+      clearAreaForDebug(generatorB.x, generatorB.y, 2);
+      for (const p of polePositions) clearAreaForDebug(p.x, p.y, 1);
+      for (const belt of [...inputBelts, ...outputBelts]) clearAreaForDebug(belt.x, belt.y, 1);
+
+      for (const g of [generatorA, generatorB]) {
+        for (let dy = 0; dy < 2; dy++) {
+          for (let dx = 0; dx < 2; dx++) {
+            floorMap[cellKey(g.x + dx, g.y + dy)] = "stone_floor";
+          }
+        }
+      }
+
+      tryPlace("warehouse", warehousePos.x, warehousePos.y, 2);
+      tryPlace("generator", generatorA.x, generatorA.y, 2);
+      tryPlace("generator", generatorB.x, generatorB.y, 2);
+
+      for (const p of polePositions) {
+        const poleId = placeDirectedForDebug("power_pole", p.x, p.y, "north");
+        if (!selectedPowerPoleId && poleId) selectedPowerPoleId = poleId;
+      }
+
+      const depositCellId = cellMap[cellKey(minerPos.x, minerPos.y)];
+      const depositAsset = depositCellId ? assets[depositCellId] : null;
+      let minerId: string | null = null;
+      if (depositAsset && depositAsset.type === "iron_deposit") {
+        minerId = makeId();
+        assets[minerId] = {
+          id: minerId,
+          type: "auto_miner",
+          x: minerPos.x,
+          y: minerPos.y,
+          size: 1,
+          direction: minerPos.dir,
+          priority: DEFAULT_MACHINE_PRIORITY,
+        };
+        cellMap[cellKey(minerPos.x, minerPos.y)] = minerId;
+        autoMiners[minerId] = {
+          depositId: depositCellId,
+          resource: "iron",
+          progress: 0,
+        };
+      }
+
+      for (const belt of [...inputBelts, ...outputBelts]) {
+        const convId = placeDirectedForDebug("conveyor", belt.x, belt.y, belt.dir);
+        if (convId) conveyors[convId] = { queue: [] };
+      }
+
+      const smelterPlaced = placeAsset(assets, cellMap, "auto_smelter", autoSmelterPos.x, autoSmelterPos.y, 2, 2, 1);
+      if (smelterPlaced) {
+        Object.assign(assets, smelterPlaced.assets);
+        assets[smelterPlaced.id] = {
+          ...smelterPlaced.assets[smelterPlaced.id],
+          direction: "west",
+          priority: DEFAULT_MACHINE_PRIORITY,
+        };
+        for (const [k, v] of Object.entries(smelterPlaced.cellMap)) {
+          cellMap[k] = v;
+        }
+        autoSmelters[smelterPlaced.id] = {
+          inputBuffer: [],
+          processing: null,
+          pendingOutput: [],
+          status: "IDLE",
+          lastRecipeInput: null,
+          lastRecipeOutput: null,
+          throughputEvents: [],
+          selectedRecipe: "iron",
+        };
+
+        const io = getAutoSmelterIoCells(assets[smelterPlaced.id]);
+        const inputNeighborId = cellMap[cellKey(io.input.x, io.input.y)];
+        const outputNeighborId = cellMap[cellKey(io.output.x, io.output.y)];
+        const inputNeighbor = inputNeighborId ? assets[inputNeighborId] : null;
+        const outputNeighbor = outputNeighborId ? assets[outputNeighborId] : null;
+        const beltFound =
+          (inputNeighbor?.type === "conveyor" || inputNeighbor?.type === "conveyor_corner") &&
+          (outputNeighbor?.type === "conveyor" || outputNeighbor?.type === "conveyor_corner");
+
+        console.log("[DebugSetup] Auto-Miner:", minerId ? assets[minerId] : null);
+        console.log("[DebugSetup] Auto-Smelter:", assets[smelterPlaced.id]);
+        console.log("[DebugSetup] Lagerhaus:", Object.values(assets).find((a) => a.type === "warehouse"));
+        console.log("[DebugSetup] Generator A:", generatorA, "Generator B:", generatorB);
+        console.log("[DebugSetup] Smelter Input-Tile:", io.input);
+        console.log("[DebugSetup] Smelter Output-Tile:", io.output);
+        console.log("[DebugSetup] Förderbänder korrekt erkannt:", beltFound, {
+          inputType: inputNeighbor?.type ?? null,
+          outputType: outputNeighbor?.type ?? null,
+        });
+        console.log("[DebugSetup] Miner -> Input-Band verbunden:", {
+          minerOutputTile: { x: minerPos.x - 1, y: minerPos.y },
+          inputTile: io.input,
+          connected: minerPos.x - 1 === inputBelts[0].x && minerPos.y === inputBelts[0].y,
+        });
+      }
+
+      generatorState = { fuel: 500, progress: 0, running: true };
+    }
   }
 
   const inventory: Inventory = {
@@ -1194,7 +1322,10 @@ export function createInitialState(mode: GameMode): GameState {
     autoMiners,
     conveyors,
     selectedAutoMinerId: null,
+    autoSmelters,
+    selectedAutoSmelterId: null,
     manualAssembler: { processing: false, recipe: null, progress: 0 },
+    machinePowerRatio: {},
     energyDebugOverlay: false,
   };
 }
@@ -1219,6 +1350,8 @@ export type GameAction =
   | { type: "SMITHY_WITHDRAW" }
   | { type: "MANUAL_ASSEMBLER_START"; recipe: "metal_plate" | "gear" }
   | { type: "MANUAL_ASSEMBLER_TICK" }
+  | { type: "AUTO_SMELTER_TICK" }
+  | { type: "AUTO_SMELTER_SET_RECIPE"; assetId: string; recipe: "iron" | "copper" }
   | { type: "GROW_SAPLING"; assetId: string }
   | { type: "GROW_SAPLINGS"; assetIds: string[] }
   | { type: "NATURAL_SPAWN" }
@@ -1291,6 +1424,14 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             selectedAutoMinerId: opening ? asset.id : null,
           };
         }
+        if (asset && asset.type === "auto_smelter") {
+          const opening = state.openPanel !== "auto_smelter" || state.selectedAutoSmelterId !== asset.id;
+          return {
+            ...state,
+            openPanel: opening ? "auto_smelter" : null,
+            selectedAutoSmelterId: opening ? asset.id : null,
+          };
+        }
         // In build mode: no mining, no hotbar tools, no cable clicking – only BUILD_PLACE_BUILDING / BUILD_REMOVE_ASSET via dispatch
         return state;
       }
@@ -1316,6 +1457,14 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           ...state,
           openPanel: opening ? "auto_miner" : null,
           selectedAutoMinerId: opening ? asset.id : null,
+        };
+      }
+      if (asset && asset.type === "auto_smelter") {
+        const opening = state.openPanel !== "auto_smelter" || state.selectedAutoSmelterId !== asset.id;
+        return {
+          ...state,
+          openPanel: opening ? "auto_smelter" : null,
+          selectedAutoSmelterId: opening ? asset.id : null,
         };
       }
 
@@ -1465,7 +1614,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case "CRAFT_WORKBENCH": {
-      const recipe = WORKBENCH_RECIPES.find((r) => r.key === action.recipeKey);
+      const recipe = getWorkbenchRecipe(action.recipeKey);
       if (!recipe) return state;
       if (!state.placedBuildings.includes("workbench")) return state;
       const workbenchAsset = Object.values(state.assets).find((a) => a.type === "workbench");
@@ -1485,16 +1634,17 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       for (const [res, amt] of Object.entries(recipe.costs)) {
         (newInv as any)[res] -= amt ?? 0;
       }
-      const notifs = addNotification(state.notifications, recipe.outputKey, recipe.outputAmount);
+      const outputKey = recipe.outputItem as keyof Inventory;
+      const notifs = addNotification(state.notifications, outputKey, recipe.outputAmount);
       const toolHotbarKindsW: ToolKind[] = ["axe", "wood_pickaxe", "stone_pickaxe"];
-      const outKind = recipe.outputKey as ToolKind;
+      const outKind = outputKey as ToolKind;
       if (toolHotbarKindsW.includes(outKind)) {
         const newHotbar = hotbarAdd(state.hotbarSlots, outKind as Exclude<ToolKind, "empty">, undefined, recipe.outputAmount);
         if (newHotbar) {
           return { ...state, inventory: newInv, hotbarSlots: newHotbar, notifications: notifs };
         }
       }
-      (newInv as any)[recipe.outputKey] += recipe.outputAmount;
+      (newInv as any)[outputKey] += recipe.outputAmount;
       return { ...state, inventory: newInv, notifications: notifs };
     }
 
@@ -1502,7 +1652,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, openPanel: state.openPanel === action.panel ? null : action.panel };
 
     case "CLOSE_PANEL":
-      return { ...state, openPanel: null, selectedAutoMinerId: null, selectedWarehouseId: null };
+      return { ...state, openPanel: null, selectedAutoMinerId: null, selectedAutoSmelterId: null, selectedWarehouseId: null };
 
     case "EQUIP_BUILDING_FROM_WAREHOUSE": {
       const { buildingType, amount = 1 } = action;
@@ -1604,8 +1754,10 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         };
       }
       if (s.processing || s.fuel <= 0) return state;
+      const recipe = getSmeltingRecipe(s.selectedRecipe);
+      if (!recipe) return state;
       const rawAmt = s.selectedRecipe === "iron" ? s.iron : s.copper;
-      if (rawAmt < 5) return state;
+      if (rawAmt < recipe.inputAmount) return state;
       debugLog.smithy(`Started smelting ${s.selectedRecipe} (fuel=${s.fuel}, ore=${rawAmt})`);
       return { ...state, smithy: { ...s, processing: true, progress: 0 } };
     }
@@ -1621,27 +1773,31 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (!smithyPowered) {
         return { ...state, smithy: { ...s, processing: false } };
       }
+      const recipe = getSmeltingRecipe(s.selectedRecipe);
+      if (!recipe) {
+        return { ...state, smithy: { ...s, processing: false } };
+      }
       const rawAmt = s.selectedRecipe === "iron" ? s.iron : s.copper;
-      if (!s.processing || s.fuel <= 0 || rawAmt < 5)
+      if (!s.processing || s.fuel <= 0 || rawAmt < recipe.inputAmount)
         return { ...state, smithy: { ...s, processing: false } };
       const newProgress = s.progress + SMITHY_TICK_MS / SMITHY_PROCESS_MS;
       if (newProgress >= 1) {
         const newFuel = s.fuel - 1;
-        if (s.selectedRecipe === "iron") {
-          const newIron = s.iron - 5;
-          const canContinue = newFuel > 0 && newIron >= 5;
+        if (recipe.inputItem === "iron") {
+          const newIron = s.iron - recipe.inputAmount;
+          const canContinue = newFuel > 0 && newIron >= recipe.inputAmount;
           return {
             ...state,
-            smithy: { ...s, iron: newIron, fuel: newFuel, outputIngots: s.outputIngots + 1, progress: 0, processing: canContinue },
-            notifications: addNotification(state.notifications, "ironIngot", 1),
+            smithy: { ...s, iron: newIron, fuel: newFuel, outputIngots: s.outputIngots + recipe.outputAmount, progress: 0, processing: canContinue },
+            notifications: addNotification(state.notifications, recipe.outputItem, recipe.outputAmount),
           };
         } else {
-          const newCopper = s.copper - 5;
-          const canContinue = newFuel > 0 && newCopper >= 5;
+          const newCopper = s.copper - recipe.inputAmount;
+          const canContinue = newFuel > 0 && newCopper >= recipe.inputAmount;
           return {
             ...state,
-            smithy: { ...s, copper: newCopper, fuel: newFuel, outputCopperIngots: s.outputCopperIngots + 1, progress: 0, processing: canContinue },
-            notifications: addNotification(state.notifications, "copperIngot", 1),
+            smithy: { ...s, copper: newCopper, fuel: newFuel, outputCopperIngots: s.outputCopperIngots + recipe.outputAmount, progress: 0, processing: canContinue },
+            notifications: addNotification(state.notifications, recipe.outputItem, recipe.outputAmount),
           };
         }
       }
@@ -1666,46 +1822,42 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "MANUAL_ASSEMBLER_START": {
       if (!Object.values(state.assets).some((a) => a.type === "manual_assembler")) return state;
       if (state.manualAssembler.processing) return state;
+      const recipe = getManualAssemblerRecipe(action.recipe);
+      if (!recipe) return state;
       const cap = getCapacityPerResource(state);
+      const outputKey = recipe.outputItem as keyof Inventory;
+      const inputKey = recipe.inputItem as keyof Inventory;
 
-      if (action.recipe === "metal_plate") {
-        if (state.inventory.metalPlate >= cap) {
-          return { ...state, notifications: addErrorNotification(state.notifications, "Lager voll! Baue mehr Lagerhäuser.") };
-        }
-        if (state.inventory.ironIngot < 1) {
-          return { ...state, notifications: addErrorNotification(state.notifications, "Nicht genug Metallbarren!") };
-        }
-        return {
-          ...state,
-          inventory: { ...state.inventory, ironIngot: state.inventory.ironIngot - 1 },
-          manualAssembler: { processing: true, recipe: "metal_plate", progress: 0 },
-        };
-      }
-
-      if (state.inventory.gear >= cap) {
+      if ((state.inventory[outputKey] as number) >= cap) {
         return { ...state, notifications: addErrorNotification(state.notifications, "Lager voll! Baue mehr Lagerhäuser.") };
       }
-      if (state.inventory.metalPlate < 1) {
-        return { ...state, notifications: addErrorNotification(state.notifications, "Nicht genug Metallplatten!") };
+      if ((state.inventory[inputKey] as number) < recipe.inputAmount) {
+        const error = recipe.key === "metal_plate" ? "Nicht genug Metallbarren!" : "Nicht genug Metallplatten!";
+        return { ...state, notifications: addErrorNotification(state.notifications, error) };
       }
 
       return {
         ...state,
-        inventory: { ...state.inventory, metalPlate: state.inventory.metalPlate - 1 },
-        manualAssembler: { processing: true, recipe: "gear", progress: 0 },
+        inventory: {
+          ...state.inventory,
+          [inputKey]: (state.inventory[inputKey] as number) - recipe.inputAmount,
+        },
+        manualAssembler: { processing: true, recipe: recipe.key, progress: 0 },
       };
     }
 
     case "MANUAL_ASSEMBLER_TICK": {
       const m = state.manualAssembler;
       if (!m.processing || !m.recipe) return state;
+      const recipe = getManualAssemblerRecipe(m.recipe);
+      if (!recipe) return { ...state, manualAssembler: { processing: false, recipe: null, progress: 0 } };
 
-      const newProgress = m.progress + MANUAL_ASSEMBLER_TICK_MS / MANUAL_ASSEMBLER_PROCESS_MS;
+      const newProgress = m.progress + MANUAL_ASSEMBLER_TICK_MS / Math.max(1, recipe.processingTime * 1000);
       if (newProgress < 1) {
         return { ...state, manualAssembler: { ...m, progress: newProgress } };
       }
 
-      const outputKey: keyof Inventory = m.recipe === "metal_plate" ? "metalPlate" : "gear";
+      const outputKey = recipe.outputItem as keyof Inventory;
       const cap = getCapacityPerResource(state);
       if ((state.inventory[outputKey] as number) >= cap) {
         return {
@@ -1717,9 +1869,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
       return {
         ...state,
-        inventory: { ...state.inventory, [outputKey]: (state.inventory[outputKey] as number) + 1 },
+        inventory: { ...state.inventory, [outputKey]: (state.inventory[outputKey] as number) + recipe.outputAmount },
         manualAssembler: { processing: false, recipe: null, progress: 0 },
-        notifications: addNotification(state.notifications, outputKey, 1),
+        notifications: addNotification(state.notifications, outputKey, recipe.outputAmount),
       };
     }
 
@@ -1893,7 +2045,10 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           asset,
           index,
           priority: clampMachinePriority(asset.priority),
-          drain: ENERGY_DRAIN[asset.type],
+          drain:
+            asset.type === "auto_smelter"
+              ? (state.autoSmelters?.[asset.id]?.processing ? AUTO_SMELTER_PROCESSING_DRAIN_PER_PERIOD : AUTO_SMELTER_IDLE_DRAIN_PER_PERIOD)
+              : ENERGY_DRAIN[asset.type],
         }))
         .sort((a, b) => a.priority - b.priority || a.index - b.index);
 
@@ -1904,11 +2059,22 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // Available energy in this period = production + (optional) battery discharge potential.
       let remainingEnergy = production + (batteryConnected ? state.battery.stored : 0);
       const poweredMachineIds: string[] = [];
+      const machinePowerRatio: Record<string, number> = {};
 
       for (const consumer of prioritizedConsumers) {
-        if (remainingEnergy < consumer.drain) continue;
-        remainingEnergy -= consumer.drain;
-        poweredMachineIds.push(consumer.asset.id);
+        if (consumer.drain <= 0) {
+          machinePowerRatio[consumer.asset.id] = 1;
+          poweredMachineIds.push(consumer.asset.id);
+          continue;
+        }
+        if (remainingEnergy <= 0) {
+          machinePowerRatio[consumer.asset.id] = 0;
+          continue;
+        }
+        const ratio = Math.max(0, Math.min(1, remainingEnergy / consumer.drain));
+        machinePowerRatio[consumer.asset.id] = ratio;
+        remainingEnergy -= consumer.drain * ratio;
+        if (ratio >= 1) poweredMachineIds.push(consumer.asset.id);
       }
 
       let newBatteryStored = state.battery.stored;
@@ -1922,18 +2088,36 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         poweredMachineIds.length === prevPowered.length &&
         poweredMachineIds.every((id, idx) => prevPowered[idx] === id);
 
-      if (newBatteryStored === state.battery.stored && samePoweredSet) return state;
+      const samePowerRatio =
+        Object.keys(machinePowerRatio).length === Object.keys(state.machinePowerRatio ?? {}).length &&
+        Object.entries(machinePowerRatio).every(([id, ratio]) => Math.abs((state.machinePowerRatio?.[id] ?? 0) - ratio) < 0.0001);
+
+      if (newBatteryStored === state.battery.stored && samePoweredSet && samePowerRatio) return state;
 
       return {
         ...state,
         battery: { ...state.battery, stored: newBatteryStored },
         poweredMachineIds,
+        machinePowerRatio,
       };
     }
 
     case "REMOVE_POWER_POLE": {
       // Power poles are removed exclusively via BUILD_REMOVE_ASSET in Build Mode.
       return state;
+    }
+
+    case "AUTO_SMELTER_SET_RECIPE": {
+      const { assetId, recipe } = action;
+      const smelter = state.autoSmelters[assetId];
+      if (!smelter) return state;
+      return {
+        ...state,
+        autoSmelters: {
+          ...state.autoSmelters,
+          [assetId]: { ...smelter, selectedRecipe: recipe },
+        },
+      };
     }
 
     // ============================================================
@@ -2031,10 +2215,85 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         const newAssetsC = { ...convPlaced.assets, [convPlaced.id]: assetWithDir };
         const newInvC = { ...state.inventory };
         for (const [res, amt] of Object.entries(costs)) (newInvC as any)[res] -= amt ?? 0;
-        const newConveyors = { ...state.conveyors, [convPlaced.id]: { item: null as "stone" | "iron" | "copper" | null } };
+        const newConveyors = { ...state.conveyors, [convPlaced.id]: { queue: [] as ConveyorItem[] } };
         debugLog.building(`[BuildMode] Placed ${BUILDING_LABELS[bType]} at (${x},${y}) facing ${dir}`);
         const partialC: GameState = { ...state, assets: newAssetsC, cellMap: convPlaced.cellMap, inventory: newInvC, conveyors: newConveyors };
         return { ...partialC, connectedAssetIds: computeConnectedAssetIds(partialC) };
+      }
+
+      // ---- SPECIAL: Auto Smelter placement with directional 2x1 footprint ----
+      if (bType === "auto_smelter") {
+        const dir: Direction = action.direction ?? "east";
+        const width: 1 | 2 = dir === "east" || dir === "west" ? 2 : 1;
+        const height: 1 | 2 = dir === "east" || dir === "west" ? 1 : 2;
+
+        // Footprint validation
+        for (let dy = 0; dy < height; dy++) {
+          for (let dx = 0; dx < width; dx++) {
+            if (x + dx >= GRID_W || y + dy >= GRID_H) {
+              return { ...state, notifications: addErrorNotification(state.notifications, "Kein Platz für Auto Smelter.") };
+            }
+            if (state.cellMap[cellKey(x + dx, y + dy)]) {
+              return { ...state, notifications: addErrorNotification(state.notifications, "Das Feld ist belegt.") };
+            }
+          }
+        }
+
+        // Connector-field validation
+        const tempAsset: PlacedAsset = { id: "temp", type: "auto_smelter", x, y, size: 2, width, height, direction: dir };
+        const io = getAutoSmelterIoCells(tempAsset);
+        const inputNeighborId = state.cellMap[cellKey(io.input.x, io.input.y)];
+        const outputNeighborId = state.cellMap[cellKey(io.output.x, io.output.y)];
+        const inputNeighbor = inputNeighborId ? state.assets[inputNeighborId] : null;
+        const outputNeighbor = outputNeighborId ? state.assets[outputNeighborId] : null;
+        const beltFound =
+          (inputNeighbor?.type === "conveyor" || inputNeighbor?.type === "conveyor_corner") &&
+          (outputNeighbor?.type === "conveyor" || outputNeighbor?.type === "conveyor_corner");
+        console.log("[Smelter] Input-Tile:", io.input);
+        console.log("[Smelter] Output-Tile:", io.output);
+        console.log("[Smelter] Förderband erkannt:", beltFound, {
+          inputType: inputNeighbor?.type ?? null,
+          outputType: outputNeighbor?.type ?? null,
+        });
+        if (io.input.x < 0 || io.input.x >= GRID_W || io.input.y < 0 || io.input.y >= GRID_H || io.output.x < 0 || io.output.x >= GRID_W || io.output.y < 0 || io.output.y >= GRID_H) {
+          return { ...state, notifications: addErrorNotification(state.notifications, "Input/Output-Felder liegen außerhalb der Karte.") };
+        }
+
+        const placed = placeAsset(state.assets, state.cellMap, "auto_smelter", x, y, 2, width, height);
+        if (!placed) return state;
+        const newAssets = {
+          ...placed.assets,
+          [placed.id]: {
+            ...placed.assets[placed.id],
+            direction: dir,
+            priority: DEFAULT_MACHINE_PRIORITY,
+          },
+        };
+        const newInv = { ...state.inventory };
+        for (const [res, amt] of Object.entries(costs)) (newInv as any)[res] -= amt ?? 0;
+        const newAutoSmelters = {
+          ...state.autoSmelters,
+          [placed.id]: {
+            inputBuffer: [],
+            processing: null,
+            pendingOutput: [],
+            status: "IDLE" as AutoSmelterStatus,
+            lastRecipeInput: null,
+            lastRecipeOutput: null,
+            throughputEvents: [],
+            selectedRecipe: "iron" as const,
+          },
+        };
+        const partialSmelter: GameState = {
+          ...state,
+          assets: newAssets,
+          cellMap: placed.cellMap,
+          inventory: newInv,
+          autoSmelters: newAutoSmelters,
+          placedBuildings: [...state.placedBuildings, bType],
+          purchasedBuildings: [...state.purchasedBuildings, bType],
+        };
+        return { ...partialSmelter, connectedAssetIds: computeConnectedAssetIds(partialSmelter) };
       }
 
       // Non-stackable uniqueness check
@@ -2108,7 +2367,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const targetAsset = state.assets[action.assetId];
       if (!targetAsset) return state;
       // Only buildings can be removed via build mode; resources and map_shop are off-limits
-      const removableTypes = new Set<string>(["workbench", "warehouse", "smithy", "generator", "cable", "battery", "power_pole", "auto_miner", "conveyor", "conveyor_corner", "manual_assembler"]);
+      const removableTypes = new Set<string>(["workbench", "warehouse", "smithy", "generator", "cable", "battery", "power_pole", "auto_miner", "conveyor", "conveyor_corner", "manual_assembler", "auto_smelter"]);
       if (!removableTypes.has(targetAsset.type)) return state;
       if (targetAsset.fixed) return state;
 
@@ -2171,6 +2430,19 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           openPanel: null as UIPanel,
           manualAssembler: { processing: false, recipe: null, progress: 0 },
         };
+      } else if (bTypeR === "auto_smelter") {
+        const newAutoSmelters = { ...state.autoSmelters };
+        delete newAutoSmelters[action.assetId];
+        partialRemove = {
+          ...state,
+          ...removedB,
+          inventory: newInvR,
+          autoSmelters: newAutoSmelters,
+          selectedAutoSmelterId: state.selectedAutoSmelterId === action.assetId ? null : state.selectedAutoSmelterId,
+          placedBuildings: state.placedBuildings.filter((b) => b !== bTypeR),
+          purchasedBuildings: state.purchasedBuildings.filter((b) => b !== bTypeR),
+          openPanel: null as UIPanel,
+        };
       } else {
         partialRemove = { ...state, ...removedB, inventory: newInvR, placedBuildings: state.placedBuildings.filter((b) => b !== bTypeR), purchasedBuildings: state.purchasedBuildings.filter((b) => b !== bTypeR), openPanel: null as UIPanel };
       }
@@ -2232,7 +2504,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       let newNotifsL = state.notifications;
       let changed = false;
 
-      const tryStoreInWarehouse = (warehouseId: string, resource: "stone" | "iron" | "copper"): boolean => {
+      const tryStoreInWarehouse = (warehouseId: string, resource: ConveyorItem): boolean => {
         const whInv = (newWarehouseInventoriesL === state.warehouseInventories
           ? state.warehouseInventories[warehouseId]
           : newWarehouseInventoriesL[warehouseId]);
@@ -2264,11 +2536,15 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           if (outX >= 0 && outX < GRID_W && outY >= 0 && outY < GRID_H) {
             const outAssetId = state.cellMap[cellKey(outX, outY)];
             const outAsset = outAssetId ? state.assets[outAssetId] : null;
-            if ((outAsset?.type === "conveyor" || outAsset?.type === "conveyor_corner") && (newConveyorsL === state.conveyors ? state.conveyors[outAssetId] : newConveyorsL[outAssetId])?.item === null) {
-              newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-              newConveyorsL[outAssetId] = { item: miner.resource };
-              progress = 0;
-              changed = true;
+            if (outAsset?.type === "conveyor" || outAsset?.type === "conveyor_corner") {
+              const outConv = newConveyorsL === state.conveyors ? state.conveyors[outAssetId] : newConveyorsL[outAssetId];
+              const outQueue = outConv?.queue ?? [];
+              if (outQueue.length < CONVEYOR_TILE_CAPACITY) {
+                newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
+                newConveyorsL[outAssetId] = { queue: [...outQueue, miner.resource] };
+                progress = 0;
+                changed = true;
+              }
             } else if (outAsset?.type === "warehouse" && isValidWarehouseInput(minerAsset.x, minerAsset.y, dir, outAsset)) {
               if (tryStoreInWarehouse(outAsset.id, miner.resource)) {
                 newNotifsL = addNotification(newNotifsL, miner.resource, 1);
@@ -2290,7 +2566,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // ---- Conveyors: move items ----
       const movedThisTick = new Set<string>();
       for (const [convId, conv] of Object.entries(state.conveyors)) {
-        const currentItem = (newConveyorsL === state.conveyors ? conv : newConveyorsL[convId])?.item;
+        const activeConv = newConveyorsL === state.conveyors ? conv : newConveyorsL[convId];
+        const activeQueue = activeConv?.queue ?? [];
+        const currentItem = activeQueue[0] ?? null;
         if (!currentItem) continue;
         if (movedThisTick.has(convId)) continue;
         const convAsset = state.assets[convId];
@@ -2305,11 +2583,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         let deliveredToWarehouse = false;
         for (const wAsset of Object.values(state.assets)) {
           if (wAsset.type !== "warehouse") continue;
-          if (convAsset.x === wAsset.x && convAsset.y === wAsset.y + wAsset.size) {
+          if (convAsset.x === wAsset.x && convAsset.y === wAsset.y + assetHeight(wAsset)) {
             if (tryStoreInWarehouse(wAsset.id, currentItem)) {
               newNotifsL = addNotification(newNotifsL, currentItem, 1);
               newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-              newConveyorsL[convId] = { item: null };
+              newConveyorsL[convId] = { queue: activeQueue.slice(1) };
               changed = true;
             }
             deliveredToWarehouse = true;
@@ -2339,10 +2617,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
         if ((nextAsset?.type === "conveyor" || nextAsset?.type === "conveyor_corner") && !movedThisTick.has(nextAssetId)) {
           const nextConv = newConveyorsL === state.conveyors ? state.conveyors[nextAssetId] : newConveyorsL[nextAssetId];
-          if (nextConv?.item === null) {
+          const nextQueue = nextConv?.queue ?? [];
+          if (nextQueue.length < CONVEYOR_TILE_CAPACITY) {
             newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-            newConveyorsL[nextAssetId] = { item: currentItem };
-            newConveyorsL[convId] = { item: null };
+            newConveyorsL[nextAssetId] = { queue: [...nextQueue, currentItem] };
+            newConveyorsL[convId] = { queue: activeQueue.slice(1) };
             movedThisTick.add(nextAssetId);
             changed = true;
           }
@@ -2350,7 +2629,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           if (tryStoreInWarehouse(nextAsset.id, currentItem)) {
             newNotifsL = addNotification(newNotifsL, currentItem, 1);
             newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-            newConveyorsL[convId] = { item: null };
+            newConveyorsL[convId] = { queue: activeQueue.slice(1) };
             changed = true;
           }
         } else if (nextAsset?.type === "workbench") {
@@ -2362,7 +2641,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             (newInvL as any)[resKey] = (newInvL[resKey] as number) + 1;
             newNotifsL = addNotification(newNotifsL, currentItem, 1);
             newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-            newConveyorsL[convId] = { item: null };
+            newConveyorsL[convId] = { queue: activeQueue.slice(1) };
             changed = true;
           }
         } else if (nextAsset?.type === "smithy") {
@@ -2372,10 +2651,142 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             if ((newSmithyL as any)[oreKey] < 50) {
               newSmithyL = { ...newSmithyL, [oreKey]: (newSmithyL as any)[oreKey] + 1 };
               newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-              newConveyorsL[convId] = { item: null };
+              newConveyorsL[convId] = { queue: activeQueue.slice(1) };
               changed = true;
             }
           }
+        }
+      }
+
+      // ---- Auto Smelters: belt input -> process -> belt output ----
+      let newAutoSmeltersL = state.autoSmelters;
+      for (const [smelterId, smelterState] of Object.entries(state.autoSmelters ?? {})) {
+        const smelterAsset = state.assets[smelterId];
+        if (!smelterAsset || smelterAsset.type !== "auto_smelter") continue;
+
+        const io = getAutoSmelterIoCells(smelterAsset);
+        const inputAssetId = state.cellMap[cellKey(io.input.x, io.input.y)];
+        const outputAssetId = state.cellMap[cellKey(io.output.x, io.output.y)];
+        const inputAsset = inputAssetId ? state.assets[inputAssetId] : null;
+        const outputAsset = outputAssetId ? state.assets[outputAssetId] : null;
+
+        if ((inputAsset?.type !== "conveyor" && inputAsset?.type !== "conveyor_corner") || (outputAsset?.type !== "conveyor" && outputAsset?.type !== "conveyor_corner")) {
+          newAutoSmeltersL = newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;
+          newAutoSmeltersL[smelterId] = { ...smelterState, status: "MISCONFIGURED" };
+          changed = true;
+          continue;
+        }
+
+        const powerRatio = Math.max(0, Math.min(1, state.machinePowerRatio?.[smelterId] ?? (poweredSet.has(smelterId) ? 1 : 0)));
+        if (powerRatio <= 0) {
+          newAutoSmeltersL = newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;
+          newAutoSmeltersL[smelterId] = { ...smelterState, status: "NO_POWER" };
+          changed = true;
+          continue;
+        }
+
+        let nextSmelter = { ...smelterState };
+        let inputConv = newConveyorsL[inputAssetId];
+        let outputConv = newConveyorsL[outputAssetId];
+
+        // Pull recipe-valid items from input belt front while buffer has room.
+        while (
+          inputConv &&
+          nextSmelter.inputBuffer.length < AUTO_SMELTER_BUFFER_CAPACITY &&
+          inputConv.queue.length > 0
+        ) {
+          const front = inputConv.queue[0];
+          // Only accept items matching the selected recipe
+          if (front !== nextSmelter.selectedRecipe) {
+            break;
+          }
+          const recipe = getSmeltingRecipe(front);
+          console.log("[Smelter] Item geprüft:", front, "Rezept gefunden:", recipe !== null);
+          if (!recipe) {
+            // Unbekanntes Item blockiert bewusst den Input, ohne den Smelter zu zerstören.
+            break;
+          }
+          nextSmelter.inputBuffer = [...nextSmelter.inputBuffer, front];
+          nextSmelter.lastRecipeInput = recipe.inputItem;
+          nextSmelter.lastRecipeOutput = recipe.outputItem;
+          newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
+          inputConv = { queue: inputConv.queue.slice(1) };
+          newConveyorsL[inputAssetId] = inputConv;
+          changed = true;
+        }
+
+        // Flush pending output first.
+        while (
+          outputConv &&
+          nextSmelter.pendingOutput.length > 0 &&
+          outputConv.queue.length < CONVEYOR_TILE_CAPACITY
+        ) {
+          const out = nextSmelter.pendingOutput[0];
+          newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
+          outputConv = { queue: [...outputConv.queue, out] };
+          newConveyorsL[outputAssetId] = outputConv;
+          nextSmelter.pendingOutput = nextSmelter.pendingOutput.slice(1);
+          nextSmelter.throughputEvents = [...nextSmelter.throughputEvents, Date.now()];
+          changed = true;
+        }
+
+        // Start processing if idle.
+        if (!nextSmelter.processing && nextSmelter.pendingOutput.length === 0 && nextSmelter.inputBuffer.length > 0) {
+          const inputItem = nextSmelter.inputBuffer[0];
+          const recipe = getSmeltingRecipe(inputItem);
+          if (recipe) {
+            if (!_smelterRecipesLogged) {
+              console.log("[Smelter] Rezepte geladen:", SMELTING_RECIPES);
+              _smelterRecipesLogged = true;
+            }
+            nextSmelter.inputBuffer = nextSmelter.inputBuffer.slice(1);
+            nextSmelter.processing = {
+              inputItem,
+              outputItem: recipe.outputItem as ConveyorItem,
+              progressMs: 0,
+              durationMs: Math.max(1, recipe.processingTime * 1000),
+            };
+            nextSmelter.lastRecipeInput = recipe.inputItem;
+            nextSmelter.lastRecipeOutput = recipe.outputItem;
+            changed = true;
+          }
+        }
+
+        // Advance active processing proportionally to power ratio.
+        if (nextSmelter.processing) {
+          const processingScale = powerRatio;
+          nextSmelter.processing = {
+            ...nextSmelter.processing,
+            progressMs: nextSmelter.processing.progressMs + LOGISTICS_TICK_MS * processingScale,
+          };
+          if (nextSmelter.processing.progressMs >= nextSmelter.processing.durationMs) {
+            nextSmelter.pendingOutput = [...nextSmelter.pendingOutput, nextSmelter.processing.outputItem];
+            nextSmelter.processing = null;
+          }
+          changed = true;
+        }
+
+        // Keep only last 60s throughput data.
+        const cutoff = Date.now() - 60_000;
+        const trimmed = nextSmelter.throughputEvents.filter((ts) => ts >= cutoff);
+        if (trimmed.length !== nextSmelter.throughputEvents.length) {
+          nextSmelter.throughputEvents = trimmed;
+          changed = true;
+        }
+
+        if (nextSmelter.pendingOutput.length > 0 && outputConv.queue.length >= CONVEYOR_TILE_CAPACITY) {
+          nextSmelter.status = "OUTPUT_BLOCKED";
+        } else if (nextSmelter.processing) {
+          nextSmelter.status = "PROCESSING";
+        } else if (nextSmelter.inputBuffer.length > 0 || inputConv.queue.length > 0) {
+          nextSmelter.status = "IDLE";
+        } else {
+          nextSmelter.status = "IDLE";
+        }
+
+        if (JSON.stringify(nextSmelter) !== JSON.stringify(smelterState)) {
+          newAutoSmeltersL = newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;
+          newAutoSmeltersL[smelterId] = nextSmelter;
         }
       }
 
@@ -2386,6 +2797,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         warehouseInventories: newWarehouseInventoriesL,
         smithy: newSmithyL,
         autoMiners: newAutoMinersL,
+        autoSmelters: newAutoSmeltersL,
         conveyors: newConveyorsL,
         notifications: newNotifsL,
       };

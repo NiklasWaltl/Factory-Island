@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import {
   BATTERY_CAPACITY,
   GENERATOR_ENERGY_PER_TICK,
@@ -7,7 +7,7 @@ import {
   ENERGY_DRAIN,
   type GameState,
   type GameAction,
-} from "../../game/simulation/game";
+} from "../../simulation/game";
 
 interface BatteryPanelProps {
   state: GameState;

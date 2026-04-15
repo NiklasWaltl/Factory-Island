@@ -19,7 +19,6 @@ interface PhaserHostProps {
 export const PhaserHost: React.FC<PhaserHostProps> = ({ floorMap, staticAssets }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
-  const lastStaticAssetsSignatureRef = useRef<string>("");
 
   useEffect(() => {
     const el = containerRef.current;
@@ -43,13 +42,6 @@ export const PhaserHost: React.FC<PhaserHostProps> = ({ floorMap, staticAssets }
   useEffect(() => {
     const game = gameRef.current;
     if (!game) return;
-
-    // Avoid redundant scene events when Grid recreates equivalent arrays.
-    const signature = staticAssets
-      .map((a) => `${a.id}|${a.type}|${a.x}|${a.y}|${a.width}|${a.height}|${a.direction ?? ""}`)
-      .join(";");
-    if (signature === lastStaticAssetsSignatureRef.current) return;
-    lastStaticAssetsSignatureRef.current = signature;
 
     const tryEmit = (): boolean => {
       try {

@@ -167,10 +167,6 @@ self.addEventListener("activate", (evt) => {
     // Addresses web3 issue
     resolve: {
       alias: {
-        // Force @noble/hashes to the hoisted 1.8.0 which has the ./legacy export.
-        // @scure/bip32@1.7.0 imports @noble/hashes/legacy, but a stale nested
-        // 1.4.0 (lacking ./legacy) can shadow the hoisted version in esbuild.
-        "@noble/hashes": path.resolve(__dirname, "node_modules/@noble/hashes"),
         // Portal override: redirect to Factory Island portal wrapper
         "features/portal/PortalApp": path.resolve(
           __dirname,

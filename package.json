@@ -160,6 +160,7 @@
   },
   "resolutions": {
     "@scure/bip32/@noble/hashes": "1.8.0",
+    "@scure/bip39/@noble/hashes": "1.8.0",
     "async": "^2.6.4",
     "minimist": "^1.2.6",
     "simple-get": "^2.8.2",

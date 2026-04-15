@@ -1,5 +1,5 @@
 ﻿import React from "react";
-import type { GameState, GameAction, BuildingType } from "../../simulation/game";
+import type { GameState, GameAction, BuildingType } from "../../store/reducer";
 
 interface HotbarProps {
   state: GameState;

@@ -6,7 +6,7 @@ import {
   type GameState,
   type GameAction,
   type Inventory,
-} from "../../simulation/game";
+} from "../../store/reducer";
 
 interface WarehousePanelProps {
   state: GameState;

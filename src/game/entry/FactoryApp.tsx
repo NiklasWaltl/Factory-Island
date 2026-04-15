@@ -11,7 +11,7 @@ import {
   type GameMode,
   type GameState,
   type ConveyorItem,
-} from "../simulation/game";
+} from "../store/reducer";
 import { ModeSelect } from "../ui/menus/ModeSelect";
 import { Grid } from "../grid/Grid";
 import { Hotbar } from "../ui/hud/Hotbar";
@@ -190,7 +190,7 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
     return () => clearInterval(id);
   }, []);
 
-  // Mock data handler � dispatches directly into the reducer
+  // Mock data handler - dispatches directly into the reducer
   const handleMock = useCallback(
     (action: MockAction["type"]) => {
       if (!IS_DEV) return;
@@ -240,7 +240,7 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
     return () => clearInterval(id);
   }, []);
 
-  // Sapling growth timer – uses ref to avoid stale closure + batch dispatch
+  // Sapling growth timer � uses ref to avoid stale closure + batch dispatch
   const saplingGrowAtRef = useRef(state.saplingGrowAt);
   saplingGrowAtRef.current = state.saplingGrowAt;
 
@@ -292,7 +292,7 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
     return () => clearInterval(id);
   }, [state.generator.running]);
 
-  // Unified energy-network balance: production � consumption ? battery
+  // Unified energy-network balance: production - consumption -> battery
   useEffect(() => {
     const id = setInterval(() => {
       dispatch({ type: "ENERGY_NET_TICK" });
@@ -353,7 +353,7 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
         onClick={() => dispatch({ type: "TOGGLE_BUILD_MODE" })}
         title="Bau-Men� �ffnen/schlie�en (B)"
       >
-        ??? {state.buildMode ? "Bauen ?" : "Bauen"}
+        ??? {state.buildMode ? "Bauen aktiv" : "Bauen"}
       </button>
 
       {/* Build Menu overlay */}

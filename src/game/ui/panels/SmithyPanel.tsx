@@ -1,5 +1,5 @@
 ﻿import React from "react";
-import type { GameState, GameAction } from "../../simulation/game";
+import type { GameState, GameAction } from "../../store/reducer";
 
 interface SmithyPanelProps {
   state: GameState;

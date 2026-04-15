@@ -1,20 +1,16 @@
 ﻿import React from "react";
 import {
   BATTERY_CAPACITY,
-  GENERATOR_ENERGY_PER_TICK,
-  GENERATOR_TICK_MS,
-  ENERGY_NET_TICK_MS,
-  ENERGY_DRAIN,
+  getConnectedDemandPerPeriod,
+  getEnergyProductionPerPeriod,
   type GameState,
   type GameAction,
-} from "../../simulation/game";
+} from "../../store/reducer";
 
 interface BatteryPanelProps {
   state: GameState;
   dispatch: React.Dispatch<GameAction>;
 }
-
-const ENERGY_PER_NET_TICK = Math.round((GENERATOR_ENERGY_PER_TICK * ENERGY_NET_TICK_MS) / GENERATOR_TICK_MS);
 
 export const BatteryPanel: React.FC<BatteryPanelProps> = React.memo(({ state, dispatch }) => {
   const b = state.battery;
@@ -23,15 +19,9 @@ export const BatteryPanel: React.FC<BatteryPanelProps> = React.memo(({ state, di
   const batteryAsset = Object.values(state.assets).find((a) => a.type === "battery");
   const isConnected = batteryAsset ? state.connectedAssetIds.includes(batteryAsset.id) : false;
 
-  // Compute live energy balance to determine charge/discharge status
-  // Generator only produces if cable-connected to at least one power pole
-  const genConnectedToPole = state.connectedAssetIds.some((id) => state.assets[id]?.type === "power_pole");
-  const production = state.generator.running && genConnectedToPole ? ENERGY_PER_NET_TICK : 0;
-  const consumption = (["smithy", "workbench"] as const).reduce((sum, m) => {
-    if (!state.placedBuildings.includes(m as any)) return sum;
-    const asset = Object.values(state.assets).find((a) => a.type === m);
-    return asset && state.connectedAssetIds.includes(asset.id) ? sum + (ENERGY_DRAIN[m] ?? 0) : sum;
-  }, 0);
+  // Compute live energy balance from the same connected-consumer model as scheduler.
+  const production = getEnergyProductionPerPeriod(state);
+  const consumption = getConnectedDemandPerPeriod(state);
   const netEnergy = production - consumption;
 
   const isFull = b.stored >= BATTERY_CAPACITY;

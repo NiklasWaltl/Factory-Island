@@ -6,7 +6,7 @@ import {
   type GameState,
   type GameAction,
   type AssetType,
-} from "../../simulation/game";
+} from "../../store/reducer";
 
 interface PowerPolePanelProps {
   state: GameState;

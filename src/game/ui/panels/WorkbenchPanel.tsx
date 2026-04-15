@@ -4,7 +4,7 @@ import {
   RESOURCE_EMOJIS,
   type GameState,
   type GameAction,
-} from "../../simulation/game";
+} from "../../store/reducer";
 import { WORKBENCH_RECIPES } from "../../simulation/recipes";
 
 interface WorkbenchPanelProps {

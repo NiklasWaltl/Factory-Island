@@ -5,7 +5,7 @@ import {
   RESOURCE_LABELS,
   type GameState,
   type GameAction,
-} from "../../simulation/game";
+} from "../../store/reducer";
 
 interface MapShopPanelProps {
   state: GameState;

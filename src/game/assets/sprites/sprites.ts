@@ -1,10 +1,10 @@
 /**
  * Pixel-art SVG sprites for Factory Island.
  *
- * Each sprite is a data-URI pointing to a 32×32 (or 64×64 for 2×2 buildings)
+ * Each sprite is a data-URI pointing to a 32�32 (or 64�64 for 2�2 buildings)
  * SVG that uses crisp <rect> elements for a clean pixel-art look.
- * Grid cells are 64 px, so 1×1 assets map to 32→64 (2× scale) and
- * 2×2 assets to 64→128 (also 2× scale), keeping everything sharp.
+ * Grid cells are 64 px, so 1�1 assets map to 32?64 (2� scale) and
+ * 2�2 assets to 64?128 (also 2� scale), keeping everything sharp.
  *
  * Palette (shared across ALL assets for visual consistency):
  *   dark outline   #1a1a2e   light outline  #3a3a5e
@@ -20,7 +20,8 @@
  *   purple-dark    #4a3a80   purple-mid     #6a5acd  purple-light #8a7ae8
  */
 
-import type { AssetType, FloorTileType } from "../../simulation/game";
+import type { AssetType, FloorTileType } from "../../store/reducer";
+import warehousePng from "./images/warehouse.png";
 
 // ---------------------------------------------------------------------------
 // Helper: build a data-URI from an SVG string
@@ -36,7 +37,7 @@ function r(x: number, y: number, w: number, h: number, fill: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// 1×1 RESOURCES  (32×32 SVG)
+// 1�1 RESOURCES  (32�32 SVG)
 // ---------------------------------------------------------------------------
 
 function makeTree(): string {
@@ -120,7 +121,7 @@ function makeCopper(): string {
 }
 
 // ---------------------------------------------------------------------------
-// 1×1 BUILDINGS  (32×32 SVG)
+// 1�1 BUILDINGS  (32�32 SVG)
 // ---------------------------------------------------------------------------
 
 function makeCable(): string {
@@ -161,7 +162,7 @@ function makePowerPole(): string {
 }
 
 // ---------------------------------------------------------------------------
-// 2×2 BUILDINGS  (64×64 SVG)
+// 2�2 BUILDINGS  (64�64 SVG)
 // ---------------------------------------------------------------------------
 
 function makeGenerator(): string {
@@ -208,7 +209,7 @@ function makeBattery(): string {
   // + symbol
   s += r(20, 6, 6, 2, "#d0d0d0");
   s += r(22, 4, 2, 6, "#d0d0d0");
-  // − symbol
+  // - symbol
   s += r(38, 6, 6, 2, "#d0d0d0");
   // Base
   s += r(8, 54, 48, 4, "#0a3060");
@@ -270,33 +271,8 @@ function makeSmithy(): string {
   return svgURI(64, 64, s);
 }
 
-function makeWarehouse(): string {
-  let s = "";
-  // Main building body
-  s += r(6, 18, 52, 38, "#a08000");
-  s += r(8, 16, 48, 4, "#d4aa00");
-  // Roof (triangle-ish)
-  s += r(12, 8, 40, 4, "#8b5e34");
-  s += r(16, 4, 32, 4, "#8b5e34");
-  s += r(20, 2, 24, 4, "#b07840");
-  s += r(24, 0, 16, 4, "#b07840");
-  // Front door
-  s += r(24, 34, 16, 20, "#5c3a1e");
-  s += r(26, 36, 12, 16, "#8b5e34");
-  // Crate inside door
-  s += r(28, 42, 8, 8, "#d4aa00");
-  s += r(30, 44, 4, 4, "#a08000");
-  // Window left
-  s += r(12, 26, 8, 8, "#48b0e8");
-  s += r(14, 28, 4, 4, "#80d0f8");
-  // Window right
-  s += r(44, 26, 8, 8, "#48b0e8");
-  s += r(46, 28, 4, 4, "#80d0f8");
-  // Base
-  s += r(6, 54, 52, 4, "#806000");
-  s += r(4, 56, 56, 4, "#1a1a2e");
-  return svgURI(64, 64, s);
-}
+// Warehouse sprite is loaded from a PNG file.
+// To update the image, replace: src/game/assets/sprites/images/warehouse.png
 
 function makeMapShop(): string {
   let s = "";
@@ -327,50 +303,74 @@ function makeMapShop(): string {
 }
 
 // ---------------------------------------------------------------------------
-// FLOOR TILES  (32×32 SVG)
+// FLOOR TILES  (32�32 SVG)
 // ---------------------------------------------------------------------------
+
+export const GRASS_VARIANTS = [
+  { base: "#4a8c3f", tuft: "#3d7a33" },
+  { base: "#3d7a33", tuft: "#4a8c3f" },
+] as const;
+
+export const GRASS_TUFTS: readonly [number, number, number, number][] = [
+  [4, 4, 2, 2],
+  [12, 8, 3, 2],
+  [22, 2, 2, 3],
+  [6, 18, 2, 2],
+  [18, 22, 3, 2],
+  [26, 14, 2, 2],
+  [28, 26, 2, 2],
+  [10, 28, 2, 2],
+];
+
+export const STONE_FLOOR_BASE = "#7a7a8a";
+export const STONE_FLOOR_BLOCKS: readonly [number, number, number, number, string][] = [
+  [0, 0, 15, 10, "#8a8a9a"],
+  [17, 0, 15, 10, "#6a6a7a"],
+  [0, 12, 10, 8, "#6a6a7a"],
+  [12, 12, 8, 8, "#8a8a9a"],
+  [22, 12, 10, 8, "#7a7a8a"],
+  [0, 22, 15, 10, "#8a8a9a"],
+  [17, 22, 15, 10, "#6a6a7a"],
+];
+export const STONE_FLOOR_MORTAR: readonly [number, number, number, number][] = [
+  [15, 0, 2, 32],
+  [0, 10, 32, 2],
+  [0, 20, 32, 2],
+  [10, 10, 2, 12],
+  [20, 10, 2, 12],
+];
+export const STONE_FLOOR_MORTAR_COLOR = "#5a5a6a";
 
 function makeGrassTile(variant: 0 | 1): string {
   // Two slight variants for checkerboard
-  const c1 = variant === 0 ? "#4a8c3f" : "#3d7a33";
-  const c2 = variant === 0 ? "#3d7a33" : "#4a8c3f";
+  const c1 = GRASS_VARIANTS[variant].base;
+  const c2 = GRASS_VARIANTS[variant].tuft;
   let s = "";
   s += r(0, 0, 32, 32, c1);
   // Grass tufts / subtle detail
-  s += r(4, 4, 2, 2, c2);
-  s += r(12, 8, 3, 2, c2);
-  s += r(22, 2, 2, 3, c2);
-  s += r(6, 18, 2, 2, c2);
-  s += r(18, 22, 3, 2, c2);
-  s += r(26, 14, 2, 2, c2);
-  s += r(28, 26, 2, 2, c2);
-  s += r(10, 28, 2, 2, c2);
+  for (const [x, y, w, h] of GRASS_TUFTS) {
+    s += r(x, y, w, h, c2);
+  }
   return svgURI(32, 32, s);
 }
 
 function makeStoneFloorTile(): string {
   let s = "";
   // Base
-  s += r(0, 0, 32, 32, "#7a7a8a");
+  s += r(0, 0, 32, 32, STONE_FLOOR_BASE);
   // Stone block pattern (large bricks)
-  s += r(0, 0, 15, 10, "#8a8a9a");
-  s += r(17, 0, 15, 10, "#6a6a7a");
-  s += r(0, 12, 10, 8, "#6a6a7a");
-  s += r(12, 12, 8, 8, "#8a8a9a");
-  s += r(22, 12, 10, 8, "#7a7a8a");
-  s += r(0, 22, 15, 10, "#8a8a9a");
-  s += r(17, 22, 15, 10, "#6a6a7a");
+  for (const [x, y, w, h, color] of STONE_FLOOR_BLOCKS) {
+    s += r(x, y, w, h, color);
+  }
   // Mortar lines
-  s += r(15, 0, 2, 32, "#5a5a6a");
-  s += r(0, 10, 32, 2, "#5a5a6a");
-  s += r(0, 20, 32, 2, "#5a5a6a");
-  s += r(10, 10, 2, 12, "#5a5a6a");
-  s += r(20, 10, 2, 12, "#5a5a6a");
+  for (const [x, y, w, h] of STONE_FLOOR_MORTAR) {
+    s += r(x, y, w, h, STONE_FLOOR_MORTAR_COLOR);
+  }
   return svgURI(32, 32, s);
 }
 
 // ---------------------------------------------------------------------------
-// 2×2 RESOURCE DEPOSITS  (64×64 SVG)
+// 2�2 RESOURCE DEPOSITS  (64�64 SVG)
 // ---------------------------------------------------------------------------
 
 function makeStoneDeposit(): string {
@@ -397,7 +397,7 @@ function makeStoneDeposit(): string {
   // Dark crevices
   s += r(24, 32, 2, 8, "#3a3a4e");
   s += r(36, 28, 2, 10, "#3a3a4e");
-  // Infinity symbol (∞) in center
+  // Infinity symbol (8) in center
   s += r(24, 40, 4, 2, "#ffd700");
   s += r(32, 40, 4, 2, "#ffd700");
   s += r(22, 42, 2, 2, "#ffd700");
@@ -488,7 +488,7 @@ function makeCopperDeposit(): string {
 }
 
 // ---------------------------------------------------------------------------
-// AUTO-MINER & CONVEYOR  (32×32 SVG, 1×1 buildings)
+// AUTO-MINER & CONVEYOR  (32�32 SVG, 1�1 buildings)
 // ---------------------------------------------------------------------------
 
 function makeAutoMiner(): string {
@@ -606,7 +606,7 @@ function makeAutoSmelter(): string {
 }
 
 // ---------------------------------------------------------------------------
-// WAREHOUSE INPUT TILE  (32×32 SVG)
+// WAREHOUSE INPUT TILE  (32�32 SVG)
 // ---------------------------------------------------------------------------
 
 function makeWarehouseInputTile(): string {
@@ -652,7 +652,7 @@ export const ASSET_SPRITES: Record<AssetType, string> = {
   battery: makeBattery(),
   workbench: makeWorkbench(),
   smithy: makeSmithy(),
-  warehouse: makeWarehouse(),
+  warehouse: warehousePng,
   map_shop: makeMapShop(),
   stone_deposit: makeStoneDeposit(),
   iron_deposit: makeIronDeposit(),

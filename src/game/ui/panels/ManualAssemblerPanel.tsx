@@ -5,7 +5,7 @@ import {
   RESOURCE_LABELS,
   type GameAction,
   type GameState,
-} from "../../simulation/game";
+} from "../../store/reducer";
 
 interface ManualAssemblerPanelProps {
   state: GameState;

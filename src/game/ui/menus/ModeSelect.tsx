@@ -1,5 +1,5 @@
 import React from "react";
-import type { GameMode } from "../../simulation/game";
+import type { GameMode } from "../../store/reducer";
 import { IS_DEV } from "../../debug/debugConfig";
 
 interface ModeSelectProps {
@@ -8,7 +8,7 @@ interface ModeSelectProps {
 
 export const ModeSelect: React.FC<ModeSelectProps> = ({ onSelect }) => {
   const handleDebugReset = () => {
-    if (confirm("Alle Caches clearen und neu laden? (Debug Mode wird autoamtisch ausgewählt)")) {
+    if (confirm("Alle Caches clearen und neu laden? (Debug Mode wird autoamtisch ausgew�hlt)")) {
       localStorage.removeItem("factory-island-save");
       delete (window as any).__FI_HMR_STATE__;
       delete (window as any).__FI_HMR_MODULES__;
@@ -19,14 +19,14 @@ export const ModeSelect: React.FC<ModeSelectProps> = ({ onSelect }) => {
   return (
     <div className="fi-mode-select-overlay">
       <div className="fi-mode-select">
-        <h1>🏭 Factory Island</h1>
-        <p>Wähle einen Spielmodus:</p>
+        <h1>?? Factory Island</h1>
+        <p>W�hle einen Spielmodus:</p>
         <div className="fi-mode-buttons">
           <button
             className="fi-mode-btn fi-mode-btn--release"
             onClick={() => onSelect("release")}
           >
-            <span className="fi-mode-btn-icon">🎮</span>
+            <span className="fi-mode-btn-icon">??</span>
             <strong>Release</strong>
             <span className="fi-mode-btn-desc">
               Start mit 100 Coins. Kein Cheat.
@@ -36,7 +36,7 @@ export const ModeSelect: React.FC<ModeSelectProps> = ({ onSelect }) => {
             className="fi-mode-btn fi-mode-btn--debug"
             onClick={() => onSelect("debug")}
           >
-            <span className="fi-mode-btn-icon">🐛</span>
+            <span className="fi-mode-btn-icon">??</span>
             <strong>Debug</strong>
             <span className="fi-mode-btn-desc">
               Alle Ressourcen, alle Werkzeuge, freies Testen.
@@ -45,7 +45,7 @@ export const ModeSelect: React.FC<ModeSelectProps> = ({ onSelect }) => {
         </div>
         {IS_DEV && (
           <div style={{ marginTop: 20, paddingTop: 20, borderTop: "1px solid rgba(255,255,255,0.2)" }}>
-            <p style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>🔧 Dev-Tools:</p>
+            <p style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>?? Dev-Tools:</p>
             <button
               onClick={handleDebugReset}
               style={{
@@ -59,7 +59,7 @@ export const ModeSelect: React.FC<ModeSelectProps> = ({ onSelect }) => {
                 fontWeight: 500,
               }}
             >
-              🔄 HMR + Cache Clear + Debug
+              ?? HMR + Cache Clear + Debug
             </button>
           </div>
         )}

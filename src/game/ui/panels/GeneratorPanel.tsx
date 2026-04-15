@@ -4,10 +4,11 @@ import {
   GENERATOR_ENERGY_PER_TICK,
   GENERATOR_TICK_MS,
   ENERGY_NET_TICK_MS,
-  ENERGY_DRAIN,
+  getConnectedDemandPerPeriod,
+  getEnergyProductionPerPeriod,
   type GameState,
   type GameAction,
-} from "../../simulation/game";
+} from "../../store/reducer";
 
 interface GeneratorPanelProps {
   state: GameState;
@@ -18,8 +19,6 @@ interface GeneratorPanelProps {
 const ENERGY_PER_SEC = Math.round((GENERATOR_ENERGY_PER_TICK * 1000) / GENERATOR_TICK_MS);
 /** Wood burned per second while running */
 const WOOD_PER_SEC = (1000 / GENERATOR_TICK_MS / GENERATOR_TICKS_PER_WOOD).toFixed(2);
-/** Energy produced per net-tick period */
-const ENERGY_PER_NET_TICK = Math.round((GENERATOR_ENERGY_PER_TICK * ENERGY_NET_TICK_MS) / GENERATOR_TICK_MS);
 
 export const GeneratorPanel: React.FC<GeneratorPanelProps> = React.memo(({ state, dispatch }) => {
   const g = state.generator;
@@ -35,9 +34,9 @@ export const GeneratorPanel: React.FC<GeneratorPanelProps> = React.memo(({ state
     .filter((a) => a && (a.type === "smithy" || a.type === "workbench" || a.type === "battery"));
   const totalCables = state.cablesPlaced;
 
-  // Energy balance this period (workbench and smithy no longer consume electricity)
-  const production = g.running && genConnectedToPole ? ENERGY_PER_NET_TICK : 0;
-  const consumption = 0; // Workbench and smithy use no electricity
+  // Energy balance as used by the scheduler: connected consumer drains per net period.
+  const production = getEnergyProductionPerPeriod(state);
+  const consumption = getConnectedDemandPerPeriod(state);
   const netEnergy = production - consumption;
 
   return (
@@ -152,26 +151,8 @@ export const GeneratorPanel: React.FC<GeneratorPanelProps> = React.memo(({ state
         </div>
       </div>
 
-      {/* Machine energy drain info */}
-      <div className="fi-generator-section-title" style={{ marginTop: 12 }}>⚡ Verbrauch platzierter Maschinen</div>
-      <div style={{ fontSize: 12, color: "#bbb" }}>
-        {(["smithy", "workbench"] as const).map((m) => {
-          const placed = state.placedBuildings.includes(m as any);
-          const asset = Object.values(state.assets).find((a) => a.type === m);
-          const connected = placed && asset ? state.connectedAssetIds.includes(asset.id) : false;
-          return (
-            <div key={m} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
-              <span style={{ color: connected ? "#fff" : placed ? "#777" : "#555" }}>
-                {connected ? "🔌" : placed ? "○" : "—"}{" "}
-                {m === "smithy" ? "Schmiede" : "Werkbank"}
-                {placed && !connected && <span style={{ color: "#ff8c00", fontSize: 10 }}> (kein Stromknoten)</span>}
-              </span>
-              <span style={{ color: connected ? "#ffd700" : "#555" }}>
-                {placed ? `−${ENERGY_DRAIN[m]} J/2s` : "nicht platziert"}
-              </span>
-            </div>
-          );
-        })}
+      <div style={{ fontSize: 11, color: "#aaa", marginTop: 12 }}>
+        Scheduler-Nachfrage (verbundene Verbraucher): <strong style={{ color: consumption > 0 ? "#ff8888" : "#555" }}>−{consumption} J/2s</strong>
       </div>
     </div>
   );

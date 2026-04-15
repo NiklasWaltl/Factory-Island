@@ -10,7 +10,7 @@ import {
   ENERGY_NET_TICK_MS,
   type GameState,
   type PlacedAsset,
-} from "../../simulation/game";
+} from "../../store/reducer";
 
 const WORLD_W = GRID_W * CELL_PX;
 const WORLD_H = GRID_H * CELL_PX;

@@ -14,7 +14,7 @@ import {
   type GameAction,
   type BuildingType,
   type FloorTileType,
-} from "../../simulation/game";
+} from "../../store/reducer";
 import { ASSET_SPRITES, FLOOR_SPRITES, GRASS_TILE_SPRITES } from "../../assets/sprites/sprites";
 
 interface BuildMenuProps {
@@ -28,29 +28,59 @@ interface BuildCategory {
   buildings: BuildingType[];
 }
 
+interface BuildMenuDebugSectionProps {
+  energyDebugOverlay: boolean;
+  onToggle: () => void;
+}
+
 const CATEGORIES: BuildCategory[] = [
-  { label: "Energie", emoji: "⚡", buildings: ["generator", "cable", "power_pole", "battery"] },
-  { label: "Produktion", emoji: "🔨", buildings: ["workbench", "smithy", "auto_miner", "manual_assembler", "auto_smelter"] },
-  { label: "Logistik", emoji: "➡️", buildings: ["conveyor", "conveyor_corner"] },
-  { label: "Lager", emoji: "📦", buildings: ["warehouse"] },
+  { label: "Energie", emoji: "?", buildings: ["generator", "cable", "power_pole", "battery"] },
+  { label: "Produktion", emoji: "??", buildings: ["workbench", "smithy", "auto_miner", "manual_assembler", "auto_smelter"] },
+  { label: "Logistik", emoji: "??", buildings: ["conveyor", "conveyor_corner"] },
+  { label: "Lager", emoji: "??", buildings: ["warehouse"] },
 ];
 
 const FLOOR_TILES: FloorTileType[] = ["stone_floor", "grass_block"];
 
 const BUILDING_DESCRIPTIONS: Record<BuildingType, string> = {
-  generator: "Verbrennt Holz und erzeugt Energie für das Netzwerk.",
-  cable: "Verbindet Generator mit Stromknoten (1×1).",
-  power_pole: "Verteilt Energie kabellos an Gebäude in Reichweite (3 Felder).",
-  battery: "Speichert überschüssige Energie für später.",
+  generator: "Verbrennt Holz und erzeugt Energie f�r das Netzwerk.",
+  cable: "Verbindet Generator mit Stromknoten (1�1).",
+  power_pole: "Verteilt Energie kabellos an Geb�ude in Reichweite (3 Felder).",
+  battery: "Speichert �bersch�ssige Energie f�r sp�ter.",
   workbench: "Stelle Werkzeuge und Items her.",
   smithy: "Schmelze Erze zu Barren.",
-  warehouse: "Erhöht die Lagerkapazität für Ressourcen.",
-  auto_miner: "Baut automatisch Ressourcen von Vorkommen ab. Nur auf 2×2 Deposits. Benötigt Energie. R zum Drehen.",
-  manual_assembler: "Stellt per Hand Metallplatten und Zahnräder her. Keine Energie nötig.",
-  auto_smelter: "Automatisches Schmelzen per Förderband. 2×1, rotierbar, Input/Output auf gegenüberliegenden Seiten.",
-  conveyor: "Transportiert Items automatisch in eine Richtung. Benötigt Energie. R zum Drehen.",
-  conveyor_corner: "Leitet Items in einer 90°-Ecke weiter. Benötigt Energie. R zum Drehen.",
+  warehouse: "Erh�ht die Lagerkapazit�t f�r Ressourcen.",
+  auto_miner: "Baut automatisch Ressourcen von Vorkommen ab. Nur auf 2�2 Deposits. Ben�tigt Energie. R zum Drehen.",
+  manual_assembler: "Stellt per Hand Metallplatten und Zahnr�der her. Keine Energie n�tig.",
+  auto_smelter: "Automatisches Schmelzen per F�rderband. 2�1, rotierbar, Input/Output auf gegen�berliegenden Seiten.",
+  conveyor: "Transportiert Items automatisch in eine Richtung. Ben�tigt Energie. R zum Drehen.",
+  conveyor_corner: "Leitet Items in einer 90�-Ecke weiter. Ben�tigt Energie. R zum Drehen.",
 };
+
+const BuildMenuDebugSection: React.FC<BuildMenuDebugSectionProps> = ({
+  energyDebugOverlay,
+  onToggle,
+}) => (
+  <div className="fi-build-category">
+    <h3 className="fi-build-category-title">?? Debug</h3>
+    <div className="fi-build-items">
+      <div
+        className={`fi-build-item ${energyDebugOverlay ? "fi-build-item--selected" : ""}`}
+        onClick={onToggle}
+        title="Stromnetz-Analyse ein/aus"
+      >
+        <div className="fi-build-item-icon" style={{ fontSize: 28, display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36 }}>?</div>
+        <div className="fi-build-item-info">
+          <div className="fi-build-item-name">Stromnetz-Analyse</div>
+          <div className="fi-build-item-desc">Zeigt Stromknoten, Verbindungen, Verbraucher und Energie-Bilanz an.</div>
+          <div className={`fi-build-status ${energyDebugOverlay ? "fi-build-status--ok" : "fi-build-status--no-res"}`}>
+            {energyDebugOverlay ? "Aktiv" : "Inaktiv"}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
 
 export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch }) => {
   const selected = state.selectedBuildingType;
@@ -84,15 +114,15 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
   return (
     <div className="fi-build-menu" onClick={(e) => e.stopPropagation()}>
       <div className="fi-build-menu-header">
-        <h2>🏗️ Bau-Menü</h2>
+        <h2>??? Bau-Men�</h2>
         <button className="fi-btn fi-btn-sm" onClick={() => dispatch({ type: "TOGGLE_BUILD_MODE" })}>
-          ✕ Schließen
+          ? Schlie�en
         </button>
       </div>
 
       <div className="fi-build-menu-hint">
-        Wähle ein Gebäude und klicke auf das Spielfeld zum Platzieren.
-        <br />Rechtsklick auf ein platziertes Gebäude zum Entfernen.
+        W�hle ein Geb�ude und klicke auf das Spielfeld zum Platzieren.
+        <br />Rechtsklick auf ein platziertes Geb�ude zum Entfernen.
       </div>
 
       {CATEGORIES.map((cat) => (
@@ -119,7 +149,7 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
                   <div className="fi-build-item-info">
                     <div className="fi-build-item-name">
                       {BUILDING_LABELS[bType]}
-                      <span className="fi-build-item-size">{size}×{size}</span>
+                      <span className="fi-build-item-size">{size}�{size}</span>
                     </div>
                     <div className="fi-build-item-desc">{BUILDING_DESCRIPTIONS[bType]}</div>
                     <div className="fi-build-item-costs">
@@ -144,7 +174,7 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
 
       {/* ---- Boden ---- */}
       <div className="fi-build-category">
-        <h3 className="fi-build-category-title">🌿 Boden</h3>
+        <h3 className="fi-build-category-title">?? Boden</h3>
         <div className="fi-build-items">
           {FLOOR_TILES.map((tileType) => {
             const costs = FLOOR_TILE_COSTS[tileType];
@@ -162,7 +192,7 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
                 <div className="fi-build-item-info">
                   <div className="fi-build-item-name">
                     {FLOOR_TILE_LABELS[tileType]}
-                    <span className="fi-build-item-size">1×1</span>
+                    <span className="fi-build-item-size">1�1</span>
                   </div>
                   <div className="fi-build-item-desc">{FLOOR_TILE_DESCRIPTIONS[tileType]}</div>
                   <div className="fi-build-item-costs">
@@ -186,25 +216,10 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
         </div>
       </div>
       {/* ---- Stromnetz-Analyse Toggle ---- */}
-      <div className="fi-build-category">
-        <h3 className="fi-build-category-title">🔍 Debug</h3>
-        <div className="fi-build-items">
-          <div
-            className={`fi-build-item ${state.energyDebugOverlay ? "fi-build-item--selected" : ""}`}
-            onClick={() => dispatch({ type: "TOGGLE_ENERGY_DEBUG" })}
-            title="Stromnetz-Analyse ein/aus"
-          >
-            <div className="fi-build-item-icon" style={{ fontSize: 28, display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36 }}>⚡</div>
-            <div className="fi-build-item-info">
-              <div className="fi-build-item-name">Stromnetz-Analyse</div>
-              <div className="fi-build-item-desc">Zeigt Stromknoten, Verbindungen, Verbraucher und Energie-Bilanz an.</div>
-              <div className={`fi-build-status ${state.energyDebugOverlay ? "fi-build-status--ok" : "fi-build-status--no-res"}`}>
-                {state.energyDebugOverlay ? "Aktiv" : "Inaktiv"}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <BuildMenuDebugSection
+        energyDebugOverlay={state.energyDebugOverlay}
+        onToggle={() => dispatch({ type: "TOGGLE_ENERGY_DEBUG" })}
+      />
     </div>
   );
 });

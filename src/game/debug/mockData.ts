@@ -1,12 +1,12 @@
-// ============================================================
+﻿// ============================================================
 // Factory Island - Mock Data System
 // ============================================================
 // Provides mock / cheat data that can be toggled from the Debug UI.
 // Completely tree-shaken in production because every public function
 // exits early when `!import.meta.env.DEV`.
 
-import type { GameState, GameAction, Inventory } from "../simulation/game";
-import { createInitialHotbar, HOTBAR_STACK_MAX } from "../simulation/game";
+import type { GameState, GameAction, Inventory } from "../store/reducer";
+import { createInitialHotbar, HOTBAR_STACK_MAX } from "../store/reducer";
 import { debugLog } from "./debugLogger";
 
 // ---- Mock presets ----

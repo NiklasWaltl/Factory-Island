@@ -4,6 +4,7 @@
   "author": "developer@sunflower-land.com",
   "license": "UNLICENSED",
   "private": true,
+  "packageManager": "yarn@1.22.22",
   "scripts": {
     "dev": "set NODE_ENV=development && vite --port 3000 --host",
     "dev:portal": "set NODE_ENV=development && vite --mode portal --port 3000 --host",
@@ -158,6 +159,7 @@
     "workbox-window": "^7.0.0"
   },
   "resolutions": {
+    "@scure/bip32/@noble/hashes": "1.8.0",
     "async": "^2.6.4",
     "minimist": "^1.2.6",
     "simple-get": "^2.8.2",

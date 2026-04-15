@@ -3,7 +3,6 @@ import {
   GRID_W,
   GRID_H,
   CELL_PX,
-  ASSET_LABELS,
   BUILDING_SIZES,
   POWER_POLE_RANGE,
   FLOOR_TILE_EMOJIS,
@@ -15,8 +14,8 @@ import {
   type GameState,
   type GameAction,
   type Direction,
-} from "../simulation/game";
-import { ASSET_SPRITES, WAREHOUSE_INPUT_SPRITE } from "../assets/sprites/sprites";
+} from "../store/reducer";
+import { WAREHOUSE_INPUT_SPRITE } from "../assets/sprites/sprites";
 import { EnergyDebugOverlay, EnergyDebugHud } from "../ui/panels/EnergyDebugOverlay";
 import { PhaserHost } from "../world/PhaserHost";
 
@@ -37,6 +36,7 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
   const didDrag = useRef(false);
   // Direction for auto_miner / conveyor placement (cycles with R key)
   const [buildDirection, setBuildDirection] = useState<Direction>("east");
+  const warnedUnmigratedTypesRef = useRef<Set<string>>(new Set());
 
   const assetW = useCallback((asset: { size: 1 | 2; width?: 1 | 2 }) => asset.width ?? asset.size, []);
   const assetH = useCallback((asset: { size: 1 | 2; height?: 1 | 2 }) => asset.height ?? asset.size, []);
@@ -239,7 +239,41 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
 
   // Render grid with assets rendered per-asset (not per-cell for 2x2)
   const renderedAssets = new Set<string>();
-  const assetElements: React.ReactNode[] = [];
+  const migrationGuardOverlayElements: React.ReactNode[] = [];
+  const connectionOverlayElements: React.ReactNode[] = [];
+  const logisticsOverlayElements: React.ReactNode[] = [];
+  const machineOverlayElements: React.ReactNode[] = [];
+  const debugWorldOverlayElements: React.ReactNode[] = [];
+  const phaserStaticAssets: Array<{
+    id: string;
+    type:
+      | "map_shop"
+      | "stone_deposit"
+      | "iron_deposit"
+      | "copper_deposit"
+      | "stone"
+      | "iron"
+      | "copper"
+      | "tree"
+      | "sapling"
+      | "cable"
+      | "generator"
+      | "battery"
+      | "power_pole"
+      | "conveyor"
+      | "conveyor_corner"
+      | "auto_miner"
+      | "auto_smelter"
+      | "warehouse"
+      | "workbench"
+      | "smithy"
+      | "manual_assembler";
+    x: number;
+    y: number;
+    width: 1 | 2;
+    height: 1 | 2;
+    direction?: Direction;
+  }> = [];
   const warehouseMarkers: Array<{ id: string; x: number; y: number; hasFeedingBelt: boolean }> = [];
 
   const DIRECTION_ROTATION: Record<Direction, number> = { north: 270, east: 0, south: 90, west: 180 };
@@ -264,8 +298,6 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
     const py = asset.y * CELL_PX;
     const w = aw * CELL_PX;
     const h = ah * CELL_PX;
-    const label = ASSET_LABELS[asset.type];
-    const sprite = ASSET_SPRITES[asset.type];
 
     const isConnected = connectedSet.has(asset.id);
     const isPowerPole = asset.type === "power_pole";
@@ -280,157 +312,270 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
     // Auto-miner progress indicator
     const minerEntry = isAutoMiner ? state.autoMiners[asset.id] : null;
 
-    assetElements.push(
+    if (
+      asset.type === "map_shop" ||
+      asset.type === "stone_deposit" ||
+      asset.type === "iron_deposit" ||
+      asset.type === "copper_deposit" ||
+      asset.type === "stone" ||
+      asset.type === "iron" ||
+      asset.type === "copper" ||
+      asset.type === "tree" ||
+      asset.type === "sapling" ||
+      asset.type === "cable" ||
+      asset.type === "generator" ||
+      asset.type === "battery" ||
+      asset.type === "power_pole" ||
+      asset.type === "conveyor" ||
+      asset.type === "conveyor_corner" ||
+      asset.type === "auto_miner" ||
+      asset.type === "auto_smelter" ||
+      asset.type === "warehouse" ||
+      asset.type === "workbench" ||
+      asset.type === "smithy" ||
+      asset.type === "manual_assembler"
+    ) {
+      phaserStaticAssets.push({
+        id: asset.id,
+        type: asset.type,
+        x: asset.x,
+        y: asset.y,
+        width: aw,
+        height: ah,
+        direction: asset.direction,
+      });
+
+      if (isPowerPole) {
+        connectionOverlayElements.push(
+          <div
+            key={`${asset.id}-power-overlay`}
+            style={{
+              position: "absolute",
+              left: px + 2,
+              top: py,
+              width: w - 4,
+              height: h - 16,
+              border: `2px solid ${isConnected ? "rgba(0,255,100,0.9)" : "rgba(255,80,80,0.7)"}`,
+              borderRadius: 6,
+              boxShadow: isConnected ? "0 0 8px rgba(0,255,100,0.5)" : "none",
+              filter: !isConnected ? "saturate(0.5)" : "none",
+              pointerEvents: "none",
+              zIndex: 4,
+            }}
+          />
+        );
+      }
+
+      if (isConveyor) {
+        logisticsOverlayElements.push(
+          <div
+            key={`${asset.id}-conveyor-overlay`}
+            style={{
+              position: "absolute",
+              left: px,
+              top: py,
+              width: w,
+              height: h,
+              pointerEvents: "none",
+              zIndex: 4,
+            }}
+          >
+            {convQueue.slice(0, 4).map((item, idx) => {
+              const slotSize = 10;
+              const gap = 2;
+              const startX = w / 2 - ((slotSize * 2 + gap) / 2);
+              const startY = h / 2 - ((slotSize * 2 + gap) / 2);
+              const col = idx % 2;
+              const row = Math.floor(idx / 2);
+              return (
+                <div
+                  key={`${asset.id}-item-${idx}`}
+                  style={{
+                    position: "absolute",
+                    left: startX + col * (slotSize + gap),
+                    top: startY + row * (slotSize + gap),
+                    width: slotSize,
+                    height: slotSize,
+                    borderRadius: "50%",
+                    background: ITEM_COLORS[item] ?? "#fff",
+                    border: "2px solid rgba(0,0,0,0.6)",
+                    pointerEvents: "none",
+                    zIndex: 5,
+                  }}
+                />
+              );
+            })}
+          </div>
+        );
+
+        if (state.energyDebugOverlay) {
+          debugWorldOverlayElements.push(
+            <span
+              key={`${asset.id}-conveyor-debug-count`}
+              style={{
+                position: "absolute",
+                left: px + w - 22,
+                top: py + 2,
+                fontSize: 10,
+                lineHeight: 1,
+                color: "#fff",
+                background: "rgba(0,0,0,0.75)",
+                borderRadius: 4,
+                padding: "2px 4px",
+                zIndex: 6,
+                pointerEvents: "none",
+              }}
+            >
+              {convQueue.length}
+            </span>
+          );
+        }
+      }
+
+      if (isAutoSmelter) {
+        const status = state.autoSmelters?.[asset.id]?.status ?? "IDLE";
+        const statusColor = status === "PROCESSING"
+          ? "#22c55e"
+          : status === "OUTPUT_BLOCKED" || status === "NO_POWER" || status === "MISCONFIGURED"
+            ? "#ef4444"
+            : "#9ca3af";
+        const dir = asset.direction ?? "east";
+        const inputBox =
+          dir === "east"
+            ? { left: -CELL_PX, top: 0 }
+            : dir === "west"
+              ? { left: w, top: 0 }
+              : dir === "north"
+                ? { left: 0, top: h }
+                : { left: 0, top: -CELL_PX };
+        const outputBox =
+          dir === "east"
+            ? { left: w, top: 0 }
+            : dir === "west"
+              ? { left: -CELL_PX, top: 0 }
+              : dir === "north"
+                ? { left: 0, top: -CELL_PX }
+                : { left: 0, top: h };
+
+        machineOverlayElements.push(
+          <div
+            key={`${asset.id}-smelter-overlay`}
+            style={{
+              position: "absolute",
+              left: px,
+              top: py,
+              width: w,
+              height: h,
+              pointerEvents: "none",
+              zIndex: 4,
+            }}
+          >
+            <div style={{ position: "absolute", left: inputBox.left, top: inputBox.top, width: CELL_PX, height: CELL_PX, border: "2px dashed rgba(80,160,255,0.9)", borderRadius: 6, pointerEvents: "none", zIndex: 5 }} />
+            <div style={{ position: "absolute", left: outputBox.left, top: outputBox.top, width: CELL_PX, height: CELL_PX, border: "2px dashed rgba(255,200,80,0.9)", borderRadius: 6, pointerEvents: "none", zIndex: 5 }} />
+            <div style={{ position: "absolute", left: 2, top: 2, width: 10, height: 10, borderRadius: "50%", background: statusColor, border: "1px solid rgba(0,0,0,0.6)", zIndex: 6 }} />
+          </div>
+        );
+      }
+
+      if (minerEntry !== null && minerEntry !== undefined) {
+        machineOverlayElements.push(
+          <div
+            key={`${asset.id}-miner-overlay`}
+            style={{
+              position: "absolute",
+              left: px,
+              top: py,
+              width: w,
+              height: h,
+              pointerEvents: "none",
+              zIndex: 4,
+            }}
+          >
+            <div style={{
+              position: "absolute",
+              bottom: 2,
+              left: 2,
+              right: 2,
+              height: 4,
+              background: "rgba(0,0,0,0.5)",
+              borderRadius: 2,
+              zIndex: 5,
+            }}>
+              <div style={{
+                height: "100%",
+                width: `${(minerEntry.progress / 6) * 100}%`,
+                background: "#ffd700",
+                borderRadius: 2,
+                transition: "width 0.4s linear",
+              }} />
+            </div>
+          </div>
+        );
+      }
+
+      continue;
+    }
+
+    // Exception-only fallback: if a new asset type is added but not yet routed
+    // through Phaser static assets, render an explicit placeholder instead of
+    // silently using a normal React base-sprite path.
+    if (import.meta.env.DEV && !warnedUnmigratedTypesRef.current.has(asset.type)) {
+      warnedUnmigratedTypesRef.current.add(asset.type);
+      console.warn(
+        `[Grid] Unmigrated world asset type rendered via React exception fallback: ${asset.type}. ` +
+        "Route this type through phaserStaticAssets to keep Phaser as world renderer."
+      );
+    }
+
+    migrationGuardOverlayElements.push(
       <div
-        key={asset.id}
+        key={`${asset.id}-unmigrated-fallback`}
         style={{
           position: "absolute",
           left: px,
           top: py,
           width: w,
           height: h,
+          border: "2px solid rgba(239,68,68,0.95)",
+          background: "rgba(127,29,29,0.35)",
+          borderRadius: 6,
+          pointerEvents: "none",
+          zIndex: 3,
           display: "flex",
-          flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          pointerEvents: "none",
-          zIndex: 2,
         }}
       >
-        <img
-          src={sprite}
-          alt={label}
-          draggable={false}
-          style={{
-            width: w - 4,
-            height: h - 16,
-            imageRendering: "pixelated",
-            border: isPowerPole
-              ? `2px solid ${isConnected ? "rgba(0,255,100,0.9)" : "rgba(255,80,80,0.7)"}`
-              : "none",
-            borderRadius: isPowerPole ? 6 : 0,
-            boxShadow: isPowerPole && isConnected
-              ? "0 0 8px rgba(0,255,100,0.5)"
-              : "0 2px 6px rgba(0,0,0,0.3)",
-            filter: isPowerPole && !isConnected ? "saturate(0.5)" : "none",
-            transform: hasDir ? `rotate(${rotDeg}deg)` : "none",
-          }}
-        />
-        {/* Conveyor item dots (up to 4 visible slots) */}
-        {isConveyor && convQueue.slice(0, 4).map((item, idx) => {
-          const slotSize = 10;
-          const gap = 2;
-          const startX = w / 2 - ((slotSize * 2 + gap) / 2);
-          const startY = h / 2 - ((slotSize * 2 + gap) / 2);
-          const col = idx % 2;
-          const row = Math.floor(idx / 2);
-          return (
-            <div
-              key={`${asset.id}-item-${idx}`}
-              style={{
-                position: "absolute",
-                left: startX + col * (slotSize + gap),
-                top: startY + row * (slotSize + gap),
-                width: slotSize,
-                height: slotSize,
-                borderRadius: "50%",
-                background: ITEM_COLORS[item] ?? "#fff",
-                border: "2px solid rgba(0,0,0,0.6)",
-                pointerEvents: "none",
-                zIndex: 4,
-              }}
-            />
-          );
-        })}
-        {isConveyor && state.energyDebugOverlay && (
-          <span
-            style={{
-              position: "absolute",
-              top: 2,
-              right: 2,
-              fontSize: 10,
-              lineHeight: 1,
-              color: "#fff",
-              background: "rgba(0,0,0,0.75)",
-              borderRadius: 4,
-              padding: "2px 4px",
-              zIndex: 5,
-            }}
-          >
-            {convQueue.length}
-          </span>
-        )}
-        {isAutoSmelter && (() => {
-          const status = state.autoSmelters?.[asset.id]?.status ?? "IDLE";
-          const statusColor = status === "PROCESSING"
-            ? "#22c55e"
-            : status === "OUTPUT_BLOCKED" || status === "NO_POWER" || status === "MISCONFIGURED"
-              ? "#ef4444"
-              : "#9ca3af";
-          const dir = asset.direction ?? "east";
-          const inputBox =
-            dir === "east"
-              ? { left: -CELL_PX, top: 0 }
-              : dir === "west"
-                ? { left: w, top: 0 }
-                : dir === "north"
-                  ? { left: 0, top: h }
-                  : { left: 0, top: -CELL_PX };
-          const outputBox =
-            dir === "east"
-              ? { left: w, top: 0 }
-              : dir === "west"
-                ? { left: -CELL_PX, top: 0 }
-                : dir === "north"
-                  ? { left: 0, top: -CELL_PX }
-                  : { left: 0, top: h };
-          return (
-            <>
-              <div style={{ position: "absolute", left: inputBox.left, top: inputBox.top, width: CELL_PX, height: CELL_PX, border: "2px dashed rgba(80,160,255,0.9)", borderRadius: 6, pointerEvents: "none", zIndex: 4 }} />
-              <div style={{ position: "absolute", left: outputBox.left, top: outputBox.top, width: CELL_PX, height: CELL_PX, border: "2px dashed rgba(255,200,80,0.9)", borderRadius: 6, pointerEvents: "none", zIndex: 4 }} />
-              <div style={{ position: "absolute", left: 2, top: 2, width: 10, height: 10, borderRadius: "50%", background: statusColor, border: "1px solid rgba(0,0,0,0.6)", zIndex: 5 }} />
-            </>
-          );
-        })()}
-        {/* Auto-miner progress arc */}
-        {minerEntry !== null && minerEntry !== undefined && (
-          <div style={{
-            position: "absolute",
-            bottom: 2,
-            left: 2,
-            right: 2,
-            height: 4,
-            background: "rgba(0,0,0,0.5)",
-            borderRadius: 2,
-            zIndex: 4,
-          }}>
-            <div style={{
-              height: "100%",
-              width: `${(minerEntry.progress / 6) * 100}%`,
-              background: "#ffd700",
-              borderRadius: 2,
-              transition: "width 0.4s linear",
-            }} />
-          </div>
-        )}
         <span
           style={{
-            fontSize: 9,
-            color: "#fff",
-            background: "rgba(0,0,0,0.6)",
-            padding: "1px 4px",
-            borderRadius: 3,
-            marginTop: 1,
+            fontSize: 10,
+            fontWeight: 700,
+            color: "#fecaca",
+            background: "rgba(0,0,0,0.75)",
+            padding: "2px 6px",
+            borderRadius: 4,
             whiteSpace: "nowrap",
+            maxWidth: w - 8,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
           }}
         >
-          {label}
+          UNMIGRATED: {asset.type}
         </span>
       </div>
     );
   }
 
-  // Warehouse input tile overlays – one fixed marker per warehouse
+  const dynamicAssetOverlayElements: React.ReactNode[] = [
+    ...connectionOverlayElements,
+    ...logisticsOverlayElements,
+    ...machineOverlayElements,
+    ...debugWorldOverlayElements,
+  ];
+
+  // Warehouse input tile overlays are a deliberate React world-space exception:
+  // they stay in React, share the common Grid world transform, and should not be
+  // "cleaned up" into the Phaser base world renderer during later refactors.
   for (const asset of Object.values(state.assets)) {
     if (asset.type !== "warehouse") continue;
     const inputX = asset.x;
@@ -454,7 +599,7 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
     });
   }
 
-  // Render warehouse input markers in React
+  // Render warehouse input markers in React on the shared world-space overlay layer.
   const warehouseMarkerElements = warehouseMarkers.map((m) => (
     <div
       key={`wh-marker-${m.id}`}
@@ -518,13 +663,117 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
     pointerEvents: "none",
   };
 
+  const staticAssetsSignature = phaserStaticAssets
+    .map((a) => `${a.id}|${a.type}|${a.x}|${a.y}|${a.width}|${a.height}|${a.direction ?? ""}`)
+    .join(";");
+
+  const stableStaticAssets = useMemo(() => phaserStaticAssets, [staticAssetsSignature]);
+
   // Hover highlight for building placement
   const slot = state.hotbarSlots[state.activeSlot];
   const buildBuildingType = state.buildMode ? state.selectedBuildingType : null;
   const isPlacingBuilding = buildBuildingType != null || slot?.toolKind === "building";
   const activeBuildingType = buildBuildingType ?? (slot?.toolKind === "building" ? slot.buildingType : null);
   const isPlacingPowerPole = isPlacingBuilding && activeBuildingType === "power_pole";
-  let hoverElement: React.ReactNode = null;
+
+  const collectPowerPoleRangeHighlightElements = (
+    poleX: number,
+    poleY: number,
+    options?: {
+      excludeAssetId?: string;
+      getBorderColor?: (assetId: string) => string;
+      keyPrefix?: string;
+    }
+  ): React.ReactNode[] => {
+    const highlightElements: React.ReactNode[] = [];
+    for (const asset of Object.values(state.assets)) {
+      if (options?.excludeAssetId && asset.id === options.excludeAssetId) continue;
+      let inRange = false;
+      for (let cy = 0; cy < assetH(asset) && !inRange; cy++) {
+        for (let cx = 0; cx < assetW(asset) && !inRange; cx++) {
+          const dx = Math.abs((asset.x + cx) - poleX);
+          const dy = Math.abs((asset.y + cy) - poleY);
+          if (Math.max(dx, dy) <= POWER_POLE_RANGE) inRange = true;
+        }
+      }
+      if (!inRange) continue;
+      highlightElements.push(
+        <div
+          key={`${options?.keyPrefix ?? "range"}-${asset.id}`}
+          style={{
+            position: "absolute",
+            left: asset.x * CELL_PX + 2,
+            top: asset.y * CELL_PX + 2,
+            width: assetW(asset) * CELL_PX - 4,
+            height: assetH(asset) * CELL_PX - 4,
+            border: `2px dashed ${options?.getBorderColor?.(asset.id) ?? "rgba(255, 200, 0, 0.8)"}`,
+            borderRadius: 6,
+            zIndex: 9,
+            pointerEvents: "none",
+          }}
+        />
+      );
+    }
+    return highlightElements;
+  };
+
+  const renderPowerPoleRangeArea = (
+    poleX: number,
+    poleY: number,
+    colors: { background: string; border: string },
+    key?: string
+  ) => {
+    const rx1 = Math.max(0, poleX - POWER_POLE_RANGE);
+    const ry1 = Math.max(0, poleY - POWER_POLE_RANGE);
+    const rx2 = Math.min(GRID_W - 1, poleX + POWER_POLE_RANGE);
+    const ry2 = Math.min(GRID_H - 1, poleY + POWER_POLE_RANGE);
+    const rangeW = rx2 - rx1 + 1;
+    const rangeH = ry2 - ry1 + 1;
+
+    return (
+      <div
+        key={key}
+        style={{
+          position: "absolute",
+          left: rx1 * CELL_PX,
+          top: ry1 * CELL_PX,
+          width: rangeW * CELL_PX,
+          height: rangeH * CELL_PX,
+          background: colors.background,
+          border: `2px dashed ${colors.border}`,
+          borderRadius: 8,
+          zIndex: 8,
+          pointerEvents: "none",
+        }}
+      />
+    );
+  };
+
+  const renderFloorPlacementOverlay = (x: number, y: number, tileType: keyof typeof FLOOR_TILE_EMOJIS, valid: boolean) => (
+    <div
+      style={{
+        position: "absolute",
+        left: x * CELL_PX,
+        top: y * CELL_PX,
+        width: CELL_PX,
+        height: CELL_PX,
+        background: valid ? "rgba(0, 255, 0, 0.25)" : "rgba(255, 0, 0, 0.25)",
+        border: valid ? "2px solid rgba(0,255,0,0.6)" : "2px solid rgba(255,0,0,0.6)",
+        borderRadius: 4,
+        zIndex: 10,
+        pointerEvents: "none",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 20,
+      }}
+    >
+      {FLOOR_TILE_EMOJIS[tileType]}
+    </div>
+  );
+
+  let placementOverlayElement: React.ReactNode = null;
+  let inspectionOverlayElement: React.ReactNode = null;
 
   if (isPlacingBuilding && hover && !dragging) {
     const { x, y } = hover;
@@ -724,67 +973,22 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
     );
 
     if (isPlacingPowerPole && valid) {
-      // Show range ring and highlight assets within range
-      const rx1 = Math.max(0, x - POWER_POLE_RANGE);
-      const ry1 = Math.max(0, y - POWER_POLE_RANGE);
-      const rx2 = Math.min(GRID_W - 1, x + POWER_POLE_RANGE);
-      const ry2 = Math.min(GRID_H - 1, y + POWER_POLE_RANGE);
-      const rangeW = rx2 - rx1 + 1;
-      const rangeH = ry2 - ry1 + 1;
+      const rangeConnectedElements = collectPowerPoleRangeHighlightElements(x, y, {
+        keyPrefix: "range",
+      });
 
-      // Assets within range that would connect
-      const rangeConnectedElements: React.ReactNode[] = [];
-      for (const asset of Object.values(state.assets)) {
-        let inRange = false;
-        for (let cy = 0; cy < assetH(asset) && !inRange; cy++) {
-          for (let cx = 0; cx < assetW(asset) && !inRange; cx++) {
-            const dx = Math.abs((asset.x + cx) - x);
-            const dy = Math.abs((asset.y + cy) - y);
-            if (Math.max(dx, dy) <= POWER_POLE_RANGE) inRange = true;
-          }
-        }
-        if (!inRange) continue;
-        rangeConnectedElements.push(
-          <div
-            key={`range-${asset.id}`}
-            style={{
-              position: "absolute",
-              left: asset.x * CELL_PX + 2,
-              top: asset.y * CELL_PX + 2,
-              width: assetW(asset) * CELL_PX - 4,
-              height: assetH(asset) * CELL_PX - 4,
-              border: "2px dashed rgba(255, 200, 0, 0.8)",
-              borderRadius: 6,
-              zIndex: 9,
-              pointerEvents: "none",
-            }}
-          />
-        );
-      }
-
-      hoverElement = (
+      placementOverlayElement = (
         <>
-          <div
-            key="range-area"
-            style={{
-              position: "absolute",
-              left: rx1 * CELL_PX,
-              top: ry1 * CELL_PX,
-              width: rangeW * CELL_PX,
-              height: rangeH * CELL_PX,
-              background: "rgba(255, 180, 0, 0.08)",
-              border: "2px dashed rgba(255, 180, 0, 0.45)",
-              borderRadius: 8,
-              zIndex: 8,
-              pointerEvents: "none",
-            }}
-          />
+          {renderPowerPoleRangeArea(x, y, {
+            background: "rgba(255, 180, 0, 0.08)",
+            border: "rgba(255, 180, 0, 0.45)",
+          }, "range-area")}
           {rangeConnectedElements}
           {placementBox}
         </>
       );
     } else {
-      hoverElement = placementBox;
+      placementOverlayElement = placementBox;
     }
   } else if (state.buildMode && state.selectedFloorTile && hover && !dragging) {
     const { x, y } = hover;
@@ -794,88 +998,29 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
       tileType === "stone_floor"
         ? !state.floorMap[key] && !state.cellMap[key]
         : !!state.floorMap[key] && !state.cellMap[key];
-    hoverElement = (
-      <div
-        style={{
-          position: "absolute",
-          left: x * CELL_PX,
-          top: y * CELL_PX,
-          width: CELL_PX,
-          height: CELL_PX,
-          background: valid ? "rgba(0, 255, 0, 0.25)" : "rgba(255, 0, 0, 0.25)",
-          border: valid ? "2px solid rgba(0,255,0,0.6)" : "2px solid rgba(255,0,0,0.6)",
-          borderRadius: 4,
-          zIndex: 10,
-          pointerEvents: "none",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 20,
-        }}
-      >
-        {FLOOR_TILE_EMOJIS[tileType]}
-      </div>
-    );
-  } else if (hover && !dragging) {
-    // Hover over a placed power pole → show its range ring
+    placementOverlayElement = renderFloorPlacementOverlay(x, y, tileType, valid);
+  }
+
+  if (!placementOverlayElement && hover && !dragging) {
+    // Hover over a placed power pole -> show its range ring as an inspection overlay.
     const hoveredId = state.cellMap[cellKey(hover.x, hover.y)];
     const hoveredAsset = hoveredId ? state.assets[hoveredId] : null;
     if (hoveredAsset?.type === "power_pole") {
       const { x, y } = hoveredAsset;
-      const rx1 = Math.max(0, x - POWER_POLE_RANGE);
-      const ry1 = Math.max(0, y - POWER_POLE_RANGE);
-      const rx2 = Math.min(GRID_W - 1, x + POWER_POLE_RANGE);
-      const ry2 = Math.min(GRID_H - 1, y + POWER_POLE_RANGE);
-      const rangeW = rx2 - rx1 + 1;
-      const rangeH = ry2 - ry1 + 1;
+      const inRangeElements = collectPowerPoleRangeHighlightElements(x, y, {
+        excludeAssetId: hoveredId,
+        keyPrefix: "hover-range",
+        getBorderColor: (assetId) => connectedSet.has(assetId)
+          ? "rgba(0,255,100,0.8)"
+          : "rgba(255,80,80,0.7)",
+      });
 
-      const inRangeElements: React.ReactNode[] = [];
-      for (const asset of Object.values(state.assets)) {
-        if (asset.id === hoveredId) continue;
-        let inRange = false;
-        for (let cy = 0; cy < assetH(asset) && !inRange; cy++) {
-          for (let cx = 0; cx < assetW(asset) && !inRange; cx++) {
-            const dx = Math.abs((asset.x + cx) - x);
-            const dy = Math.abs((asset.y + cy) - y);
-            if (Math.max(dx, dy) <= POWER_POLE_RANGE) inRange = true;
-          }
-        }
-        if (!inRange) continue;
-        const isConn = connectedSet.has(asset.id);
-        inRangeElements.push(
-          <div
-            key={`hover-range-${asset.id}`}
-            style={{
-              position: "absolute",
-              left: asset.x * CELL_PX + 2,
-              top: asset.y * CELL_PX + 2,
-              width: assetW(asset) * CELL_PX - 4,
-              height: assetH(asset) * CELL_PX - 4,
-              border: `2px dashed ${isConn ? "rgba(0,255,100,0.8)" : "rgba(255,80,80,0.7)"}`,
-              borderRadius: 6,
-              zIndex: 9,
-              pointerEvents: "none",
-            }}
-          />
-        );
-      }
-
-      hoverElement = (
+      inspectionOverlayElement = (
         <>
-          <div
-            style={{
-              position: "absolute",
-              left: rx1 * CELL_PX,
-              top: ry1 * CELL_PX,
-              width: rangeW * CELL_PX,
-              height: rangeH * CELL_PX,
-              background: "rgba(255, 140, 0, 0.08)",
-              border: "2px dashed rgba(255, 140, 0, 0.5)",
-              borderRadius: 8,
-              zIndex: 8,
-              pointerEvents: "none",
-            }}
-          />
+          {renderPowerPoleRangeArea(x, y, {
+            background: "rgba(255, 140, 0, 0.08)",
+            border: "rgba(255, 140, 0, 0.5)",
+          })}
           {inRangeElements}
         </>
       );
@@ -904,27 +1049,21 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
       <div style={worldTransformStyle}>
         {/* Phaser world layer: shares the same world transform as all React world overlays. */}
         <div style={worldCanvasLayerStyle}>
-          <PhaserHost floorMap={state.floorMap} />
+          <PhaserHost floorMap={state.floorMap} staticAssets={stableStaticAssets} />
         </div>
 
         {/* React world overlays: intentionally share the exact same transformed world root. */}
         <div style={worldOverlayLayerStyle}>
           {warehouseMarkerElements}
+          {dynamicAssetOverlayElements}
         </div>
 
-        {/* Grid lines & coordinates */}
-        <svg
-          width={WORLD_W}
-          height={WORLD_H}
-          style={{ position: "absolute", top: 0, left: 0, zIndex: 0 }}
-        >
-        </svg>
+        {/* Exception fallback visuals for unmigrated world assets */}
+        {migrationGuardOverlayElements}
 
-        {/* Assets */}
-        {assetElements}
-
-        {/* Hover */}
-        {hoverElement}
+        {/* Placement and inspection overlays share the same world transform. */}
+        {placementOverlayElement}
+        {inspectionOverlayElement}
 
         {/* Energy Debug Overlay */}
         {state.energyDebugOverlay && <EnergyDebugOverlay state={state} />}

@@ -4,7 +4,7 @@ import {
   AUTO_SMELTER_PROCESSING_ENERGY_PER_SEC,
   type GameAction,
   type GameState,
-} from "../../simulation/game";
+} from "../../store/reducer";
 
 interface AutoSmelterPanelProps {
   state: GameState;

@@ -6,7 +6,7 @@ import {
   type GameState,
   type GameAction,
   type MachinePriority,
-} from "../../simulation/game";
+} from "../../store/reducer";
 
 interface AutoMinerPanelProps {
   state: GameState;
@@ -34,8 +34,23 @@ export const AutoMinerPanel: React.FC<AutoMinerPanelProps> = React.memo(({ state
     return null;
   }
 
-  const hasPower = (state.poweredMachineIds ?? []).includes(minerId);
+  const isConnected = (state.connectedAssetIds ?? []).includes(minerId);
+  const powerRatio = Math.max(0, Math.min(1, state.machinePowerRatio?.[minerId] ?? ((state.poweredMachineIds ?? []).includes(minerId) ? 1 : 0)));
   const currentPriority = (minerAsset.priority ?? DEFAULT_MACHINE_PRIORITY) as MachinePriority;
+
+  const powerLabel = !isConnected
+    ? "Nicht verbunden"
+    : powerRatio <= 0
+    ? "Kein Strom"
+    : powerRatio >= 1
+    ? "Hat Strom"
+    : `Reduzierte Leistung (${Math.round(powerRatio * 100)}%)`;
+
+  const powerColor = !isConnected || powerRatio <= 0
+    ? "#ff6b6b"
+    : powerRatio >= 1
+    ? "#7CFC00"
+    : "#facc15";
 
   const itemsPerTick = 1 / AUTO_MINER_PRODUCE_TICKS;
   const itemsPerMinute = itemsPerTick * 60;
@@ -71,8 +86,8 @@ export const AutoMinerPanel: React.FC<AutoMinerPanelProps> = React.memo(({ state
         </div>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <span>Energie</span>
-          <strong style={{ color: hasPower ? "#7CFC00" : "#ff6b6b" }}>
-            {hasPower ? "Hat Strom" : "Kein Strom"}
+          <strong style={{ color: powerColor }}>
+            {powerLabel}
           </strong>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between" }}>

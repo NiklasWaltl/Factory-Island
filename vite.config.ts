@@ -20,7 +20,34 @@ export default defineConfig(() => {
   const port = getPortFromCLI();
 
   return {
+    // Limit dependency crawling to the real app entry in dev.
+    // Without this, Vite may also crawl generated HTML under release/
+    // and pull stale built chunks into the dev dependency graph.
+    optimizeDeps: {
+      entries: ["index.html"],
+    },
     plugins: [
+      // Rewrite bare `import X from "public/..."` to the correct root URL
+      // so Vite no longer warns about public-directory imports.
+      // This avoids touching src/core/ files that contain these imports.
+      {
+        name: "rewrite-public-imports",
+        enforce: "pre" as const,
+        resolveId(source) {
+          if (source.startsWith("public/")) {
+            // Return a virtual module ID that our load hook will handle
+            return `\0public-asset:${source.slice("public/".length)}`;
+          }
+          return null;
+        },
+        load(id) {
+          if (id.startsWith("\0public-asset:")) {
+            const assetPath = id.slice("\0public-asset:".length);
+            return `export default "/${assetPath}";`;
+          }
+          return null;
+        },
+      },
       // Dev-only: serve a kill-switch SW so stale cached service workers
       // from previous sessions are cleared automatically on the next SW update check.
       {
@@ -140,6 +167,10 @@ self.addEventListener("activate", (evt) => {
     // Addresses web3 issue
     resolve: {
       alias: {
+        // Force @noble/hashes to the hoisted 1.8.0 which has the ./legacy export.
+        // @scure/bip32@1.7.0 imports @noble/hashes/legacy, but a stale nested
+        // 1.4.0 (lacking ./legacy) can shadow the hoisted version in esbuild.
+        "@noble/hashes": path.resolve(__dirname, "node_modules/@noble/hashes"),
         // Portal override: redirect to Factory Island portal wrapper
         "features/portal/PortalApp": path.resolve(
           __dirname,

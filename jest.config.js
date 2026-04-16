@@ -1,5 +1,3 @@
-require("dotenv").config();
-
 /*
  * For a detailed explanation regarding each configuration property, visit:
  * https://jestjs.io/docs/en/configuration.html
@@ -16,10 +14,7 @@ module.exports = {
 
   // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
   moduleNameMapper: {
-    "^lib/(.*)": "<rootDir>/src/core/lib/$1",
-    "^features/(.*)": ["<rootDir>/src/core/features/$1", "<rootDir>/src/features/$1"],
-    "^components/(.*)": "<rootDir>/src/core/components/$1",
-    "^assets/(.*)": "<rootDir>/test/fileTransform.js",
+    "^game/(.*)": "<rootDir>/src/game/$1",
 
     ".+\\.(css|styl|less|sass|scss|png|jpg|ttf|woff|woff2)$":
       "identity-obj-proxy",
@@ -27,7 +22,7 @@ module.exports = {
 
   // A map from regular expressions to paths to transformers
   transform: {
-    "^.+\\.(js|jsx|ts|tsx)$": "ts-jest",
+    "^.+\\.(js|jsx|ts|tsx)$": "<rootDir>/test/importMetaTransformer.js",
   },
 
   setupFiles: ["<rootDir>/test/setup.ts"],

@@ -8,11 +8,12 @@ export function isWearableActive({
   game: GameState;
   name: BumpkinItem;
 }) {
-  if (Object.values(game.bumpkin?.equipped ?? {}).includes(name)) {
-    return true;
-  }
+  const equipped = [
+    ...Object.values(game.bumpkin?.equipped ?? {}),
+    ...Object.values(game.farmHands.bumpkins).flatMap((bumpkin) =>
+      Object.values(bumpkin.equipped),
+    ),
+  ];
 
-  return Object.values(game.farmHands.bumpkins).some((bumpkin) =>
-    Object.values(bumpkin.equipped).includes(name),
-  );
+  return equipped.includes(name);
 }

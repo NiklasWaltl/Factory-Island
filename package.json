@@ -1,25 +1,21 @@
 {
-  "name": "sunflower-land",
-  "version": "0.0.0",
-  "author": "developer@sunflower-land.com",
+  "name": "factory-island",
+  "version": "0.1.0",
+  "description": "A 2D factory-building game — mine, transport, process, automate.",
+  "author": "",
   "license": "UNLICENSED",
   "private": true,
   "packageManager": "yarn@1.22.22",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "dev": "set NODE_ENV=development && vite --port 3000 --host",
-    "dev:portal": "set NODE_ENV=development && vite --mode portal --port 3000 --host",
-    "rsbuild": "set NODE_ENV=development && rsbuild dev --port 3000",
-    "dev-telegram": "set NODE_ENV=development && vite --port 443 --host",
-    "build": "tsc && vite build",
-    "build:portal": "tsc && vite build --mode portal",
+    "dev": "set NODE_ENV=development && vite --config vite.factory.config.ts --port 3000 --host",
+    "build": "tsc --project tsconfig.factory.json && vite build --config vite.factory.config.ts",
+    "preview": "vite preview --config vite.factory.config.ts",
     "lint": "eslint --quiet --ext .tsx,.ts .",
     "format": "npm run lint -- --fix",
-    "preview": "vite preview",
-    "preview:portal": "vite preview --mode portal",
     "test": "jest",
-    "metadata": "NODE_PATH=./src NODE_ENV=metadata vite-node --project metadata/node.tsconfig.json metadata/generateMetadata.ts",
-    "images": "NODE_PATH=./src NODE_ENV=metadata vite-node --project metadata/node.tsconfig.json metadata/generateImages.ts",
-    "translate": "NODE_PATH=./src NODE_ENV=metadata vite-node --project metadata/node.tsconfig.json _scripts/translate.ts",
     "prepare": "husky install"
   },
   "browserslist": [

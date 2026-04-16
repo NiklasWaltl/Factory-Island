@@ -1,3 +1,2 @@
-public/erc1155/*.json
-public/wearables/*.json
 dist
+dist-factory

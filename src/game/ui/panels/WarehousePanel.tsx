@@ -2,7 +2,7 @@
 import {
   RESOURCE_LABELS,
   RESOURCE_EMOJIS,
-  WAREHOUSE_CAPACITY,
+  getCapacityPerResource,
   type GameState,
   type GameAction,
   type Inventory,
@@ -34,7 +34,7 @@ const EQUIPPABLE_ITEMS: { key: keyof Inventory; kind: "axe" | "wood_pickaxe" | "
 ];
 
 export const WarehousePanel: React.FC<WarehousePanelProps> = React.memo(({ state, dispatch }) => {
-  const cap = state.mode === "debug" ? Infinity : WAREHOUSE_CAPACITY;
+  const cap = getCapacityPerResource(state);
   const selectedWarehouseId = state.selectedWarehouseId;
   const selectedWarehouseInv = selectedWarehouseId ? state.warehouseInventories[selectedWarehouseId] : null;
 
@@ -59,15 +59,16 @@ export const WarehousePanel: React.FC<WarehousePanelProps> = React.memo(({ state
     >
       <h2>📦 Lagerhaus</h2>
       <p className="fi-warehouse-capacity">
-        {state.mode === "debug"
+        {cap === Infinity
           ? "Kapazität: ∞ (Debug-Modus)"
-          : `Kapazität: ${WAREHOUSE_CAPACITY} / Item`}
+          : `Kapazität: ${cap} / Ressource`}
       </p>
 
-      <h3 className="fi-panel-section-title">Ressourcen</h3>
+      <h3 className="fi-panel-section-title">Zentraler Ressourcenbestand</h3>
+      <p className="fi-warehouse-hint">Manuell & automatisch gesammelt</p>
       <div className="fi-warehouse-grid">
         {RESOURCE_ITEMS.map((key) => {
-          const amount = selectedWarehouseInv[key] as number;
+          const amount = state.inventory[key] as number;
           const isCapped = key !== "coins" && cap !== Infinity && amount >= cap;
           return (
             <div key={key} className={`fi-warehouse-item${isCapped ? " fi-warehouse-item--full" : ""}`}>

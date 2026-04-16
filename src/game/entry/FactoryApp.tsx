@@ -27,6 +27,7 @@ import { AutoSmelterPanel } from "../ui/panels/AutoSmelterPanel";
 import { ManualAssemblerPanel } from "../ui/panels/ManualAssemblerPanel";
 import { BuildMenu } from "../ui/menus/BuildMenu";
 import { Notifications } from "../ui/hud/Notifications";
+import { AutoDeliveryFeed } from "../ui/hud/AutoDeliveryFeed";
 import { ResourceBar } from "../ui/hud/ResourceBar";
 import "../ui/styles/factory-game.css";
 
@@ -87,9 +88,38 @@ function normalizeLoadedState(raw: unknown, mode: GameMode): GameState {
     ? (data.machinePowerRatio as Record<string, number>)
     : {};
 
+  // Migrate: old saves stored auto-delivered resources in warehouseInventories.
+  // Move those resource amounts into state.inventory (the unified pool) so existing
+  // saves don't lose their auto-delivered stock after this fix.
+  const CONVEYOR_RESOURCE_KEYS = ["stone", "iron", "copper", "ironIngot", "copperIngot", "metalPlate", "gear"] as const;
+  const rawInv = (data.inventory && typeof data.inventory === "object")
+    ? { ...base.inventory, ...(data.inventory as Partial<GameState["inventory"]>) }
+    : { ...base.inventory };
+  const rawWhInvs = (data.warehouseInventories && typeof data.warehouseInventories === "object")
+    ? data.warehouseInventories as Record<string, Record<string, number>>
+    : {};
+  let migratedInv = { ...rawInv };
+  const migratedWhInvs: Record<string, Record<string, unknown>> = {};
+  for (const [whId, whInv] of Object.entries(rawWhInvs)) {
+    if (!whInv || typeof whInv !== "object") { migratedWhInvs[whId] = {}; continue; }
+    const newWhInv: Record<string, unknown> = { ...whInv };
+    for (const key of CONVEYOR_RESOURCE_KEYS) {
+      const amt = typeof whInv[key] === "number" ? whInv[key] : 0;
+      if (amt > 0) {
+        (migratedInv as any)[key] = ((migratedInv as any)[key] ?? 0) + amt;
+        newWhInv[key] = 0;
+      }
+    }
+    migratedWhInvs[whId] = newWhInv;
+  }
+
   return {
     ...base,
     ...data,
+    inventory: migratedInv,
+    warehouseInventories: Object.keys(migratedWhInvs).length > 0
+      ? migratedWhInvs as GameState["warehouseInventories"]
+      : (rawWhInvs as GameState["warehouseInventories"] ?? base.warehouseInventories),
     conveyors: {
       ...base.conveyors,
       ...normalizedConveyors,
@@ -97,6 +127,7 @@ function normalizeLoadedState(raw: unknown, mode: GameMode): GameState {
     autoSmelters,
     selectedAutoSmelterId: (data.selectedAutoSmelterId as string | null | undefined) ?? null,
     machinePowerRatio,
+    autoDeliveryLog: Array.isArray(data.autoDeliveryLog) ? (data.autoDeliveryLog as GameState["autoDeliveryLog"]) : [],
   };
 }
 
@@ -313,6 +344,7 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
       <Grid state={state} dispatch={dispatch} />
       <ResourceBar state={state} />
       <Notifications notifications={state.notifications} />
+      <AutoDeliveryFeed log={state.autoDeliveryLog} />
 
       {state.openPanel === "map_shop" && (
         <MapShopPanel state={state} dispatch={dispatch} />

@@ -205,16 +205,43 @@ export interface GameNotification {
   kind?: "success" | "error";
 }
 
+/**
+ * A single entry in the auto-delivery log: records one batch of items
+ * that an automatic device delivered into a warehouse.
+ * `sourceType` is extendable for future auto-devices (e.g. "auto_smelter").
+ */
+export interface AutoDeliveryEntry {
+  id: string;
+  /** Type of the device that produced/delivered the item */
+  sourceType: "auto_miner" | "conveyor";
+  /** Asset ID of the source device */
+  sourceId: string;
+  /** The resource key that was delivered */
+  resource: string;
+  /** Total amount batched into this entry */
+  amount: number;
+  /** ID of the warehouse that received the items */
+  warehouseId: string;
+  /** Timestamp of the latest item in this batch */
+  timestamp: number;
+}
+
 export interface GameState {
   mode: GameMode;
   assets: Record<string, PlacedAsset>;
   cellMap: Record<string, string>;
+  /** Central resource pool for all island resources (manual harvest, crafting output, auto-delivery).
+   *  This is the single source of truth for wood, stone, iron, copper, ingots, etc.
+   *  Use getCapacityPerResource(state) for the per-resource cap. */
   inventory: Inventory;
   purchasedBuildings: BuildingType[];
   placedBuildings: BuildingType[];
   warehousesPurchased: number;
   warehousesPlaced: number;
-  /** Per-warehouse inventory instances (keyed by warehouse asset ID) */
+  /** Per-warehouse tool/equip storage (keyed by warehouse asset ID).
+   *  NOT a resource pool — normal resources (wood, stone, iron, etc.) live in state.inventory.
+   *  Used exclusively for tools and equippable items (axe, pickaxe, sapling) that can be
+   *  moved to/from the Hotbar via the Warehouse panel. */
   warehouseInventories: Record<string, Inventory>;
   /** ID of the warehouse whose panel is currently open */
   selectedWarehouseId: string | null;
@@ -258,6 +285,8 @@ export interface GameState {
   machinePowerRatio: Record<string, number>;
   /** Whether the energy debug overlay is visible */
   energyDebugOverlay: boolean;
+  /** Log of items automatically delivered into warehouses by auto-devices (auto_miner, conveyor, …) */
+  autoDeliveryLog: AutoDeliveryEntry[];
 }
 
 // ============================================================
@@ -710,9 +739,33 @@ function getAutoSmelterIoCells(asset: PlacedAsset): { input: { x: number; y: num
 }
 
 /**
- * The warehouse has exactly one input tile located directly below its bottom-left cell
- * (i.e. at { x: warehouse.x, y: warehouse.y + warehouse height }).
- * Only a conveyor/miner facing "north" and positioned on that tile may feed items in.
+ * Returns the input tile position and the required conveyor direction for a warehouse,
+ * based on its `direction` field. Default direction is "south" (input below bottom-left
+ * cell, conveyor must face "north") — preserving backward-compatible behavior.
+ */
+export function getWarehouseInputCell(warehouse: {
+  x: number;
+  y: number;
+  size: 1 | 2;
+  width?: 1 | 2;
+  height?: 1 | 2;
+  direction?: Direction;
+}): { x: number; y: number; requiredDir: Direction } {
+  const dir = warehouse.direction ?? "south";
+  const w = warehouse.width ?? warehouse.size;
+  const h = warehouse.height ?? warehouse.size;
+  switch (dir) {
+    case "south": return { x: warehouse.x,     y: warehouse.y + h, requiredDir: "north" };
+    case "north": return { x: warehouse.x,     y: warehouse.y - 1, requiredDir: "south" };
+    case "east":  return { x: warehouse.x + w, y: warehouse.y,     requiredDir: "west"  };
+    case "west":  return { x: warehouse.x - 1, y: warehouse.y,     requiredDir: "east"  };
+  }
+}
+
+/**
+ * The warehouse has exactly one input tile whose position depends on the warehouse's
+ * `direction` (defaults to "south" — directly below bottom-left cell).
+ * Only a conveyor/miner at the correct tile and facing the required direction may feed items in.
  */
 export function isValidWarehouseInput(
   entityX: number,
@@ -720,11 +773,8 @@ export function isValidWarehouseInput(
   entityDir: Direction,
   warehouse: PlacedAsset
 ): boolean {
-  return (
-    entityDir === "north" &&
-    entityX === warehouse.x &&
-    entityY === warehouse.y + assetHeight(warehouse)
-  );
+  const { x, y, requiredDir } = getWarehouseInputCell(warehouse);
+  return entityDir === requiredDir && entityX === x && entityY === y;
 }
 
 /** True when a cell falls inside the debug-mode spawn-free zone centered on the grid. */
@@ -924,6 +974,51 @@ function addErrorNotification(
     ...filtered.slice(-5),
     { id: makeId(), resource: "error", displayName: message, amount: 0, kind: "error" as const, expiresAt: now + 3000 },
   ];
+}
+
+/** Max entries kept in the auto-delivery log. */
+const AUTO_DELIVERY_LOG_MAX = 50;
+/** Entries with the same source+resource within this window are batched together. */
+const AUTO_DELIVERY_BATCH_WINDOW_MS = 8_000;
+
+/**
+ * Appends (or batches into the latest matching entry) one unit delivered to a warehouse.
+ * Same sourceId + resource within the batch window → increments amount.
+ * Older entries are evicted when the log exceeds AUTO_DELIVERY_LOG_MAX.
+ */
+function addAutoDelivery(
+  log: AutoDeliveryEntry[],
+  sourceType: AutoDeliveryEntry["sourceType"],
+  sourceId: string,
+  resource: string,
+  warehouseId: string,
+): AutoDeliveryEntry[] {
+  const now = Date.now();
+  const lastIdx = log.length - 1;
+  const last = lastIdx >= 0 ? log[lastIdx] : null;
+  if (
+    last &&
+    last.sourceId === sourceId &&
+    last.resource === resource &&
+    now - last.timestamp <= AUTO_DELIVERY_BATCH_WINDOW_MS
+  ) {
+    return [
+      ...log.slice(0, lastIdx),
+      { ...last, amount: last.amount + 1, timestamp: now },
+    ];
+  }
+  const entry: AutoDeliveryEntry = {
+    id: makeId(),
+    sourceType,
+    sourceId,
+    resource,
+    amount: 1,
+    warehouseId,
+    timestamp: now,
+  };
+  return log.length >= AUTO_DELIVERY_LOG_MAX
+    ? [...log.slice(1), entry]
+    : [...log, entry];
 }
 
 export const EMPTY_HOTBAR_SLOT: HotbarSlot = { toolKind: "empty", amount: 0, label: "", emoji: "" };
@@ -1256,6 +1351,8 @@ export function createInitialState(mode: GameMode): GameState {
         { x: autoSmelterPos.x + 1, y: autoSmelterPos.y + 2 },
         { x: autoSmelterPos.x - 1, y: autoSmelterPos.y + 2 },
         { x: warehousePos.x + 1, y: warehousePos.y + 2 },
+        // Bridge pole so the auto-miner tile is within POWER_POLE_RANGE in debug setup.
+        { x: minerPos.x - 3, y: minerPos.y + 1 },
       ].filter((p) => p.x >= 0 && p.x < GRID_W && p.y >= 0 && p.y < GRID_H);
 
       const inputBelts = [
@@ -1454,6 +1551,7 @@ export function createInitialState(mode: GameMode): GameState {
     manualAssembler: { processing: false, recipe: null, progress: 0 },
     machinePowerRatio: {},
     energyDebugOverlay: false,
+    autoDeliveryLog: [],
   };
 }
 
@@ -1587,7 +1685,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           } else if (inv.sapling < cap) {
             inv = { ...inv, sapling: inv.sapling + 1 };
             notifs = addNotification(notifs, "sapling", 1);
-            debugLog.inventory("Sapling drop → added to warehouse inventory");
+            debugLog.inventory("Sapling drop → added to central inventory");
           }
         }
         return { ...state, ...removed, inventory: inv, hotbarSlots: hotbar0, notifications: notifs };
@@ -2402,7 +2500,13 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         bType === "warehouse"
           ? {
               ...state,
-              assets: placed.assets,
+              assets: {
+                ...placed.assets,
+                [placed.id]: {
+                  ...placed.assets[placed.id],
+                  direction: action.direction ?? "south",
+                },
+              },
               cellMap: placed.cellMap,
               inventory: newInvB,
               warehousesPlaced: state.warehousesPlaced + 1,
@@ -2563,20 +2667,20 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       let newWarehouseInventoriesL = state.warehouseInventories;
       let newSmithyL = state.smithy;
       let newNotifsL = state.notifications;
+      let newAutoDeliveryLogL = state.autoDeliveryLog;
       let changed = false;
 
       const tryStoreInWarehouse = (warehouseId: string, resource: ConveyorItem): boolean => {
+        // Warehouse building must exist
         const whInv = (newWarehouseInventoriesL === state.warehouseInventories
           ? state.warehouseInventories[warehouseId]
           : newWarehouseInventoriesL[warehouseId]);
         if (!whInv) return false;
-        const cap = getWarehouseCapacity(state.mode);
+        // Route into the shared island inventory (same pool as manual gathering)
+        const cap = getCapacityPerResource(state);
         const resKey = resource as keyof Inventory;
-        if ((whInv[resKey] as number) >= cap) return false;
-        const updated = { ...whInv, [resKey]: (whInv[resKey] as number) + 1 };
-        newWarehouseInventoriesL = newWarehouseInventoriesL === state.warehouseInventories
-          ? { ...state.warehouseInventories, [warehouseId]: updated }
-          : { ...newWarehouseInventoriesL, [warehouseId]: updated };
+        if ((newInvL[resKey] as number) >= cap) return false;
+        newInvL = { ...newInvL, [resKey]: (newInvL[resKey] as number) + 1 };
         return true;
       };
 
@@ -2608,7 +2712,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
               }
             } else if (outAsset?.type === "warehouse" && isValidWarehouseInput(minerAsset.x, minerAsset.y, dir, outAsset)) {
               if (tryStoreInWarehouse(outAsset.id, miner.resource)) {
-                newNotifsL = addNotification(newNotifsL, miner.resource, 1);
+                newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "auto_miner", minerId, miner.resource, outAsset.id);
                 progress = 0;
                 changed = true;
               }
@@ -2646,7 +2750,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           if (wAsset.type !== "warehouse") continue;
           if (convAsset.x === wAsset.x && convAsset.y === wAsset.y + assetHeight(wAsset)) {
             if (tryStoreInWarehouse(wAsset.id, currentItem)) {
-              newNotifsL = addNotification(newNotifsL, currentItem, 1);
+              newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "conveyor", convId, currentItem, wAsset.id);
               newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
               newConveyorsL[convId] = { queue: activeQueue.slice(1) };
               changed = true;
@@ -2688,7 +2792,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           }
         } else if (nextAsset?.type === "warehouse" && isValidWarehouseInput(convAsset.x, convAsset.y, convAsset.direction ?? "east", nextAsset)) {
           if (tryStoreInWarehouse(nextAsset.id, currentItem)) {
-            newNotifsL = addNotification(newNotifsL, currentItem, 1);
+            newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "conveyor", convId, currentItem, nextAsset.id);
             newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
             newConveyorsL[convId] = { queue: activeQueue.slice(1) };
             changed = true;
@@ -2863,6 +2967,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         autoSmelters: newAutoSmeltersL,
         conveyors: newConveyorsL,
         notifications: newNotifsL,
+        autoDeliveryLog: newAutoDeliveryLogL,
       };
     }
 

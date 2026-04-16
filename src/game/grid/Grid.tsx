@@ -11,9 +11,11 @@ import {
   directionOffset,
   cellKey,
   isValidWarehouseInput,
+  getWarehouseInputCell,
   type GameState,
   type GameAction,
   type Direction,
+  type PlacedAsset,
 } from "../store/reducer";
 import { WAREHOUSE_INPUT_SPRITE } from "../assets/sprites/sprites";
 import { EnergyDebugOverlay, EnergyDebugHud } from "../ui/panels/EnergyDebugOverlay";
@@ -578,8 +580,7 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
   // "cleaned up" into the Phaser base world renderer during later refactors.
   for (const asset of Object.values(state.assets)) {
     if (asset.type !== "warehouse") continue;
-    const inputX = asset.x;
-    const inputY = asset.y + assetH(asset); // directly below bottom-left cell
+    const { x: inputX, y: inputY } = getWarehouseInputCell(asset);
     if (inputX >= GRID_W || inputY >= GRID_H) continue;
     // Viewport culling
     if (inputX < minCellX || inputX > maxCellX || inputY < minCellY || inputY > maxCellY) continue;
@@ -812,7 +813,9 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
     }
 
     // Direction arrow label for directional buildings
-    const isDirectional = activeBuildingType === "auto_miner" || activeBuildingType === "conveyor" || activeBuildingType === "conveyor_corner" || activeBuildingType === "auto_smelter";
+    const isDirectional = activeBuildingType === "auto_miner" || activeBuildingType === "conveyor" || activeBuildingType === "conveyor_corner" || activeBuildingType === "auto_smelter" || activeBuildingType === "warehouse";
+    const isWarehousePlacement = activeBuildingType === "warehouse";
+    const showDirectionArrow = isDirectional && !isWarehousePlacement;
     const dirLabels: Record<Direction, string> = { north: "↑ Nord", east: "→ Ost", south: "↓ Süd", west: "← West" };
     const [aDx, aDy] = directionOffset(buildDirection);
     const arrowX = (x + aDx) * CELL_PX;
@@ -853,20 +856,22 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
         />
         {isDirectional && (
           <>
-            <div
-              style={{
-                position: "absolute",
-                left: arrowX,
-                top: arrowY,
-                width: CELL_PX,
-                height: CELL_PX,
-                border: "2px dashed rgba(255,215,0,0.75)",
-                borderRadius: 6,
-                background: "rgba(255,215,0,0.08)",
-                zIndex: 10,
-                pointerEvents: "none",
-              }}
-            />
+            {showDirectionArrow && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: arrowX,
+                  top: arrowY,
+                  width: CELL_PX,
+                  height: CELL_PX,
+                  border: "2px dashed rgba(255,215,0,0.75)",
+                  borderRadius: 6,
+                  background: "rgba(255,215,0,0.08)",
+                  zIndex: 10,
+                  pointerEvents: "none",
+                }}
+              />
+            )}
             <div
               style={{
                 position: "absolute",
@@ -967,6 +972,62 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
                 </div>
               </>
             )}
+            {isWarehousePlacement && (() => {
+              const tempWh: PlacedAsset = { id: "ghost", type: "warehouse", x, y, size: 2, direction: buildDirection };
+              const { x: whInX, y: whInY } = getWarehouseInputCell(tempWh);
+              const inLeft = whInX * CELL_PX;
+              const inTop  = whInY * CELL_PX;
+              return (
+                <>
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: inLeft,
+                      top: inTop,
+                      width: CELL_PX,
+                      height: CELL_PX,
+                      border: "2px dashed rgba(80,200,120,0.9)",
+                      borderRadius: 6,
+                      background: "rgba(80,200,120,0.12)",
+                      zIndex: 10,
+                      pointerEvents: "none",
+                    }}
+                  />
+                  <img
+                    src={WAREHOUSE_INPUT_SPRITE}
+                    alt=""
+                    draggable={false}
+                    style={{
+                      position: "absolute",
+                      left: inLeft,
+                      top: inTop,
+                      width: CELL_PX,
+                      height: CELL_PX,
+                      opacity: 0.7,
+                      pointerEvents: "none",
+                      imageRendering: "pixelated",
+                      zIndex: 10,
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: inLeft + 4,
+                      top: inTop + 4,
+                      fontSize: 10,
+                      color: "#90f0a0",
+                      background: "rgba(0,0,0,0.7)",
+                      padding: "1px 4px",
+                      borderRadius: 4,
+                      zIndex: 11,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    IN
+                  </div>
+                </>
+              );
+            })()}
           </>
         )}
       </>

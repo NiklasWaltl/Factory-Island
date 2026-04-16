@@ -15,12 +15,10 @@ jobs:
           node-version: "22"
 
       - name: Install modules
-        run: yarn
+        run: yarn --frozen-lockfile
       - name: Typescript check
         run: yarn tsc
       - name: Run tests
         run: yarn test
-        env:
-          VITE_NETWORK: amoy
       - name: Run lint
         run: yarn lint

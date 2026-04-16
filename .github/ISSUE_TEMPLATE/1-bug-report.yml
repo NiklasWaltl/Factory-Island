@@ -76,7 +76,7 @@ body:
       placeholder: |
         - Device: [e.g. iPhone6, Pixel 6a]
         - OS: [e.g. iOS, Linux, Windows, Android]
-        - Browser/App: [e.g. firefox, safari, chrome, metamask mobile]
+        - Browser/App: [e.g. firefox, safari, chrome, edge]
         - Version: [e.g. 22]
     validations:
       required: false

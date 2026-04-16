@@ -16,8 +16,8 @@ body:
     id: community-demand
     attributes:
       label: Proof of Community Demand
-      description: Provide clear, numerical evidence proving that community demand exists for this feature. This can be community polls, discord screenshots, Aha! proposals, etc.
-      placeholder: Links to polls, screenshots, proposals...
+      description: Provide clear evidence that community demand exists for this feature. This can be community polls, discord screenshots, etc.
+      placeholder: Links to polls, screenshots...
     validations:
       required: false
   - type: textarea
@@ -41,22 +41,6 @@ body:
         2. TODO
     validations:
       required: true
-  - type: textarea
-    id: backend-updates
-    attributes:
-      label: Backend Updates Needed
-      description: Provide a list of what backend updates will be needed to support this feature. Write N/A if none needed.
-      placeholder: "1. TODO"
-    validations:
-      required: false
-  - type: textarea
-    id: smart-contract-updates
-    attributes:
-      label: Smart Contract Updates Needed
-      description: Provide a list of what smart contract updates will be needed to support this feature. Write N/A if none needed.
-      placeholder: "1. TODO"
-    validations:
-      required: false
   - type: markdown
     attributes:
       value: "## UI/UX Design Requirements"

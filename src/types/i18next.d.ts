@@ -1,1 +1,0 @@
-/// <reference path="../core/types/i18next.d.ts" />

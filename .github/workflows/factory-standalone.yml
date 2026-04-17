@@ -1,0 +1,70 @@
+# Factory Island – Standalone Deploy
+#
+# Builds and deploys Factory Island as a standalone app.
+#
+# TODO before first use:
+#   1. Create a GitHub environment "factory-standalone" with required secrets
+#   2. Set secrets: DEPLOY_ACCESS_KEY, DEPLOY_SECRET, DEPLOY_BUCKET
+#   3. Adjust aws-region if needed
+#   4. Optionally replace S3 deploy with GitHub Pages, Cloudflare Pages, etc.
+
+name: Factory Island standalone deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/game/**"
+      - "index.factory.html"
+      - "vite.factory.config.ts"
+      - "tsconfig.factory.json"
+      - "public/factory/**"
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    concurrency: factory-standalone-deploy
+    environment: factory-standalone
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Type-check
+        run: npx tsc --project tsconfig.factory.json --noEmit
+
+      - name: Build
+        run: yarn build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+          CI: false
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: factory-island-dist
+          path: dist-factory/
+          retention-days: 14
+
+      # ── Deploy (S3 example — replace with your target) ──
+      # Uncomment and configure when deploy target is decided.
+      #
+      # - name: Configure AWS Credentials
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     aws-access-key-id: ${{ secrets.DEPLOY_ACCESS_KEY }}
+      #     aws-secret-access-key: ${{ secrets.DEPLOY_SECRET }}
+      #     aws-region: eu-central-1
+      #
+      # - name: Deploy to S3
+      #   run: aws s3 sync ./dist-factory/ s3://${{ secrets.DEPLOY_BUCKET }} --delete

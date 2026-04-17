@@ -10,7 +10,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "set NODE_ENV=development && vite --config vite.factory.config.ts --port 3000 --host",
+    "dev": "vite --config vite.factory.config.ts",
     "build": "tsc --project tsconfig.factory.json && vite build --config vite.factory.config.ts",
     "preview": "vite preview --config vite.factory.config.ts",
     "lint": "eslint --quiet --ext .tsx,.ts .",

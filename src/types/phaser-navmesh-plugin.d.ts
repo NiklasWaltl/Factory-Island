@@ -1,1 +1,0 @@
-/// <reference path="../core/types/phaser-navmesh-plugin.d.ts" />

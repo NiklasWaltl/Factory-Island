@@ -1,1 +1,0 @@
-/// <reference path="../core/types/phaser3-rex-plugins.d.ts" />

@@ -1,1 +1,0 @@
-/// <reference path="../core/types/vite-env.d.ts" />

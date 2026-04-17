@@ -1,37 +1,5 @@
 {
-  "compilerOptions": {
-    "target": "ESNext",
-    "useDefineForClassFields": true,
-    "lib": ["DOM", "DOM.Iterable", "ESNext"],
-    "allowJs": false,
-    "skipLibCheck": true,
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "strict": true,
-    "forceConsistentCasingInFileNames": true,
-    "module": "ESNext",
-    "moduleResolution": "Node",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "baseUrl": ".",
-    "paths": {
-      "features/*": ["src/core/features/*", "src/features/*"],
-      "assets/*": ["src/core/assets/*"],
-      "lib/*": ["src/core/lib/*"],
-      "components/*": ["src/core/components/*"],
-      "game/*": ["src/game/*"],
-      "ui/*": ["src/ui/*"],
-      "overrides/*": ["src/overrides/*"]
-    }
-  },
-  "include": [
-    "./src",
-    "./metadata",
-    "./node_modules/vite-plugin-pwa/react.d.ts",
-    "./node_modules/@khmyznikov/pwa-install/index.d.ts",
-    "./src/types/page-lifecycle.d.ts"
-  ],
-  "exclude": ["./src/core/sw.ts"]
+  // Redirect: VS Code / IDE tools discover this file by convention.
+  // The actual config is tsconfig.factory.json.
+  "extends": "./tsconfig.factory.json"
 }

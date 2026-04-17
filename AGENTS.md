@@ -1,4 +1,4 @@
-﻿# AGENTS.md — Factory Island
+# AGENTS.md — Factory Island
 
 Dieses Dokument richtet sich an KI-Coding-Agenten, die an diesem Repository arbeiten.
 

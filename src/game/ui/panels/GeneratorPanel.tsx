@@ -1,4 +1,4 @@
-﻿import React from "react";
+import React from "react";
 import {
   GENERATOR_TICKS_PER_WOOD,
   GENERATOR_ENERGY_PER_TICK,
@@ -6,9 +6,12 @@ import {
   ENERGY_NET_TICK_MS,
   getConnectedDemandPerPeriod,
   getEnergyProductionPerPeriod,
+  getCraftingSourceInventory,
+  getSourceStatusInfo,
   type GameState,
   type GameAction,
 } from "../../store/reducer";
+import { ZoneSourceSelector } from "./ZoneSourceSelector";
 
 interface GeneratorPanelProps {
   state: GameState;
@@ -22,12 +25,26 @@ const WOOD_PER_SEC = (1000 / GENERATOR_TICK_MS / GENERATOR_TICKS_PER_WOOD).toFix
 
 export const GeneratorPanel: React.FC<GeneratorPanelProps> = React.memo(({ state, dispatch }) => {
   const g = state.generator;
-  const woodInInventory = state.inventory.wood;
+  const generatorId = state.selectedGeneratorId;
+
+  const sourceInfo = getSourceStatusInfo(state, generatorId);
+  const sourceInv = getCraftingSourceInventory(state, sourceInfo.source);
+  const woodAvailable = (sourceInv.wood as number) ?? 0;
+
   const fuelPct = g.fuel > 0 ? (1 - g.progress) * 100 : 0;
 
-  // Connectivity info
+  let blockReason: string | null = null;
+  if (sourceInfo.fallbackReason === "zone_no_warehouses") {
+    blockReason = "Zone aktiv, aber keine Lagerhäuser (Fallback: Global)";
+  } else if (woodAvailable < 1) {
+    blockReason = sourceInfo.source.kind === "zone"
+      ? "Zone hat kein Holz"
+      : sourceInfo.source.kind === "warehouse"
+        ? "Lagerhaus hat kein Holz"
+        : "Kein Holz im globalen Inventar";
+  }
 
-  // Generator is considered "connected" only when a cable reaches a power pole
+  // Connectivity info
   const genConnectedToPole = state.connectedAssetIds.some((id) => state.assets[id]?.type === "power_pole");
   const connectedMachines = state.connectedAssetIds
     .map((id) => state.assets[id])
@@ -42,6 +59,16 @@ export const GeneratorPanel: React.FC<GeneratorPanelProps> = React.memo(({ state
   return (
     <div className="fi-panel fi-generator" onClick={(ev) => ev.stopPropagation()}>
       <h2>⚡ Holz-Generator</h2>
+
+      {generatorId && (
+        <ZoneSourceSelector state={state} buildingId={generatorId} dispatch={dispatch} />
+      )}
+
+      {blockReason && (
+        <div style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: "#fca5a5", marginBottom: 8 }}>
+          {blockReason}
+        </div>
+      )}
 
       {/* Generator status */}
       <div className="fi-generator-energy-label" style={{ marginBottom: 8 }}>
@@ -96,14 +123,14 @@ export const GeneratorPanel: React.FC<GeneratorPanelProps> = React.memo(({ state
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
           <button
             className="fi-btn fi-btn-sm"
-            disabled={woodInInventory < 1}
+            disabled={woodAvailable < 1}
             onClick={() => dispatch({ type: "GENERATOR_ADD_FUEL", amount: 1 })}
           >
             +1 Holz
           </button>
           <button
             className="fi-btn fi-btn-sm"
-            disabled={woodInInventory < 5}
+            disabled={woodAvailable < 5}
             onClick={() => dispatch({ type: "GENERATOR_ADD_FUEL", amount: 5 })}
           >
             +5 Holz

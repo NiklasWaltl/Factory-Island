@@ -2,10 +2,14 @@
 import {
   RESOURCE_LABELS,
   RESOURCE_EMOJIS,
+  getSourceStatusInfo,
+  getCraftingSourceInventory,
   type GameState,
   type GameAction,
+  type Inventory,
 } from "../../store/reducer";
 import { WORKBENCH_RECIPES } from "../../simulation/recipes";
+import { ZoneSourceSelector } from "./ZoneSourceSelector";
 
 interface WorkbenchPanelProps {
   state: GameState;
@@ -16,14 +20,22 @@ export const WorkbenchPanel: React.FC<WorkbenchPanelProps> = React.memo(({
   state,
   dispatch,
 }) => {
+  const buildingId = state.selectedCraftingBuildingId;
+  const info = getSourceStatusInfo(state, buildingId);
+  const sourceInv: Inventory = getCraftingSourceInventory(state, info.source);
+
   return (
     <div className="fi-panel fi-workbench" onClick={(e) => e.stopPropagation()}>
       <h2>🔨 Werkbank</h2>
+
+      {/* ---- Source / Zone selector ---- */}
+      <ZoneSourceSelector state={state} buildingId={buildingId} dispatch={dispatch} />
+
       <div className="fi-shop-list">
         {WORKBENCH_RECIPES.map((recipe) => {
           const canAfford = Object.entries(recipe.costs).every(
             ([res, amt]) =>
-              (state.inventory[res as keyof typeof state.inventory] ?? 0) >=
+              (sourceInv[res as keyof Inventory] as number ?? 0) >=
               (amt ?? 0)
           );
 
@@ -33,12 +45,17 @@ export const WorkbenchPanel: React.FC<WorkbenchPanelProps> = React.memo(({
               <div className="fi-shop-item-info">
                 <strong>{recipe.label}</strong>
                 <div className="fi-shop-item-costs">
-                  {Object.entries(recipe.costs).map(([res, amt]) => (
-                    <span key={res} className="fi-shop-cost">
-                      {RESOURCE_EMOJIS[res] ?? ""} {amt}{" "}
-                      {RESOURCE_LABELS[res] ?? res}
-                    </span>
-                  ))}
+                  {Object.entries(recipe.costs).map(([res, amt]) => {
+                    const available = sourceInv[res as keyof Inventory] as number ?? 0;
+                    const enough = available >= (amt ?? 0);
+                    return (
+                      <span key={res} className="fi-shop-cost" style={enough ? undefined : { color: "#f66" }}>
+                        {RESOURCE_EMOJIS[res] ?? ""} {amt}{" "}
+                        {RESOURCE_LABELS[res] ?? res}
+                        <span style={{ fontSize: 10, color: "#888", marginLeft: 3 }}>({available})</span>
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
               <button
@@ -50,6 +67,17 @@ export const WorkbenchPanel: React.FC<WorkbenchPanelProps> = React.memo(({
               >
                 Herstellen
               </button>
+              {!canAfford && (
+                <div style={{ fontSize: 10, color: "#e8a946", marginTop: 2 }}>
+                  {info.fallbackReason === "zone_no_warehouses"
+                    ? "Zone hat keine Lagerh\u00e4user"
+                    : info.source.kind === "zone"
+                      ? "Zu wenig Ressourcen in der Zone"
+                      : info.source.kind === "warehouse"
+                        ? "Zu wenig Ressourcen im Lagerhaus"
+                        : "Zu wenig Ressourcen (global)"}
+                </div>
+              )}
             </div>
           );
         })}

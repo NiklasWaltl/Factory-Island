@@ -1,5 +1,11 @@
 ﻿import React from "react";
-import type { GameState, GameAction } from "../../store/reducer";
+import {
+  getSourceStatusInfo,
+  getCraftingSourceInventory,
+  type GameState,
+  type GameAction,
+} from "../../store/reducer";
+import { ZoneSourceSelector } from "./ZoneSourceSelector";
 
 interface SmithyPanelProps {
   state: GameState;
@@ -12,9 +18,16 @@ export const SmithyPanel: React.FC<SmithyPanelProps> = React.memo(({ state, disp
   const rawInQueue = isIron ? s.iron : s.copper;
   const canStart = s.fuel > 0 && rawInQueue >= 5;
 
+  const buildingId = state.selectedCraftingBuildingId;
+  const info = getSourceStatusInfo(state, buildingId);
+  const sourceInv = getCraftingSourceInventory(state, info.source);
+
   return (
     <div className="fi-panel fi-smithy" onClick={(e) => e.stopPropagation()}>
       <h2>🔥 Schmiede</h2>
+
+      {/* ---- Source / Zone selector ---- */}
+      <ZoneSourceSelector state={state} buildingId={buildingId} dispatch={dispatch} />
 
       {/* Recipe selector */}
       <div className="fi-smithy-recipe-tabs">
@@ -44,14 +57,15 @@ export const SmithyPanel: React.FC<SmithyPanelProps> = React.memo(({ state, disp
         <div className="fi-smithy-slot">
           <span>🪵 Brennstoff</span>
           <strong>{s.fuel}</strong>
+          <span style={{ fontSize: 11, color: "#888" }}>(Vorrat: {sourceInv.wood})</span>
           <button
             className="fi-btn fi-btn-sm"
-            disabled={state.inventory.wood <= 0}
+            disabled={sourceInv.wood <= 0}
             onClick={() => dispatch({ type: "SMITHY_ADD_FUEL", amount: 1 })}
           >+1</button>
           <button
             className="fi-btn fi-btn-sm"
-            disabled={state.inventory.wood < 5}
+            disabled={sourceInv.wood < 5}
             onClick={() => dispatch({ type: "SMITHY_ADD_FUEL", amount: 5 })}
           >+5</button>
         </div>
@@ -60,14 +74,15 @@ export const SmithyPanel: React.FC<SmithyPanelProps> = React.memo(({ state, disp
           <div className="fi-smithy-slot">
             <span>⚙️ Eisen (braucht 5)</span>
             <strong>{s.iron}</strong>
+            <span style={{ fontSize: 11, color: "#888" }}>(Vorrat: {sourceInv.iron})</span>
             <button
               className="fi-btn fi-btn-sm"
-              disabled={state.inventory.iron <= 0}
+              disabled={sourceInv.iron <= 0}
               onClick={() => dispatch({ type: "SMITHY_ADD_IRON", amount: 1 })}
             >+1</button>
             <button
               className="fi-btn fi-btn-sm"
-              disabled={state.inventory.iron < 5}
+              disabled={sourceInv.iron < 5}
               onClick={() => dispatch({ type: "SMITHY_ADD_IRON", amount: 5 })}
             >+5</button>
           </div>
@@ -75,14 +90,15 @@ export const SmithyPanel: React.FC<SmithyPanelProps> = React.memo(({ state, disp
           <div className="fi-smithy-slot">
             <span>🟫 Kupfer (braucht 5)</span>
             <strong>{s.copper}</strong>
+            <span style={{ fontSize: 11, color: "#888" }}>(Vorrat: {sourceInv.copper})</span>
             <button
               className="fi-btn fi-btn-sm"
-              disabled={state.inventory.copper <= 0}
+              disabled={sourceInv.copper <= 0}
               onClick={() => dispatch({ type: "SMITHY_ADD_COPPER", amount: 1 })}
             >+1</button>
             <button
               className="fi-btn fi-btn-sm"
-              disabled={state.inventory.copper < 5}
+              disabled={sourceInv.copper < 5}
               onClick={() => dispatch({ type: "SMITHY_ADD_COPPER", amount: 5 })}
             >+5</button>
           </div>
@@ -118,6 +134,17 @@ export const SmithyPanel: React.FC<SmithyPanelProps> = React.memo(({ state, disp
           >
             ⏹ Stoppen
           </button>
+        )}
+        {!s.processing && !canStart && (
+          <div style={{ fontSize: 10, color: "#e8a946", marginTop: 2 }}>
+            {info.fallbackReason === "zone_no_warehouses"
+              ? "Zone hat keine Lagerh\u00e4user"
+              : s.fuel <= 0 && rawInQueue < 5
+                ? "Brennstoff und Erz fehlen"
+                : s.fuel <= 0
+                  ? "Brennstoff fehlen"
+                  : "Zu wenig Erz eingelegt (mind. 5)"}
+          </div>
         )}
       </div>
 

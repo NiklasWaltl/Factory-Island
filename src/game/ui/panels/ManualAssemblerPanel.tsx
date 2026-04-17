@@ -3,9 +3,12 @@ import {
   MANUAL_ASSEMBLER_PROCESS_MS,
   RESOURCE_EMOJIS,
   RESOURCE_LABELS,
+  getSourceStatusInfo,
+  getCraftingSourceInventory,
   type GameAction,
   type GameState,
 } from "../../store/reducer";
+import { ZoneSourceSelector } from "./ZoneSourceSelector";
 
 interface ManualAssemblerPanelProps {
   state: GameState;
@@ -21,25 +24,32 @@ export const ManualAssemblerPanel: React.FC<ManualAssemblerPanelProps> = React.m
   const progressPct = Math.max(0, Math.min(100, Math.round(assembler.progress * 100)));
   const remainingMs = Math.max(0, Math.round((1 - assembler.progress) * MANUAL_ASSEMBLER_PROCESS_MS));
 
-  const canCraftPlate = state.inventory.ironIngot >= 1 && !isBusy;
-  const canCraftGear = state.inventory.metalPlate >= 1 && !isBusy;
+  const buildingId = state.selectedCraftingBuildingId;
+  const info = getSourceStatusInfo(state, buildingId);
+  const sourceInv = getCraftingSourceInventory(state, info.source);
+
+  const canCraftPlate = (sourceInv.ironIngot as number) >= 1 && !isBusy;
+  const canCraftGear = (sourceInv.metalPlate as number) >= 1 && !isBusy;
 
   return (
     <div className="fi-panel" onClick={(e) => e.stopPropagation()}>
       <h2>🧰 Manueller Assembler</h2>
 
+      {/* ---- Source / Zone selector ---- */}
+      <ZoneSourceSelector state={state} buildingId={buildingId} dispatch={dispatch} />
+
       <div style={{ display: "grid", gap: 8 }}>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <span>{RESOURCE_EMOJIS.ironIngot} {RESOURCE_LABELS.ironIngot}</span>
-          <strong>{state.inventory.ironIngot}</strong>
+          <strong>{sourceInv.ironIngot}</strong>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <span>{RESOURCE_EMOJIS.metalPlate} {RESOURCE_LABELS.metalPlate}</span>
-          <strong>{state.inventory.metalPlate}</strong>
+          <strong>{sourceInv.metalPlate}</strong>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <span>{RESOURCE_EMOJIS.gear} {RESOURCE_LABELS.gear}</span>
-          <strong>{state.inventory.gear}</strong>
+          <strong>{sourceInv.gear}</strong>
         </div>
       </div>
 
@@ -51,6 +61,15 @@ export const ManualAssemblerPanel: React.FC<ManualAssemblerPanelProps> = React.m
         >
           Metallplatte herstellen (1× Eisenbarren → 1× Metallplatte)
         </button>
+        {!canCraftPlate && !isBusy && (
+          <div style={{ fontSize: 10, color: "#e8a946" }}>
+            {info.fallbackReason === "zone_no_warehouses"
+              ? "Zone hat keine Lagerh\u00e4user"
+              : (sourceInv.ironIngot as number) < 1
+                ? `Zu wenig Eisenbarren (${info.source.kind === "zone" ? "Zone" : info.source.kind === "warehouse" ? "Lagerhaus" : "global"})`
+                : ""}
+          </div>
+        )}
 
         <button
           className="fi-btn"
@@ -59,6 +78,15 @@ export const ManualAssemblerPanel: React.FC<ManualAssemblerPanelProps> = React.m
         >
           Zahnrad herstellen (1× Metallplatte → 1× Zahnrad)
         </button>
+        {!canCraftGear && !isBusy && (
+          <div style={{ fontSize: 10, color: "#e8a946" }}>
+            {info.fallbackReason === "zone_no_warehouses"
+              ? "Zone hat keine Lagerh\u00e4user"
+              : (sourceInv.metalPlate as number) < 1
+                ? `Zu wenig Metallplatten (${info.source.kind === "zone" ? "Zone" : info.source.kind === "warehouse" ? "Lagerhaus" : "global"})`
+                : ""}
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: 12 }}>

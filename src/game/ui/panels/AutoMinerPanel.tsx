@@ -1,12 +1,21 @@
 ﻿import React, { useEffect, useRef } from "react";
 import {
+  AUTO_MINER_BOOST_MULTIPLIER,
   AUTO_MINER_PRODUCE_TICKS,
   DEFAULT_MACHINE_PRIORITY,
+  ENERGY_DRAIN,
   RESOURCE_LABELS,
+  WAREHOUSE_CAPACITY,
+  getCapacityPerResource,
+  getCraftingSourceInventory,
+  getSourceStatusInfo,
+  getZoneItemCapacity,
   type GameState,
   type GameAction,
+  type Inventory,
   type MachinePriority,
 } from "../../store/reducer";
+import { ZoneSourceSelector } from "./ZoneSourceSelector";
 
 interface AutoMinerPanelProps {
   state: GameState;
@@ -38,6 +47,27 @@ export const AutoMinerPanel: React.FC<AutoMinerPanelProps> = React.memo(({ state
   const powerRatio = Math.max(0, Math.min(1, state.machinePowerRatio?.[minerId] ?? ((state.poweredMachineIds ?? []).includes(minerId) ? 1 : 0)));
   const currentPriority = (minerAsset.priority ?? DEFAULT_MACHINE_PRIORITY) as MachinePriority;
 
+  const sourceInfo = getSourceStatusInfo(state, minerId);
+  const sourceInv = getCraftingSourceInventory(state, sourceInfo.source);
+  const resKey = minerState.resource as keyof Inventory;
+  const currentInTarget = (sourceInv[resKey] as number) ?? 0;
+  const sourceCapacity = sourceInfo.source.kind === "global"
+    ? getCapacityPerResource(state)
+    : sourceInfo.source.kind === "zone"
+    ? getZoneItemCapacity(state, sourceInfo.source.zoneId)
+    : (state.mode === "debug" ? Infinity : WAREHOUSE_CAPACITY);
+  const isOutputBlocked = currentInTarget >= sourceCapacity;
+  const isReadyToOutput = minerState.progress >= AUTO_MINER_PRODUCE_TICKS;
+
+  let blockReason: string | null = null;
+  if (!isConnected || powerRatio < 1) {
+    blockReason = "Keine volle Stromversorgung";
+  } else if (sourceInfo.fallbackReason === "zone_no_warehouses") {
+    blockReason = "Zone aktiv, aber keine Lagerhäuser (Fallback aktiv)";
+  } else if (isReadyToOutput && isOutputBlocked) {
+    blockReason = "Output-Ziel hat keinen Platz";
+  }
+
   const powerLabel = !isConnected
     ? "Nicht verbunden"
     : powerRatio <= 0
@@ -52,8 +82,12 @@ export const AutoMinerPanel: React.FC<AutoMinerPanelProps> = React.memo(({ state
     ? "#7CFC00"
     : "#facc15";
 
-  const itemsPerTick = 1 / AUTO_MINER_PRODUCE_TICKS;
+  const isBoosted = !!minerAsset.boosted;
+  const boostFactor = isBoosted ? AUTO_MINER_BOOST_MULTIPLIER : 1;
+  const itemsPerTick = boostFactor / AUTO_MINER_PRODUCE_TICKS;
   const itemsPerMinute = itemsPerTick * 60;
+  const baseDrain = ENERGY_DRAIN["auto_miner"] ?? 0;
+  const currentDrain = baseDrain * boostFactor;
 
   return (
     <div
@@ -79,7 +113,39 @@ export const AutoMinerPanel: React.FC<AutoMinerPanelProps> = React.memo(({ state
         </button>
       </div>
 
+      <ZoneSourceSelector state={state} buildingId={minerId} dispatch={dispatch} />
+
       <div style={{ display: "grid", gap: 8 }}>
+        {blockReason && (
+          <div
+            data-testid="auto-miner-block-reason"
+            style={{
+              background: "rgba(239,68,68,0.15)",
+              border: "1px solid rgba(239,68,68,0.4)",
+              borderRadius: 6,
+              padding: "6px 10px",
+              color: "#fca5a5",
+              fontSize: 12,
+            }}
+          >
+            ⚠ {blockReason}
+          </div>
+        )}
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span>Output-Ziel</span>
+          <strong style={{ color: isOutputBlocked ? "#fca5a5" : undefined }}>
+            {sourceInfo.sourceLabel}
+          </strong>
+        </div>
+        {sourceInfo.fallbackReason !== "none" && (
+          <div style={{ fontSize: 11, color: "#9ca3af" }}>{sourceInfo.reasonLabel}</div>
+        )}
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span>Output ({RESOURCE_LABELS[minerState.resource] ?? minerState.resource})</span>
+          <strong style={{ color: isOutputBlocked ? "#fca5a5" : "#86efac" }}>
+            {currentInTarget} / {sourceCapacity === Infinity ? "∞" : sourceCapacity}
+          </strong>
+        </div>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <span>Aktive Ressource</span>
           <strong>{RESOURCE_LABELS[minerState.resource] ?? minerState.resource}</strong>
@@ -93,6 +159,28 @@ export const AutoMinerPanel: React.FC<AutoMinerPanelProps> = React.memo(({ state
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <span>Ertrag pro Minute</span>
           <strong>{itemsPerMinute.toFixed(1)} / min</strong>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span>Verbrauch / Periode</span>
+          <strong>{currentDrain} E</strong>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>Overclocking</span>
+          <button
+            className="fi-btn fi-btn-sm"
+            onClick={() => dispatch({ type: "SET_MACHINE_BOOST", assetId: minerId, boosted: !isBoosted })}
+            style={{
+              padding: "4px 10px",
+              border: isBoosted ? "1px solid #f59e0b" : "1px solid rgba(255,255,255,0.2)",
+              background: isBoosted ? "rgba(245,158,11,0.2)" : "rgba(100,100,100,0.15)",
+              color: isBoosted ? "#fbbf24" : "#d1d5db",
+              borderRadius: 4,
+              cursor: "pointer",
+            }}
+            title={`Boost: ${AUTO_MINER_BOOST_MULTIPLIER}x Produktion, ${AUTO_MINER_BOOST_MULTIPLIER}x Verbrauch`}
+          >
+            {isBoosted ? `⚡ Boost AN (${AUTO_MINER_BOOST_MULTIPLIER}x)` : "Boost AUS"}
+          </button>
         </div>
         <div style={{ display: "grid", gap: 6 }}>
           <span>Priorität (1 = höchste, 5 = niedrigste)</span>

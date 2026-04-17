@@ -40,7 +40,7 @@ import { getSmeltingRecipe } from "./recipes";
 
 | Prüfpunkt | Aktion |
 |---|---|
-| Port belegt | `--port 3000` wird verwendet. Anderen Port prüfen oder Prozess beenden. |
+| Port belegt | Port 3000 wird verwendet (`server.port: 3000`). Anderen Prozess beenden. |
 | `node_modules` fehlt | `yarn install` ausführen. |
 | Vite-Version inkompatibel | `vite@^5.4.21` wird benötigt (siehe `package.json`). |
 
@@ -63,12 +63,13 @@ import { getSmeltingRecipe } from "./recipes";
 ### Checkliste
 
 1. **Browser-Konsole öffnen** (F12) → Fehlermeldung lesen.
-2. **Entry-Point prüfen**: `index.factory.html` muss auf `/src/game/entry/main.factory.tsx` verweisen.
-3. **Reducer-Fehler**: Unbehandelte Action-Typen im Reducer werfen keinen Fehler, können aber zu unerwartetem State führen.
-4. **Corrupt Save**: Wenn `localStorage` einen ungültigen Save enthält:
+2. **GameErrorBoundary prüfen**: Bei Render-Fehlern fängt die Error-Boundary den Crash ab und zeigt "Etwas ist schiefgelaufen" mit einem "Erneut versuchen"-Button (löscht localStorage-Save + remountet App). Wenn stattdessen eine blanke Seite ohne Text → JavaScript-Fehler vor React-Mount prüfen (z.B. in `main.factory.tsx`).
+3. **Entry-Point prüfen**: `index.factory.html` muss auf `/src/game/entry/main.factory.tsx` verweisen.
+4. **Reducer-Fehler**: Unbehandelte Action-Typen im Reducer werfen keinen Fehler, können aber zu unerwartetem State führen.
+5. **Corrupt Save**: Wenn `localStorage` einen ungültigen Save enthält:
    - Konsole: `localStorage.removeItem("factory-island-save")` → Seite neu laden.
    - Alternativ: Application-Tab → Local Storage → Eintrag löschen.
-5. **Fehlende Felder in GameState**: Wenn neue Felder hinzugefügt wurden, aber `save.ts` nicht migriert → Crash beim Laden alter Saves (siehe Abschnitt 4).
+6. **Fehlende Felder in GameState**: Wenn neue Felder hinzugefügt wurden, aber `save.ts` nicht migriert → Crash beim Laden alter Saves (siehe Abschnitt 4).
 
 ---
 
@@ -80,9 +81,10 @@ import { getSmeltingRecipe } from "./recipes";
 
 **Lösung**:
 1. `CURRENT_SAVE_VERSION` in `save.ts` erhöhen.
-2. Neue Migration schreiben (z. B. `migrateV1ToV2()`).
-3. Migration in `MIGRATIONS`-Array eintragen.
-4. `SaveGameV2`-Interface definieren, `SaveGameLatest` aktualisieren.
+2. Neues Interface `SaveGameV{N}` definieren.
+3. Migrationsfunktion `migrateV{N-1}ToV{N}()` schreiben.
+4. Eintrag `{ from: N-1, to: N, migrate: migrateV{N-1}ToV{N} }` in `MIGRATIONS`-Array.
+5. `SaveGameLatest`-Alias auf neues Interface zeigen lassen.
 
 **Schneller Workaround** (nur Entwicklung):
 ```javascript
@@ -90,12 +92,19 @@ import { getSmeltingRecipe } from "./recipes";
 localStorage.removeItem("factory-island-save");
 ```
 
+### Save wird beim Laden ignoriert (leerer State nach Refresh)
+
+**Ursache**: `loadAndHydrate(raw, mode)` lädt nur wenn `save.mode === mode`. Debug-Save wird im Release-Modus nicht geladen und umgekehrt.
+
+**Lösung**: Beim Neustart denselben Modus (Debug/Release) wie beim letzten Speichern wählen.
+
 ### Save enthält abgeleiteten State
 
-`serializeState()` persistiert nur Kern-Felder. Transiente Felder werden beim Laden neu berechnet:
-- `connectedAssetIds` → `computeConnectedAssetIds()`
+`serializeState()` persistiert nur Kern-Felder. Transiente Felder werden beim Laden neu gesetzt:
+- `connectedAssetIds` → `computeConnectedAssetIds()` (sofort in `deserializeState`)
 - `poweredMachineIds` → nächster `ENERGY_NET_TICK`
 - `openPanel`, `notifications`, `buildMode` → Defaults
+- `autoDeliveryLog`, `energyDebugOverlay` → leer / false
 
 Falls ein neues Feld transient sein soll: **nicht** in `SaveGameV*` aufnehmen, sondern in `deserializeState()` mit Default initialisieren.
 
@@ -109,10 +118,11 @@ Falls ein neues Feld transient sein soll: **nicht** in `SaveGameV*` aufnehmen, s
 |---|---|
 | Generator platziert? | Muss auf Steinboden stehen (`REQUIRES_STONE_FLOOR`). |
 | Generator hat Brennstoff? | Holz hinzufügen + starten. |
-| Kabelverbindung? | Generator → Kabel → Power Pole → Maschine (oder direkte Adjacency). |
-| Power Pole in Reichweite? | Chebyshev-Distanz ≤ 3 Tiles (`POWER_POLE_RANGE`). |
+| Kabelverbindung? | Nur `cable`, `generator`, `power_pole` sind Kabelleiter (Phase-1-BFS). Maschinen und Batterien leiten keine Energie durch Kabel weiter. |
+| Power Pole in Reichweite? | Chebyshev-Distanz ≤ 3 Tiles (`POWER_POLE_RANGE`). Maschine muss im Bereich eines über Kabel verbundenen Poles liegen. |
 | Maschine in `ENERGY_DRAIN` registriert? | Neue Maschinen müssen dort eingetragen sein. |
 | Priorität zu niedrig? | `MachinePriority` 5 = niedrigste. Bei Engpass werden niedrige Prioritäten gedrosselt. |
+| Auto-Smelter zieht zu viel? | Im Processing-Zustand 60 J/Periode (statt 10 J idle). Bei Vollbetrieb ausreichend Generatorkapazität einplanen. |
 
 ### Debug: Energienetz visualisieren
 
@@ -136,8 +146,16 @@ Im Debug-Modus: `TOGGLE_ENERGY_DEBUG`-Action oder UI-Button → `EnergyDebugOver
 
 ### Warehouse nimmt keine Items an
 
-- Eingang ist genau eine Zelle: `(warehouse.x, warehouse.y + height)`, Richtung muss `"north"` sein.
-- Prüfen mit `isValidWarehouseInput()`.
+Der Warehouse-Eingang ist **richtungsabhängig** — abhängig von `warehouse.direction`:
+
+| warehouse.direction | Eingang-Position | Förderband muss zeigen |
+|---|---|---|
+| `"south"` (Default) | `(x, y + height)` | `"north"` |
+| `"north"` | `(x, y - 1)` | `"south"` |
+| `"east"` | `(x + width, y)` | `"west"` |
+| `"west"` | `(x - 1, y)` | `"east"` |
+
+Validierung: `isValidWarehouseInput(entityX, entityY, entityDir, warehouse)` aus `store/reducer`.
 
 ---
 
@@ -154,14 +172,15 @@ Im Debug-Modus: `TOGGLE_ENERGY_DEBUG`-Action oder UI-Button → `EnergyDebugOver
 
 ### Größen-Bugs bei rotierbaren Maschinen
 
-`PlacedAsset` hat `size`, `width` und `height`. Für Größenberechnungen immer:
+`PlacedAsset` hat `size`, `width` und `height`. `assetWidth`/`assetHeight` sind **interne Funktionen** in `reducer.ts` — nicht exportiert. Außerhalb von `reducer.ts` direkt verwenden:
+
 ```typescript
 // ✅ Korrekt
-const w = assetWidth(asset);   // asset.width ?? asset.size
-const h = assetHeight(asset);  // asset.height ?? asset.size
+const w = asset.width ?? asset.size;
+const h = asset.height ?? asset.size;
 
-// ❌ Falsch
-const w = asset.size;  // Ignoriert width/height-Override
+// ❌ Falsch — asset.size ignoriert width/height-Override
+const w = asset.size;
 ```
 
 Auto-Smelter: `size=2, width=2, height=1` — mit `asset.size` allein wäre die Höhe falsch.
@@ -188,14 +207,22 @@ Auto-Smelter: `size=2, width=2, height=1` — mit `asset.size` allein wäre die 
 
 ### Debug-Panel erscheint nicht
 
-- Nur sichtbar wenn `IS_DEV = true` UND `state.mode === "debug"`.
+- Nur sichtbar wenn `IS_DEV = true` (Vite DEV-Build) UND `state.mode === "debug"`.
 - In Production ist alles via `import.meta.env.DEV` tree-shaken.
 - Beim Start über `ModeSelect.tsx` "debug" wählen.
+
+### Debug-Logs erscheinen nicht in der Konsole
+
+Debug-Logger prüft **zwei Bedingungen**:
+1. `import.meta.env.DEV` — muss true sein (DEV-Build, nicht Production)
+2. `isDebugEnabled()` — Runtime-Toggle, kann aus Debug-UI deaktiviert werden
+
+Beide müssen true sein. Runtime-Toggle zurücksetzen: `import { setDebugEnabled } from "./debug/debugConfig"; setDebugEnabled(true)` in der Browser-Konsole (DEV-Build vorausgesetzt).
 
 ### Mock-Daten haben keinen Effekt
 
 - Mock-Actions (`DEBUG_MOCK_RESOURCES` etc.) werden über `applyMockToState()` verarbeitet.
-- Nur im Debug-Modus verfügbar (Guard: `import.meta.env.DEV`).
+- Nur im Debug-Modus verfügbar (Guard: `IS_DEV`).
 - Ergebnis wird als `DEBUG_SET_STATE`-Action dispatched.
 
 ---
@@ -205,15 +232,21 @@ Auto-Smelter: `size=2, width=2, height=1` — mit `asset.size` allein wäre die 
 | Problem | Erste Aktion |
 |---|---|
 | Build schlägt fehl | `tsc --project tsconfig.factory.json` separat ausführen → Fehlermeldung lesen |
-| White Screen | Browser-Konsole (F12) → Fehler prüfen |
+| White Screen (blank) | Browser-Konsole (F12) → JS-Fehler prüfen |
+| White Screen mit Text | GameErrorBoundary fing Fehler — "Erneut versuchen" oder Save manuell löschen |
 | Alter Save crasht | `localStorage.removeItem("factory-island-save")` |
-| Maschine ohne Strom | Energienetz-Debug-Overlay aktivieren |
+| Save wird ignoriert | Mode-Mismatch? Debug-Save wird im Release-Modus nicht geladen |
+| Maschine ohne Strom | Energienetz-Debug-Overlay aktivieren; Kabelleiter prüfen (nur cable/generator/power_pole) |
+| Auto-Smelter ohne Strom | Hohen Drain (60 J/Periode processing) beachten — mehr Generator-Kapazität |
 | Förderband ignoriert | `conveyors[id]` im Reducer-Case prüfen |
+| Warehouse nimmt nichts an | Richtungsabhängiger Eingang: `getWarehouseInputCell()` prüfen |
 | Sprite fehlt | `ASSET_SPRITES` in `sprites.ts` + `preload()` in `PhaserGame.ts` prüfen |
-| HMR-State verloren | Seite neu laden, Debug-Modus startet mit Test-Setup |
+| HMR-State verloren | Seite neu laden — Debug-Modus startet mit Test-Setup |
 | Import-Fehler | Nur relative Imports in `src/game/`, einziger Alias: `game/*` |
 | Neues Feld crasht Saves | Migration in `save.ts` ergänzen, `CURRENT_SAVE_VERSION` erhöhen |
-| Panel zeigt nichts | Prüfen ob Panel in `FactoryApp.tsx` eingebunden und `openPanel`-Case vorhanden |
+| Panel zeigt nichts | Prüfen ob Panel in `GameInner` (FactoryApp.tsx) eingebunden und `UIPanel`-Union erweitert |
+| assetWidth/assetHeight fehlt | Nicht exportiert — direkt `asset.width ?? asset.size` verwenden |
+| Debug-Logs fehlen | Beide Bedingungen prüfen: `import.meta.env.DEV` AND `isDebugEnabled()` |
 
 ---
 

@@ -31,10 +31,13 @@ import type {
   AutoDeliveryEntry,
   MachinePriority,
   FloorTileType,
+  ProductionZone,
 } from "../store/reducer";
 import {
   computeConnectedAssetIds,
   createInitialState,
+  cleanBuildingSourceIds,
+  cleanBuildingZoneIds,
 } from "../store/reducer";
 
 // ---- Version constants -----------------------------------------------
@@ -75,6 +78,12 @@ export interface SaveGameV1 {
   manualAssembler: ManualAssemblerState;
   machinePowerRatio: Record<string, number>;
   saplingGrowAt: Record<string, number>;
+  /** Per-building warehouse source mapping (added after initial V1 release). */
+  buildingSourceWarehouseIds?: Record<string, string>;
+  /** Production zones (added after initial V1 release). */
+  productionZones?: Record<string, ProductionZone>;
+  /** Per-building zone assignment (added after initial V1 release). */
+  buildingZoneIds?: Record<string, string>;
 }
 
 // ---- Latest alias (always points at the newest version) ---------------
@@ -339,6 +348,9 @@ export function serializeState(state: GameState): SaveGameLatest {
     manualAssembler: state.manualAssembler,
     machinePowerRatio: state.machinePowerRatio,
     saplingGrowAt: state.saplingGrowAt,
+    buildingSourceWarehouseIds: state.buildingSourceWarehouseIds,
+    productionZones: state.productionZones,
+    buildingZoneIds: state.buildingZoneIds,
   };
 }
 
@@ -374,9 +386,25 @@ export function deserializeState(save: SaveGameLatest): GameState {
     autoMiners: save.autoMiners,
     conveyors: save.conveyors,
     autoSmelters: save.autoSmelters,
-    manualAssembler: save.manualAssembler,
+    manualAssembler: { ...save.manualAssembler, buildingId: save.manualAssembler?.buildingId ?? null },
     machinePowerRatio: save.machinePowerRatio,
     saplingGrowAt: save.saplingGrowAt,
+
+    // Persisted per-building warehouse source mapping (new; old saves → empty)
+    // Clean out any stale warehouse references that no longer exist in the save
+    buildingSourceWarehouseIds: cleanBuildingSourceIds(
+      save.buildingSourceWarehouseIds ?? {},
+      new Set(Object.keys(save.warehouseInventories)),
+    ),
+
+    // Production zones (new; old saves → empty)
+    productionZones: save.productionZones ?? {},
+    // Per-building zone assignments – clean out entries for deleted buildings or deleted zones
+    buildingZoneIds: cleanBuildingZoneIds(
+      save.buildingZoneIds ?? {},
+      new Set(Object.keys(save.assets)),
+      new Set(Object.keys(save.productionZones ?? {})),
+    ),
 
     // Derived / transient fields → defaults
     connectedAssetIds: [],           // recomputed below
@@ -390,8 +418,10 @@ export function deserializeState(save: SaveGameLatest): GameState {
     selectedPowerPoleId: null,
     selectedAutoMinerId: null,
     selectedAutoSmelterId: null,
+    selectedGeneratorId: null,
     energyDebugOverlay: false,
     autoDeliveryLog: [],
+    selectedCraftingBuildingId: null,
   };
 
   // Re-derive connectivity (two-phase BFS)

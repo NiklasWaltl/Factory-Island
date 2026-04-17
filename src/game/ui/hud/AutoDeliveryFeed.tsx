@@ -29,8 +29,27 @@ export const AutoDeliveryFeed: React.FC<Props> = React.memo(({ log }) => {
 
   if (log.length === 0) return null;
 
-  // Show the newest 8 entries, most recent first
-  const displayed = [...log].reverse().slice(0, 8);
+  // Take the newest 20 raw entries and aggregate by sourceType+resource.
+  // First occurrence determines stable insertion order; amounts are summed;
+  // the most recent timestamp is kept for the relative-time label.
+  const aggregated = [...log]
+    .reverse()
+    .slice(0, 20)
+    .reduce<Array<{ key: string; sourceType: AutoDeliveryEntry["sourceType"]; resource: string; amount: number; timestamp: number }>>(
+      (acc, entry) => {
+        const key = `${entry.sourceType}:${entry.resource}`;
+        const existing = acc.find((e) => e.key === key);
+        if (existing) {
+          existing.amount += entry.amount;
+          if (entry.timestamp > existing.timestamp) existing.timestamp = entry.timestamp;
+        } else {
+          acc.push({ key, sourceType: entry.sourceType, resource: entry.resource, amount: entry.amount, timestamp: entry.timestamp });
+        }
+        return acc;
+      },
+      []
+    )
+    .slice(0, 8);
 
   return (
     <div className="fi-auto-delivery-feed">
@@ -45,8 +64,8 @@ export const AutoDeliveryFeed: React.FC<Props> = React.memo(({ log }) => {
 
       {!collapsed && (
         <div className="fi-auto-delivery-list">
-          {displayed.map((entry) => (
-            <div key={entry.id} className="fi-auto-delivery-entry">
+          {aggregated.map((entry) => (
+            <div key={entry.key} className="fi-auto-delivery-entry">
               <span
                 className="fi-auto-delivery-source"
                 title={SOURCE_LABEL[entry.sourceType]}
@@ -57,7 +76,7 @@ export const AutoDeliveryFeed: React.FC<Props> = React.memo(({ log }) => {
                 {RESOURCE_EMOJIS[entry.resource] ?? "📦"}{" "}
                 {RESOURCE_LABELS[entry.resource] ?? entry.resource}
               </span>
-              <span className="fi-auto-delivery-amount">+{entry.amount}</span>
+              <span className="fi-auto-delivery-amount">×{entry.amount}</span>
               <span className="fi-auto-delivery-time">{relativeTime(entry.timestamp)}</span>
             </div>
           ))}

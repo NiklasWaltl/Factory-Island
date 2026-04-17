@@ -298,4 +298,42 @@ describe("round-trip", () => {
     // Connectivity recomputed
     expect(loaded.connectedAssetIds.length).toBeGreaterThan(0);
   });
+
+  it("per-warehouse inventories survive full save/load cycle", () => {
+    const original = createInitialState("release");
+    original.warehouseInventories = {
+      "wh-1": { ...original.inventory, iron: 15, copper: 8 },
+      "wh-2": { ...original.inventory, wood: 3, stone: 12 },
+    };
+    original.inventory.wood = 50;
+
+    const json = JSON.stringify(serializeState(original));
+    const parsed = JSON.parse(json);
+    const loaded = loadAndHydrate(parsed, "release");
+
+    // Global inventory preserved
+    expect(loaded.inventory.wood).toBe(50);
+    // Per-warehouse inventories preserved independently
+    expect(loaded.warehouseInventories["wh-1"].iron).toBe(15);
+    expect(loaded.warehouseInventories["wh-1"].copper).toBe(8);
+    expect(loaded.warehouseInventories["wh-2"].wood).toBe(3);
+    expect(loaded.warehouseInventories["wh-2"].stone).toBe(12);
+  });
+
+  it("global and warehouse inventories are not mixed during serialization", () => {
+    const original = createInitialState("release");
+    original.inventory.iron = 100;
+    original.warehouseInventories = {
+      "wh-x": { ...original.inventory, iron: 5 },
+    };
+    // The warehouse has 5 iron, global has 100 — they must stay separate.
+
+    const save = serializeState(original);
+    expect(save.inventory.iron).toBe(100);
+    expect(save.warehouseInventories["wh-x"].iron).toBe(5);
+
+    const loaded = deserializeState(save);
+    expect(loaded.inventory.iron).toBe(100);
+    expect(loaded.warehouseInventories["wh-x"].iron).toBe(5);
+  });
 });

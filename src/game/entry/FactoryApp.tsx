@@ -1,6 +1,7 @@
 import React, { useReducer, useEffect, useState, useCallback, useRef } from "react";
 import {
   gameReducer,
+  gameReducerWithInvariants,
   createInitialState,
   NATURAL_SPAWN_MS,
   SMITHY_TICK_MS,
@@ -92,7 +93,7 @@ class GameErrorBoundary extends React.Component<
 const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
   // Try to restore HMR state (dev), localStorage save (prod), or fresh state
   const [state, dispatch] = useReducer(
-    gameReducer,
+    import.meta.env.DEV ? gameReducerWithInvariants : gameReducer,
     mode,
     (m) => {
       if (IS_DEV) {

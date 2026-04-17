@@ -8,6 +8,7 @@ import {
   GENERATOR_ENERGY_PER_TICK,
   GENERATOR_TICK_MS,
   ENERGY_NET_TICK_MS,
+  getConnectedConsumerDrainEntries,
   type GameState,
   type PlacedAsset,
 } from "../../store/reducer";
@@ -59,6 +60,12 @@ export const EnergyDebugOverlay: React.FC<EnergyDebugOverlayProps> = ({ state })
   const allAssets = Object.values(state.assets);
   const connectedSet = new Set(state.connectedAssetIds);
   const poweredSet = new Set(state.poweredMachineIds ?? []);
+
+  // Single source of truth for per-consumer drain (auto_smelter idle/processing aware)
+  const drainById = new Map<string, number>();
+  for (const entry of getConnectedConsumerDrainEntries(state)) {
+    drainById.set(entry.id, entry.drain);
+  }
 
   const { difference } = getEnergyStats(state);
 
@@ -175,6 +182,37 @@ export const EnergyDebugOverlay: React.FC<EnergyDebugOverlayProps> = ({ state })
               stroke={color}
               strokeWidth={3}
             />
+          );
+        })}
+
+        {/* Per-consumer drain labels (current per-period drain, auto_smelter state-aware) */}
+        {allAssets.map((asset) => {
+          if (!ENERGY_DRAIN[asset.type]) return null;
+          const connected = connectedSet.has(asset.id);
+          const drain = connected
+            ? drainById.get(asset.id) ?? 0
+            : ENERGY_DRAIN[asset.type];
+          const label = connected ? `-${drain} E/t` : `(${drain} E/t)`;
+          const px = asset.x * CELL_PX;
+          const py = asset.y * CELL_PX;
+          const w = aw(asset) * CELL_PX;
+          const h = ah(asset) * CELL_PX;
+          return (
+            <text
+              key={`drain-${asset.id}`}
+              x={px + w / 2}
+              y={py + h - 6}
+              textAnchor="middle"
+              fontSize={11}
+              fontWeight="bold"
+              fill={connected ? "#fff" : "rgba(255,255,255,0.7)"}
+              stroke="rgba(0,0,0,0.85)"
+              strokeWidth={3}
+              paintOrder="stroke"
+              style={{ pointerEvents: "none" }}
+            >
+              {label}
+            </text>
           );
         })}
 

@@ -1,10 +1,19 @@
 ﻿import React from "react";
 import {
+  AUTO_SMELTER_BOOST_MULTIPLIER,
   AUTO_SMELTER_IDLE_ENERGY_PER_SEC,
   AUTO_SMELTER_PROCESSING_ENERGY_PER_SEC,
+  WAREHOUSE_CAPACITY,
+  getCapacityPerResource,
+  getCraftingSourceInventory,
+  getSourceStatusInfo,
+  getZoneItemCapacity,
   type GameAction,
   type GameState,
+  type Inventory,
 } from "../../store/reducer";
+import { getSmeltingRecipe } from "../../simulation/recipes";
+import { ZoneSourceSelector } from "./ZoneSourceSelector";
 
 interface AutoSmelterPanelProps {
   state: GameState;
@@ -20,15 +29,36 @@ export const AutoSmelterPanel: React.FC<AutoSmelterPanelProps> = React.memo(({ s
     return null;
   }
 
+  const sourceInfo = getSourceStatusInfo(state, smelterId);
+  const sourceInv = getCraftingSourceInventory(state, sourceInfo.source);
+  const selectedRecipe = getSmeltingRecipe(smelter.selectedRecipe);
+  const inputKey = selectedRecipe?.inputItem as keyof Inventory | undefined;
+  const outputKey = selectedRecipe?.outputItem as keyof Inventory | undefined;
+  const requiredInput = selectedRecipe?.inputAmount ?? 0;
+  const outputAmount = selectedRecipe?.outputAmount ?? 0;
+  const availableInput = inputKey ? ((sourceInv[inputKey] as number) ?? 0) : 0;
+  const availableOutputSpace = outputKey
+    ? ((sourceInv[outputKey] as number) ?? 0)
+    : 0;
+  const sourceCapacity = sourceInfo.source.kind === "global"
+    ? getCapacityPerResource(state)
+    : sourceInfo.source.kind === "zone"
+      ? getZoneItemCapacity(state, sourceInfo.source.zoneId)
+      : (state.mode === "debug" ? Infinity : WAREHOUSE_CAPACITY);
+  const hasInputBatch = availableInput >= requiredInput;
+  const hasOutputCapacity = outputKey ? (availableOutputSpace + outputAmount <= sourceCapacity) : true;
+
+  const isBoosted = !!smelterAsset.boosted;
+  const boostFactor = isBoosted ? AUTO_SMELTER_BOOST_MULTIPLIER : 1;
   const throughputPerMinute = smelter.throughputEvents.length;
-  const currentEnergyPerSec = smelter.status === "PROCESSING"
+  const currentEnergyPerSec = (smelter.status === "PROCESSING"
     ? AUTO_SMELTER_PROCESSING_ENERGY_PER_SEC
-    : AUTO_SMELTER_IDLE_ENERGY_PER_SEC;
+    : AUTO_SMELTER_IDLE_ENERGY_PER_SEC) * boostFactor;
   const powerRatio = state.machinePowerRatio?.[smelterId] ?? 0;
   const powerPercent = powerRatio * 100;
   const nominalEnergyPerSec = currentEnergyPerSec;
   const effectiveEnergyPerSec = currentEnergyPerSec * powerRatio;
-  const effectiveSpeedPercent = smelter.status === "PROCESSING" ? powerPercent : 0;
+  const effectiveSpeedPercent = smelter.status === "PROCESSING" ? powerPercent * boostFactor : 0;
   const recipeDisplay =
     smelter.lastRecipeInput && smelter.lastRecipeOutput
       ? `${smelter.lastRecipeInput} -> ${smelter.lastRecipeOutput}`
@@ -46,9 +76,26 @@ export const AutoSmelterPanel: React.FC<AutoSmelterPanelProps> = React.memo(({ s
   const currentStatus = statusMeta[smelter.status] ?? statusMeta.IDLE;
   const powerBadgeColor = powerPercent >= 99 ? "#86efac" : powerPercent >= 50 ? "#fcd34d" : "#fda4af";
 
+  let blockReason: string | null = null;
+  if (smelter.status === "NO_POWER") {
+    blockReason = "Keine volle Stromversorgung";
+  } else if (sourceInfo.fallbackReason === "zone_no_warehouses") {
+    blockReason = "Zone aktiv, aber keine Lagerhäuser (Fallback aktiv)";
+  } else if (smelter.status === "OUTPUT_BLOCKED" || (smelter.pendingOutput.length > 0 && !hasOutputCapacity)) {
+    blockReason = "Output-Ziel hat keinen Platz";
+  } else if (!smelter.processing && smelter.inputBuffer.length === 0 && !hasInputBatch) {
+    blockReason = sourceInfo.source.kind === "zone"
+      ? "Zone hat nicht genug Input"
+      : sourceInfo.source.kind === "warehouse"
+        ? "Lagerhaus hat nicht genug Input"
+        : "Globaler Vorrat hat nicht genug Input";
+  }
+
   return (
     <div className="fi-panel" onClick={(e) => e.stopPropagation()}>
       <h2>Auto Smelter</h2>
+
+      <ZoneSourceSelector state={state} buildingId={smelterId} dispatch={dispatch} />
 
       <div style={{ display: "grid", gap: 8 }}>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -105,6 +152,18 @@ export const AutoSmelterPanel: React.FC<AutoSmelterPanelProps> = React.memo(({ s
           <strong>{recipeDisplay}</strong>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span>Input (akt. Quelle)</span>
+          <strong>{requiredInput > 0 ? `${availableInput} / braucht ${requiredInput}` : "-"}</strong>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span>Output-Ziel</span>
+          <strong>
+            {outputKey
+              ? `${availableOutputSpace}${sourceCapacity !== Infinity ? ` / ${sourceCapacity}` : " / ∞"}`
+              : "-"}
+          </strong>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
           <span>Durchsatz (60s)</span>
           <strong>{throughputPerMinute} / min</strong>
         </div>
@@ -124,6 +183,29 @@ export const AutoSmelterPanel: React.FC<AutoSmelterPanelProps> = React.memo(({ s
           <span>Input-Buffer</span>
           <strong>{smelter.inputBuffer.length} / 5</strong>
         </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>Overclocking</span>
+          <button
+            className="fi-btn fi-btn-sm"
+            onClick={() => dispatch({ type: "SET_MACHINE_BOOST", assetId: smelterId, boosted: !isBoosted })}
+            style={{
+              padding: "4px 10px",
+              border: isBoosted ? "1px solid #f59e0b" : "1px solid rgba(255,255,255,0.2)",
+              background: isBoosted ? "rgba(245,158,11,0.2)" : "rgba(100,100,100,0.15)",
+              color: isBoosted ? "#fbbf24" : "#d1d5db",
+              borderRadius: 4,
+              cursor: "pointer",
+            }}
+            title={`Boost: ${AUTO_SMELTER_BOOST_MULTIPLIER}x Verarbeitung, ${AUTO_SMELTER_BOOST_MULTIPLIER}x Verbrauch`}
+          >
+            {isBoosted ? `⚡ Boost AN (${AUTO_SMELTER_BOOST_MULTIPLIER}x)` : "Boost AUS"}
+          </button>
+        </div>
+        {blockReason && (
+          <div data-testid="auto-smelter-block-reason" style={{ fontSize: 11, color: "#e8a946" }}>
+            ⚠ {blockReason}
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: 10 }}>

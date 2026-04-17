@@ -55,6 +55,12 @@ export interface PlacedAsset {
   direction?: Direction;
   /** Energy scheduling priority (1 highest, 5 lowest) for consumer machines */
   priority?: MachinePriority;
+  /**
+   * Overclocking flag. Nur für auto_miner und auto_smelter unterstützt — die
+   * SET_MACHINE_BOOST-Action erzwingt diesen Typ-Check. Andere Asset-Typen
+   * ignorieren das Feld vollständig.
+   */
+  boosted?: boolean;
 }
 
 export interface Inventory {
@@ -113,6 +119,8 @@ export interface ManualAssemblerState {
   processing: boolean;
   recipe: "metal_plate" | "gear" | null;
   progress: number;
+  /** Asset ID of the building that started the current job (for output routing). */
+  buildingId: string | null;
 }
 
 // ---- Directions ----
@@ -238,10 +246,10 @@ export interface GameState {
   placedBuildings: BuildingType[];
   warehousesPurchased: number;
   warehousesPlaced: number;
-  /** Per-warehouse tool/equip storage (keyed by warehouse asset ID).
-   *  NOT a resource pool — normal resources (wood, stone, iron, etc.) live in state.inventory.
-   *  Used exclusively for tools and equippable items (axe, pickaxe, sapling) that can be
-   *  moved to/from the Hotbar via the Warehouse panel. */
+  /** Per-warehouse storage (keyed by warehouse asset ID).
+   *  Auto-delivery (conveyors, auto-miners) writes resources here.
+   *  Also stores tools/equippable items that can be moved to/from the Hotbar.
+   *  V1: Crafting, shop, build costs still use the global `inventory` pool. */
   warehouseInventories: Record<string, Inventory>;
   /** ID of the warehouse whose panel is currently open */
   selectedWarehouseId: string | null;
@@ -279,6 +287,8 @@ export interface GameState {
   autoSmelters: Record<string, AutoSmelterEntry>;
   /** ID of the auto-smelter whose panel is currently open */
   selectedAutoSmelterId: string | null;
+  /** ID of the generator whose panel is currently open */
+  selectedGeneratorId: string | null;
   /** Manual assembler production state */
   manualAssembler: ManualAssemblerState;
   /** Per-machine power ratio in [0,1] from the latest ENERGY_NET_TICK */
@@ -287,6 +297,15 @@ export interface GameState {
   energyDebugOverlay: boolean;
   /** Log of items automatically delivered into warehouses by auto-devices (auto_miner, conveyor, …) */
   autoDeliveryLog: AutoDeliveryEntry[];
+  /** Per-building warehouse source assignment (buildingId → warehouseId). Missing key = global. Persisted.
+   *  Legacy: superseded by zone assignments when a building has a zone. */
+  buildingSourceWarehouseIds: Record<string, string>;
+  /** Production zones: zoneId → zone metadata. Persisted. */
+  productionZones: Record<string, ProductionZone>;
+  /** Per-building zone assignment: buildingId → zoneId. Includes warehouses and crafting buildings. Persisted. */
+  buildingZoneIds: Record<string, string>;
+  /** ID of the workbench / smithy / assembler whose panel is currently open. Transient. */
+  selectedCraftingBuildingId: string | null;
 }
 
 // ============================================================
@@ -347,6 +366,9 @@ export const BUILDING_SIZES: Record<BuildingType, 1 | 2> = {
 
 /** Building types that can be purchased/placed multiple times */
 export const STACKABLE_BUILDINGS = new Set<BuildingType>(["cable", "power_pole", "auto_miner", "conveyor", "conveyor_corner", "auto_smelter"]);
+
+/** Building types that receive an automatic default warehouse source on placement. */
+export const BUILDINGS_WITH_DEFAULT_SOURCE = new Set<BuildingType>(["workbench", "smithy", "manual_assembler", "auto_smelter", "auto_miner"]);
 
 /** Floor tile costs (paid from inventory) */
 export const FLOOR_TILE_COSTS: Record<FloorTileType, Partial<Record<keyof Inventory, number>>> = {
@@ -554,7 +576,7 @@ export const ENERGY_DRAIN: Record<string, number> = {
   auto_miner: 5,
   conveyor: 1,
   conveyor_corner: 1,
-  auto_smelter: 10,
+  auto_smelter: 5, // 5 J/period; actual drain computed dynamically in getConnectedConsumerDrainEntries
 };
 
 export const DEFAULT_MACHINE_PRIORITY: MachinePriority = 3;
@@ -586,21 +608,21 @@ function getEnergyAllocationRank(type: AssetType): number {
   return ENERGY_ALLOCATION_RANK[type] ?? 4;
 }
 
-function getConnectedConsumerDrainEntries(
+export function getConnectedConsumerDrainEntries(
   state: Pick<GameState, "assets" | "connectedAssetIds" | "autoSmelters">
 ): Array<{ id: string; drain: number }> {
   return state.connectedAssetIds
     .map((id) => state.assets[id])
     .filter((a): a is PlacedAsset => !!a && isEnergyConsumerType(a.type))
-    .map((asset) => ({
-      id: asset.id,
-      drain:
+    .map((asset) => {
+      const baseDrain =
         asset.type === "auto_smelter"
           ? (state.autoSmelters?.[asset.id]?.processing
               ? AUTO_SMELTER_PROCESSING_DRAIN_PER_PERIOD
               : AUTO_SMELTER_IDLE_DRAIN_PER_PERIOD)
-          : ENERGY_DRAIN[asset.type],
-    }));
+          : ENERGY_DRAIN[asset.type];
+      return { id: asset.id, drain: baseDrain * getBoostMultiplier(asset) };
+    });
 }
 
 export function getEnergyProductionPerPeriod(
@@ -632,10 +654,29 @@ export const LOGISTICS_TICK_MS = 500;
 /** Number of logistics ticks for one auto-miner production cycle (6 × 500ms = 3s) */
 export const AUTO_MINER_PRODUCE_TICKS = 6;
 export const AUTO_SMELTER_BUFFER_CAPACITY = 5;
-export const AUTO_SMELTER_IDLE_ENERGY_PER_SEC = 5;
-export const AUTO_SMELTER_PROCESSING_ENERGY_PER_SEC = 30;
+export const AUTO_SMELTER_IDLE_ENERGY_PER_SEC = 2.5; // 2.5 J/s = 5 J/period (ENERGY_NET_TICK_MS=2000ms)
+export const AUTO_SMELTER_PROCESSING_ENERGY_PER_SEC = 2.5; // 2.5 J/s = 5 J/period — same target drain as idle
 export const AUTO_SMELTER_IDLE_DRAIN_PER_PERIOD = Math.round((AUTO_SMELTER_IDLE_ENERGY_PER_SEC * ENERGY_NET_TICK_MS) / 1000);
 export const AUTO_SMELTER_PROCESSING_DRAIN_PER_PERIOD = Math.round((AUTO_SMELTER_PROCESSING_ENERGY_PER_SEC * ENERGY_NET_TICK_MS) / 1000);
+
+/**
+ * Overclocking-Stufe 1: Zwei feste Modi (normal / boosted), nur für auto_miner
+ * und auto_smelter. Multiplikator wirkt konsistent auf Strom UND Produktion.
+ */
+export const AUTO_MINER_BOOST_MULTIPLIER = 2;
+export const AUTO_SMELTER_BOOST_MULTIPLIER = 2;
+
+export function isBoostSupportedType(type: AssetType): boolean {
+  return type === "auto_miner" || type === "auto_smelter";
+}
+
+/** Effektiver Boost-Multiplikator für ein Asset. 1 wenn nicht boosted oder nicht unterstützt. */
+export function getBoostMultiplier(asset: Pick<PlacedAsset, "type" | "boosted">): number {
+  if (!asset.boosted) return 1;
+  if (asset.type === "auto_miner") return AUTO_MINER_BOOST_MULTIPLIER;
+  if (asset.type === "auto_smelter") return AUTO_SMELTER_BOOST_MULTIPLIER;
+  return 1;
+}
 
 /** Maps deposit asset type to the resource it produces */
 export const DEPOSIT_RESOURCE: Record<string, "stone" | "iron" | "copper"> = {
@@ -688,7 +729,579 @@ export function getCapacityPerResource(state: { mode: string; warehousesPlaced: 
   return (state.warehousesPlaced + 1) * WAREHOUSE_CAPACITY;
 }
 
+// ============================================================
+// INVENTORY WRAPPERS
+// V1: operate on the global `state.inventory` pool.
+// Future versions may aggregate per-warehouse inventories.
+// ============================================================
+
+/** Read the available amount of a single resource from the global pool. */
+export function getAvailableResource(state: { inventory: Inventory }, key: keyof Inventory): number {
+  return state.inventory[key] as number;
+}
+
+/** Check whether the global inventory can cover all of `costs`. */
+export function hasResources(inv: Inventory, costs: Partial<Record<keyof Inventory, number>>): boolean {
+  for (const [key, amt] of Object.entries(costs)) {
+    if (((inv as unknown as Record<string, number>)[key] ?? 0) < (amt ?? 0)) return false;
+  }
+  return true;
+}
+
+/**
+ * Return a new Inventory with `costs` deducted.
+ * DEV: warns if any resulting value becomes negative (indicates a missing hasResources check).
+ */
+export function consumeResources(inv: Inventory, costs: Partial<Record<keyof Inventory, number>>): Inventory {
+  const result = { ...inv } as Record<string, number>;
+  for (const [key, amt] of Object.entries(costs)) {
+    result[key] = (result[key] ?? 0) - (amt ?? 0);
+    if (import.meta.env.DEV && result[key] < 0) {
+      console.warn(`[consumeResources] Negative value for "${key}": ${result[key]}. Missing hasResources() guard?`);
+    }
+  }
+  return result as unknown as Inventory;
+}
+
+/** Return a new Inventory with `items` added. */
+export function addResources(inv: Inventory, items: Partial<Record<keyof Inventory, number>>): Inventory {
+  const result = { ...inv } as Record<string, number>;
+  for (const [key, amt] of Object.entries(items)) {
+    result[key] = (result[key] ?? 0) + (amt ?? 0);
+  }
+  return result as unknown as Inventory;
+}
+
+/**
+ * DEV-only: assert no inventory field is negative.
+ * Call after reducer transitions to catch silent corruption early.
+ */
+export function devAssertInventoryNonNegative(label: string, inv: Inventory): void {
+  if (!import.meta.env.DEV) return;
+  for (const [key, val] of Object.entries(inv)) {
+    if ((val as number) < 0) {
+      console.error(`[Invariant] ${label}: "${key}" is negative (${val})`);
+    }
+  }
+}
+
+// ============================================================
+// CRAFTING SOURCE POLICY
+//
+// Determines where a crafting device reads/writes resources.
+// - "global": uses state.inventory (default, backward-compatible)
+// - "warehouse": uses a specific warehouseInventories[id]
+//
+// The resolver validates the assignment on every call: if the
+// warehouse was removed or its inventory is missing, the
+// device silently falls back to global.
+// ============================================================
+
+export type CraftingSource =
+  | { kind: "global" }
+  | { kind: "warehouse"; warehouseId: string }
+  | { kind: "zone"; zoneId: string };
+
+/** A production zone groups warehouses and crafting buildings into a shared local resource pool. */
+export interface ProductionZone {
+  id: string;
+  name: string;
+}
+
+/** Maximum number of production zones a player can create. */
+export const MAX_ZONES = 8;
+
+/**
+ * Resolve a crafting resource source from an optional warehouse ID.
+ * Returns "global" when null or when the warehouse is invalid/missing.
+ */
+export function resolveCraftingSource(state: GameState, warehouseId: string | null): CraftingSource {
+  if (!warehouseId) return { kind: "global" };
+  if (!state.assets[warehouseId] || !state.warehouseInventories[warehouseId]) return { kind: "global" };
+  return { kind: "warehouse", warehouseId };
+}
+
+/** Read the inventory for a resolved crafting source. */
+export function getCraftingSourceInventory(state: GameState, source: CraftingSource): Inventory {
+  if (source.kind === "global") return state.inventory;
+  if (source.kind === "zone") return getZoneAggregateInventory(state, source.zoneId);
+  return state.warehouseInventories[source.warehouseId];
+}
+
+/**
+ * Apply an inventory mutation to the correct source (global or warehouse).
+ * For zones, computes the delta from the current aggregate and distributes
+ * consumption/production across the zone's warehouses deterministically.
+ * Returns partial state update to spread into the next state.
+ */
+export function applyCraftingSourceInventory(
+  state: GameState,
+  source: CraftingSource,
+  newInv: Inventory,
+): Partial<GameState> {
+  if (source.kind === "global") {
+    return { inventory: newInv };
+  }
+  if (source.kind === "zone") {
+    return applyZoneDelta(state, source.zoneId, newInv);
+  }
+  return { warehouseInventories: { ...state.warehouseInventories, [source.warehouseId]: newInv } };
+}
+
+// ============================================================
+// PRODUCTION ZONE HELPERS
+// ============================================================
+
+/**
+ * Returns sorted warehouse IDs that belong to the given zone.
+ * Only includes warehouses that still exist in assets and warehouseInventories.
+ */
+export function getZoneWarehouseIds(state: GameState, zoneId: string): string[] {
+  const result: string[] = [];
+  for (const [bid, zid] of Object.entries(state.buildingZoneIds)) {
+    if (zid !== zoneId) continue;
+    if (state.assets[bid]?.type === "warehouse" && state.warehouseInventories[bid]) {
+      result.push(bid);
+    }
+  }
+  return result.sort();
+}
+
+/**
+ * Returns IDs of non-warehouse buildings (crafting devices) assigned to a zone.
+ */
+export function getZoneBuildingIds(state: GameState, zoneId: string): string[] {
+  const result: string[] = [];
+  for (const [bid, zid] of Object.entries(state.buildingZoneIds)) {
+    if (zid !== zoneId) continue;
+    if (state.assets[bid] && state.assets[bid].type !== "warehouse") {
+      result.push(bid);
+    }
+  }
+  return result.sort();
+}
+
+/**
+ * Returns the aggregated inventory across all warehouses in a zone.
+ * If the zone has no warehouses, returns an empty inventory.
+ */
+export function getZoneAggregateInventory(state: GameState, zoneId: string): Inventory {
+  const whIds = getZoneWarehouseIds(state, zoneId);
+  if (whIds.length === 0) return createEmptyInventory();
+  let agg = createEmptyInventory();
+  for (const whId of whIds) {
+    agg = addResources(agg, state.warehouseInventories[whId]);
+  }
+  return agg;
+}
+
+/**
+ * Returns the total capacity per item for a zone (sum of warehouse capacities).
+ */
+export function getZoneItemCapacity(state: GameState, zoneId: string): number {
+  if (state.mode === "debug") return Infinity;
+  const count = getZoneWarehouseIds(state, zoneId).length;
+  return count * WAREHOUSE_CAPACITY;
+}
+
+/**
+ * Distributes the delta between the current zone aggregate and `newAgg`
+ * across the zone's warehouses. Consumption is deducted from warehouses
+ * in sorted-ID order; production is added in sorted-ID order respecting
+ * per-warehouse capacity (overflow goes to the first warehouse).
+ */
+function applyZoneDelta(
+  state: GameState,
+  zoneId: string,
+  newAgg: Inventory,
+): Partial<GameState> {
+  const whIds = getZoneWarehouseIds(state, zoneId);
+  if (whIds.length === 0) return {};
+
+  const oldAgg = getZoneAggregateInventory(state, zoneId);
+
+  // Shallow-copy the outer map, then deep-copy each zone warehouse inventory
+  const newWhInvs = { ...state.warehouseInventories };
+  for (const whId of whIds) {
+    newWhInvs[whId] = { ...newWhInvs[whId] };
+  }
+
+  const invKeys = Object.keys(oldAgg) as (keyof Inventory)[];
+  for (const key of invKeys) {
+    const oldVal = oldAgg[key] as number;
+    const newVal = newAgg[key] as number;
+    const diff = newVal - oldVal;
+    if (diff === 0) continue;
+
+    if (diff < 0) {
+      // Consumption: deduct from warehouses in sorted order
+      let remaining = -diff;
+      for (const whId of whIds) {
+        if (remaining <= 0) break;
+        const inv = newWhInvs[whId] as unknown as Record<string, number>;
+        const current = inv[key as string] ?? 0;
+        const take = Math.min(current, remaining);
+        if (take > 0) {
+          inv[key as string] = current - take;
+          remaining -= take;
+        }
+      }
+    } else {
+      // Production: add to warehouses in sorted order, respecting capacity
+      let remaining = diff;
+      const cap = state.mode === "debug" ? Infinity : WAREHOUSE_CAPACITY;
+      for (const whId of whIds) {
+        if (remaining <= 0) break;
+        const inv = newWhInvs[whId] as unknown as Record<string, number>;
+        const current = inv[key as string] ?? 0;
+        const space = Math.max(0, cap - current);
+        const add = Math.min(space, remaining);
+        if (add > 0) {
+          inv[key as string] = current + add;
+          remaining -= add;
+        }
+      }
+      // Overflow: add to first warehouse (matches single-warehouse behavior)
+      if (remaining > 0 && whIds.length > 0) {
+        const inv = newWhInvs[whIds[0]] as unknown as Record<string, number>;
+        inv[key as string] = (inv[key as string] ?? 0) + remaining;
+      }
+    }
+  }
+
+  return { warehouseInventories: newWhInvs };
+}
+
+/**
+ * Remove buildingZoneIds entries whose building or zone no longer exists.
+ * Used for defensive cleanup on Save/Load.
+ */
+export function cleanBuildingZoneIds(
+  mapping: Record<string, string>,
+  validBuildingIds: Set<string>,
+  validZoneIds: Set<string>,
+): Record<string, string> {
+  let changed = false;
+  const result: Record<string, string> = {};
+  for (const [buildingId, zoneId] of Object.entries(mapping)) {
+    if (validBuildingIds.has(buildingId) && validZoneIds.has(zoneId)) {
+      result[buildingId] = zoneId;
+    } else {
+      changed = true;
+    }
+  }
+  return changed ? result : mapping;
+}
+
+// ============================================================
+// CONVEYOR ZONE HELPERS
+// Pure helpers for zone-aware belt transport checks.
+// ============================================================
+
+/**
+ * Returns the zone ID assigned to a conveyor belt, or null if unzoned.
+ * Unzoned belts are treated as global and pass items to any target.
+ */
+export function getConveyorZone(state: GameState, conveyorId: string): string | null {
+  return state.buildingZoneIds[conveyorId] ?? null;
+}
+
+/**
+ * Returns true when two zone assignments are compatible for item transport.
+ * Compatible means: at least one side is unzoned (null) OR both share the same zone.
+ * This is the V1 rule: physical connection > zone — only block when BOTH sides
+ * have explicit, differing zone assignments.
+ */
+export function areZonesTransportCompatible(zoneA: string | null, zoneB: string | null): boolean {
+  if (zoneA === null || zoneB === null) return true;
+  return zoneA === zoneB;
+}
+
+export interface ConveyorZoneStatus {
+  /** Zone assigned to this belt (null = unzoned / global). */
+  zone: string | null;
+  /** Human-readable zone name (null if unzoned). */
+  zoneName: string | null;
+  /** Zone of the next tile this belt is pointing at (null = unzoned or no next asset). */
+  nextTileZone: string | null;
+  /** True when both this belt and the next tile have differing explicit zones. */
+  hasConflict: boolean;
+  /** Human-readable conflict reason, or null when no conflict. */
+  conflictReason: string | null;
+}
+
+/**
+ * Derive zone/conflict status for a conveyor belt.
+ * Pure function — safe to call from any UI component.
+ */
+export function getConveyorZoneStatus(state: GameState, conveyorId: string): ConveyorZoneStatus {
+  const convAsset = state.assets[conveyorId];
+  const zone = state.buildingZoneIds[conveyorId] ?? null;
+  const zoneName = zone ? (state.productionZones[zone]?.name ?? zone) : null;
+
+  let nextTileZone: string | null = null;
+  let hasConflict = false;
+  let conflictReason: string | null = null;
+
+  if (convAsset) {
+    const dir = convAsset.direction ?? "east";
+    const [ox, oy] = directionOffset(dir);
+    const nextX = convAsset.x + ox;
+    const nextY = convAsset.y + oy;
+    if (nextX >= 0 && nextX < GRID_W && nextY >= 0 && nextY < GRID_H) {
+      const nextId = state.cellMap[cellKey(nextX, nextY)];
+      if (nextId) {
+        nextTileZone = state.buildingZoneIds[nextId] ?? null;
+        if (!areZonesTransportCompatible(zone, nextTileZone)) {
+          hasConflict = true;
+          const thisName = zoneName ?? zone ?? "Global";
+          const nextName = nextTileZone ? (state.productionZones[nextTileZone]?.name ?? nextTileZone) : "Global";
+          conflictReason = `Ziel-Zone mismatch: ${thisName} → ${nextName}`;
+        }
+      }
+    }
+  }
+
+  return { zone, zoneName, nextTileZone, hasConflict, conflictReason };
+}
+
+// Backward-compatible aliases (used by existing workbench code & tests)
+/** @deprecated Use CraftingSource */
+export type WorkbenchSource = CraftingSource;
+
+/**
+ * Resolve crafting source for a specific building instance.
+ * Priority: zone (if assigned + has warehouses) > legacy per-building warehouse > global.
+ */
+export function resolveBuildingSource(state: GameState, buildingId: string | null): CraftingSource {
+  if (!buildingId) return { kind: "global" };
+  // Zone takes priority
+  const zoneId = state.buildingZoneIds[buildingId];
+  if (zoneId && state.productionZones[zoneId]) {
+    const whIds = getZoneWarehouseIds(state, zoneId);
+    if (whIds.length > 0) {
+      return { kind: "zone", zoneId };
+    }
+    // Zone exists but has no warehouses → fall through to legacy/global
+  }
+  // Legacy per-building warehouse mapping
+  const whId = state.buildingSourceWarehouseIds[buildingId] ?? null;
+  return resolveCraftingSource(state, whId);
+}
+
+/** @deprecated Use resolveBuildingSource */
+export function resolveWorkbenchSource(state: GameState): CraftingSource {
+  return resolveBuildingSource(state, state.selectedCraftingBuildingId);
+}
+
+// ============================================================
+// SOURCE STATUS VIEW-MODEL
+// Pure derivation for UI transparency — no side effects.
+// ============================================================
+
+export type FallbackReason =
+  | "none"                  // source is primary (zone or explicitly set)
+  | "zone_no_warehouses"    // building has a zone, but zone has no warehouses
+  | "no_zone"               // building has no zone assignment
+  | "stale_warehouse"       // legacy warehouse mapping points to deleted warehouse
+  | "no_assignment";        // no zone and no legacy mapping
+
+export interface SourceStatusInfo {
+  /** The resolved source used for crafting. */
+  source: CraftingSource;
+  /** Human-readable label for the active source (e.g. "Zone 1 (2 Lagerhäuser)"). */
+  sourceLabel: string;
+  /** Why this source was chosen — helpful when source is a fallback. */
+  fallbackReason: FallbackReason;
+  /** Short human-readable explanation of why this source is active. */
+  reasonLabel: string;
+  /** Zone ID if building is assigned to a zone (even if zone is empty). */
+  assignedZoneId: string | null;
+  /** Zone name if assigned. */
+  assignedZoneName: string | null;
+  /** Warehouse IDs in the active zone (empty if not zone source). */
+  zoneWarehouseIds: string[];
+  /** Building IDs (non-warehouse) in the active zone. */
+  zoneBuildingIds: string[];
+  /** Legacy warehouse ID from buildingSourceWarehouseIds (may be stale). */
+  legacyWarehouseId: string | null;
+  /** Whether the legacy warehouse mapping is stale (points to deleted warehouse). */
+  isStale: boolean;
+}
+
+/**
+ * Compute full source status diagnosis for a building.
+ * Pure function — used by UI panels for transparency and debug info.
+ */
+export function getSourceStatusInfo(state: GameState, buildingId: string | null): SourceStatusInfo {
+  const source = resolveBuildingSource(state, buildingId);
+  const assignedZoneId = buildingId ? (state.buildingZoneIds[buildingId] ?? null) : null;
+  const assignedZoneName = assignedZoneId ? (state.productionZones[assignedZoneId]?.name ?? null) : null;
+  const legacyWhId = buildingId ? (state.buildingSourceWarehouseIds[buildingId] ?? null) : null;
+  const isStale = hasStaleWarehouseAssignment(state, buildingId);
+
+  let fallbackReason: FallbackReason = "none";
+  let sourceLabel: string;
+  let reasonLabel: string;
+  let zoneWarehouseIds: string[] = [];
+  let zoneBuildingIds: string[] = [];
+
+  if (source.kind === "zone") {
+    zoneWarehouseIds = getZoneWarehouseIds(state, source.zoneId);
+    zoneBuildingIds = getZoneBuildingIds(state, source.zoneId);
+    const zoneName = state.productionZones[source.zoneId]?.name ?? source.zoneId;
+    sourceLabel = `${zoneName} (${zoneWarehouseIds.length} Lagerhaus${zoneWarehouseIds.length !== 1 ? "\u00e4user" : ""})`;
+    reasonLabel = "Zone aktiv";
+  } else if (source.kind === "warehouse") {
+    const whIdx = Object.keys(state.warehouseInventories).indexOf(source.warehouseId) + 1;
+    sourceLabel = `Lagerhaus ${whIdx || "?"}`;
+    if (assignedZoneId && state.productionZones[assignedZoneId]) {
+      fallbackReason = "zone_no_warehouses";
+      reasonLabel = "Zone hat keine Lagerhäuser — Einzelzuweisung aktiv";
+    } else {
+      fallbackReason = "no_zone";
+      reasonLabel = "Keine Zone — Einzelzuweisung aktiv";
+    }
+  } else {
+    // global
+    sourceLabel = "Globales Inventar";
+    if (assignedZoneId && state.productionZones[assignedZoneId]) {
+      const zwhIds = getZoneWarehouseIds(state, assignedZoneId);
+      if (zwhIds.length === 0) {
+        fallbackReason = "zone_no_warehouses";
+        reasonLabel = "Zone hat keine Lagerhäuser — Fallback: Global";
+      } else {
+        fallbackReason = "none";
+        reasonLabel = "Global";
+      }
+    } else if (isStale) {
+      fallbackReason = "stale_warehouse";
+      reasonLabel = "Zugewiesenes Lagerhaus entfernt — Fallback: Global";
+    } else if (legacyWhId) {
+      fallbackReason = "stale_warehouse";
+      reasonLabel = "Ungültige Lagerhauszuweisung — Fallback: Global";
+    } else {
+      fallbackReason = "no_assignment";
+      reasonLabel = "Keine Zone oder Lagerhaus zugewiesen";
+    }
+  }
+
+  return {
+    source,
+    sourceLabel,
+    fallbackReason,
+    reasonLabel,
+    assignedZoneId,
+    assignedZoneName,
+    zoneWarehouseIds,
+    zoneBuildingIds,
+    legacyWarehouseId: legacyWhId,
+    isStale,
+  };
+}
+
 export const MAP_SHOP_POS = { x: Math.floor(GRID_W / 2) - 1, y: Math.floor(GRID_H / 2) - 1 };
+
+/**
+ * Manhattan distance between two grid positions.
+ */
+export function manhattanDist(x1: number, y1: number, x2: number, y2: number): number {
+  return Math.abs(x1 - x2) + Math.abs(y1 - y2);
+}
+
+/**
+ * Returns the ID of the nearest valid warehouse to the given grid position,
+ * or `null` when no warehouse exists.
+ *
+ * Distance metric: Manhattan distance on top-left grid coordinates.
+ * Tie-break: lexicographically smaller ID wins (deterministic).
+ *
+ * @param excludeId  optional warehouse ID to skip (used during deletion)
+ */
+export function getNearestWarehouseId(
+  state: GameState,
+  bx: number,
+  by: number,
+  excludeId?: string,
+): string | null {
+  let bestId: string | null = null;
+  let bestDist = Infinity;
+  for (const whId of Object.keys(state.warehouseInventories)) {
+    if (whId === excludeId) continue;
+    const wh = state.assets[whId];
+    if (!wh) continue;
+    const d = manhattanDist(bx, by, wh.x, wh.y);
+    if (d < bestDist || (d === bestDist && bestId !== null && whId < bestId)) {
+      bestDist = d;
+      bestId = whId;
+    }
+  }
+  return bestId;
+}
+
+/**
+ * Remove all entries from buildingSourceWarehouseIds whose warehouse ID
+ * no longer exists in warehouseInventories. Returns a new object (or the
+ * same reference if nothing changed).
+ * Used for defensive cleanup on Save/Load (no reassign, just purge).
+ */
+export function cleanBuildingSourceIds(
+  mapping: Record<string, string>,
+  validWarehouseIds: Set<string>,
+): Record<string, string> {
+  let changed = false;
+  const result: Record<string, string> = {};
+  for (const [buildingId, whId] of Object.entries(mapping)) {
+    if (validWarehouseIds.has(whId)) {
+      result[buildingId] = whId;
+    } else {
+      changed = true;
+    }
+  }
+  return changed ? result : mapping;
+}
+
+/**
+ * Reassign-or-clean: for each mapping entry whose warehouse is no longer
+ * valid, reassign to the **nearest** remaining warehouse (by Manhattan
+ * distance). If no replacement exists, the entry is removed (→ global).
+ * Used at runtime when a warehouse is deleted.
+ */
+export function reassignBuildingSourceIds(
+  mapping: Record<string, string>,
+  state: GameState,
+  deletedWarehouseId: string,
+): Record<string, string> {
+  let changed = false;
+  const result: Record<string, string> = {};
+  for (const [buildingId, whId] of Object.entries(mapping)) {
+    if (whId !== deletedWarehouseId) {
+      result[buildingId] = whId;
+    } else {
+      const building = state.assets[buildingId];
+      const replacement = building
+        ? getNearestWarehouseId(state, building.x, building.y, deletedWarehouseId)
+        : null;
+      if (replacement) {
+        result[buildingId] = replacement;
+      }
+      // else: entry dropped → global fallback
+      changed = true;
+    }
+  }
+  return changed ? result : mapping;
+}
+
+/**
+ * Returns true if a building has a warehouse mapping that no longer resolves
+ * to a valid warehouse (stale reference). Used by panels to show a hint.
+ */
+export function hasStaleWarehouseAssignment(state: GameState, buildingId: string | null): boolean {
+  if (!buildingId) return false;
+  const whId = state.buildingSourceWarehouseIds[buildingId];
+  if (!whId) return false;
+  return !state.assets[whId] || !state.warehouseInventories[whId];
+}
 
 // ============================================================
 // HELPERS
@@ -829,6 +1442,23 @@ function tryTogglePanelFromAsset(state: GameState, asset: PlacedAsset | null): G
     if (asset.type === "power_pole") {
       const newPanel = state.openPanel === panel ? null : panel;
       return { ...state, openPanel: newPanel, selectedPowerPoleId: newPanel ? asset.id : state.selectedPowerPoleId };
+    }
+    // Crafting buildings: track which specific instance is open
+    if (asset.type === "workbench" || asset.type === "smithy" || asset.type === "manual_assembler") {
+      const opening = state.openPanel !== panel || state.selectedCraftingBuildingId !== asset.id;
+      return {
+        ...state,
+        openPanel: opening ? panel : null,
+        selectedCraftingBuildingId: opening ? asset.id : null,
+      };
+    }
+    if (asset.type === "generator") {
+      const opening = state.openPanel !== panel || state.selectedGeneratorId !== asset.id;
+      return {
+        ...state,
+        openPanel: opening ? panel : null,
+        selectedGeneratorId: opening ? asset.id : null,
+      };
     }
     return { ...state, openPanel: state.openPanel === panel ? null : panel };
   }
@@ -1548,10 +2178,15 @@ export function createInitialState(mode: GameMode): GameState {
     selectedAutoMinerId: null,
     autoSmelters,
     selectedAutoSmelterId: null,
-    manualAssembler: { processing: false, recipe: null, progress: 0 },
+    selectedGeneratorId: null,
+    manualAssembler: { processing: false, recipe: null, progress: 0, buildingId: null },
     machinePowerRatio: {},
     energyDebugOverlay: false,
     autoDeliveryLog: [],
+    buildingSourceWarehouseIds: {},
+    productionZones: {},
+    buildingZoneIds: {},
+    selectedCraftingBuildingId: null,
   };
 }
 
@@ -1583,6 +2218,8 @@ export type GameAction =
   | { type: "REMOVE_FROM_HOTBAR"; slot: number }
   | { type: "EQUIP_BUILDING_FROM_WAREHOUSE"; buildingType: BuildingType; amount?: number }
   | { type: "EQUIP_FROM_WAREHOUSE"; itemKind: "axe" | "wood_pickaxe" | "stone_pickaxe" | "sapling"; amount?: number }
+  | { type: "TRANSFER_TO_WAREHOUSE"; item: keyof Inventory; amount: number }
+  | { type: "TRANSFER_FROM_WAREHOUSE"; item: keyof Inventory; amount: number }
   | { type: "SMITHY_ADD_COPPER"; amount: number }
   | { type: "SMITHY_SET_RECIPE"; recipe: "iron" | "copper" }
   | { type: "EXPIRE_NOTIFICATIONS" }
@@ -1605,7 +2242,14 @@ export type GameAction =
   | { type: "BUILD_REMOVE_ASSET"; assetId: string }
   | { type: "LOGISTICS_TICK" }
   | { type: "TOGGLE_ENERGY_DEBUG" }
-  | { type: "SET_MACHINE_PRIORITY"; assetId: string; priority: MachinePriority };
+  | { type: "SET_MACHINE_PRIORITY"; assetId: string; priority: MachinePriority }
+  | { type: "SET_MACHINE_BOOST"; assetId: string; boosted: boolean }
+  // Per-building resource source selection
+  | { type: "SET_BUILDING_SOURCE"; buildingId: string; warehouseId: string | null }
+  // Production zones
+  | { type: "CREATE_ZONE"; name?: string }
+  | { type: "DELETE_ZONE"; zoneId: string }
+  | { type: "SET_BUILDING_ZONE"; buildingId: string; zoneId: string | null };
 
 // ============================================================
 // REDUCER
@@ -1667,12 +2311,12 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         }
         if (slot.amount <= 0) return state;
         const cap = getCapacityPerResource(state);
-        if (state.inventory.wood >= cap) {
-          debugLog.warehouse(`Capacity check FAILED: wood ${state.inventory.wood}/${cap}`);
+        if (getAvailableResource(state, "wood") >= cap) {
+          debugLog.warehouse(`Capacity check FAILED: wood ${getAvailableResource(state, "wood")}/${cap}`);
           return { ...state, notifications: addErrorNotification(state.notifications, "Lager voll! Baue mehr Lagerhäuser.") };
         }
         const removed = removeAsset(state, assetId);
-        let inv = { ...state.inventory, wood: state.inventory.wood + 1 };
+        let inv = addResources(state.inventory, { wood: 1 });
         let notifs = addNotification(state.notifications, "wood", 1);
         let hotbar0 = hotbarDecrement(state.hotbarSlots, state.activeSlot);
         debugLog.mining(`Felled tree at (${x},${y}) with Axe`);
@@ -1683,7 +2327,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             hotbar0 = withSapling;
             notifs = addNotification(notifs, "sapling", 1);
           } else if (inv.sapling < cap) {
-            inv = { ...inv, sapling: inv.sapling + 1 };
+            inv = addResources(inv, { sapling: 1 });
             notifs = addNotification(notifs, "sapling", 1);
             debugLog.inventory("Sapling drop → added to central inventory");
           }
@@ -1702,11 +2346,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         }
         if (slot.amount <= 0) return state;
         const cap = getCapacityPerResource(state);
-        if (state.inventory.stone >= cap) {
+        if (getAvailableResource(state, "stone") >= cap) {
           return { ...state, notifications: addErrorNotification(state.notifications, "Lager voll! Baue mehr Lagerhäuser.") };
         }
         const removed = removeAsset(state, assetId);
-        const inv = { ...state.inventory, stone: state.inventory.stone + 1 };
+        const inv = addResources(state.inventory, { stone: 1 });
         const notifs = addNotification(state.notifications, "stone", 1);
         const newHotbar1 = hotbarDecrement(state.hotbarSlots, state.activeSlot);
         debugLog.mining(`Mined stone at (${x},${y}) with Wood Pickaxe`);
@@ -1725,11 +2369,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         if (slot.amount <= 0) return state;
         const resKey = asset.type as keyof Inventory;
         const cap = getCapacityPerResource(state);
-        if ((state.inventory[resKey] as number) >= cap) {
+        if (getAvailableResource(state, resKey) >= cap) {
           return { ...state, notifications: addErrorNotification(state.notifications, "Lager voll! Baue mehr Lagerhäuser.") };
         }
         const removed = removeAsset(state, assetId);
-        const inv = { ...state.inventory, [resKey]: (state.inventory[resKey] as number) + 1 };
+        const inv = addResources(state.inventory, { [resKey]: 1 });
         const notifs = addNotification(state.notifications, asset.type, 1);
         const newHotbar2 = hotbarDecrement(state.hotbarSlots, state.activeSlot);
         debugLog.mining(`Mined ${asset.type} at (${x},${y}) with Stone Pickaxe`);
@@ -1764,8 +2408,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "BUY_MAP_SHOP_ITEM": {
       const item = MAP_SHOP_ITEMS.find((i) => i.key === action.itemKey);
       if (!item) return state;
-      if (state.inventory.coins < item.costCoins) return state;
-      const baseInv = { ...state.inventory, coins: state.inventory.coins - item.costCoins };
+      if (!hasResources(state.inventory, { coins: item.costCoins })) return state;
+      const baseInv = consumeResources(state.inventory, { coins: item.costCoins });
       const notifs = addNotification(state.notifications, item.key, 1);
       const toolHotbarKinds: ToolKind[] = ["axe", "wood_pickaxe", "stone_pickaxe"];
       const toolKind = item.key as ToolKind;
@@ -1775,7 +2419,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           return { ...state, inventory: baseInv, hotbarSlots: newHotbar, notifications: notifs };
         }
       }
-      const newInv = { ...baseInv, [item.inventoryKey]: (baseInv[item.inventoryKey] as number) + 1 };
+      const newInv = addResources(baseInv, { [item.inventoryKey]: 1 });
       return { ...state, inventory: newInv, notifications: notifs };
     }
 
@@ -1792,14 +2436,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           notifications: addErrorNotification(state.notifications, "Werkbank hat keinen Strom."),
         };
       }
-      const inv = state.inventory;
-      for (const [res, amt] of Object.entries(recipe.costs)) {
-        if ((inv[res as keyof Inventory] ?? 0) < (amt ?? 0)) return state;
-      }
-      const newInv = { ...inv };
-      for (const [res, amt] of Object.entries(recipe.costs)) {
-        (newInv as any)[res] -= amt ?? 0;
-      }
+      const costs = recipe.costs as Partial<Record<keyof Inventory, number>>;
+      const source = resolveBuildingSource(state, state.selectedCraftingBuildingId);
+      const sourceInv = getCraftingSourceInventory(state, source);
+      if (!hasResources(sourceInv, costs)) return state;
+      let newSourceInv = consumeResources(sourceInv, costs);
       const outputKey = recipe.outputItem as keyof Inventory;
       const notifs = addNotification(state.notifications, outputKey, recipe.outputAmount);
       const toolHotbarKindsW: ToolKind[] = ["axe", "wood_pickaxe", "stone_pickaxe"];
@@ -1807,18 +2448,18 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (toolHotbarKindsW.includes(outKind)) {
         const newHotbar = hotbarAdd(state.hotbarSlots, outKind as Exclude<ToolKind, "empty">, undefined, recipe.outputAmount);
         if (newHotbar) {
-          return { ...state, inventory: newInv, hotbarSlots: newHotbar, notifications: notifs };
+          return { ...state, ...applyCraftingSourceInventory(state, source, newSourceInv), hotbarSlots: newHotbar, notifications: notifs };
         }
       }
-      (newInv as any)[outputKey] += recipe.outputAmount;
-      return { ...state, inventory: newInv, notifications: notifs };
+      newSourceInv = addResources(newSourceInv, { [outputKey]: recipe.outputAmount });
+      return { ...state, ...applyCraftingSourceInventory(state, source, newSourceInv), notifications: notifs };
     }
 
     case "TOGGLE_PANEL":
       return { ...state, openPanel: state.openPanel === action.panel ? null : action.panel };
 
     case "CLOSE_PANEL":
-      return { ...state, openPanel: null, selectedAutoMinerId: null, selectedAutoSmelterId: null, selectedWarehouseId: null };
+      return { ...state, openPanel: null, selectedAutoMinerId: null, selectedAutoSmelterId: null, selectedGeneratorId: null, selectedWarehouseId: null, selectedCraftingBuildingId: null };
 
     case "EQUIP_BUILDING_FROM_WAREHOUSE": {
       const { buildingType, amount = 1 } = action;
@@ -1870,35 +2511,92 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, warehouseInventories: { ...state.warehouseInventories, [whId]: newWhInv }, hotbarSlots: newHotbar };
     }
 
+    // ---- Manual resource transfers: global ↔ selected warehouse ----
+
+    case "TRANSFER_TO_WAREHOUSE": {
+      const { item, amount } = action;
+      if (amount <= 0) return state;
+      const whId = state.selectedWarehouseId;
+      if (!whId) return state;
+      const whInv = state.warehouseInventories[whId];
+      if (!whInv) return state;
+
+      // Clamp to what is actually available in global inventory
+      const globalAvailable = getAvailableResource(state, item);
+      const whCap = getWarehouseCapacity(state.mode);
+      const whCurrent = whInv[item] as number;
+      const spaceInWarehouse = item === "coins" ? Infinity : Math.max(0, whCap - whCurrent);
+      const transferAmount = Math.min(amount, globalAvailable, spaceInWarehouse);
+      if (transferAmount <= 0) return state;
+
+      return {
+        ...state,
+        inventory: consumeResources(state.inventory, { [item]: transferAmount }),
+        warehouseInventories: {
+          ...state.warehouseInventories,
+          [whId]: addResources(whInv, { [item]: transferAmount }),
+        },
+      };
+    }
+
+    case "TRANSFER_FROM_WAREHOUSE": {
+      const { item, amount } = action;
+      if (amount <= 0) return state;
+      const whId = state.selectedWarehouseId;
+      if (!whId) return state;
+      const whInv = state.warehouseInventories[whId];
+      if (!whInv) return state;
+
+      // Clamp to what the warehouse actually holds
+      const whAvailable = whInv[item] as number;
+      const transferAmount = Math.min(amount, whAvailable);
+      if (transferAmount <= 0) return state;
+
+      return {
+        ...state,
+        inventory: addResources(state.inventory, { [item]: transferAmount }),
+        warehouseInventories: {
+          ...state.warehouseInventories,
+          [whId]: consumeResources(whInv, { [item]: transferAmount }),
+        },
+      };
+    }
+
     case "SMITHY_ADD_FUEL": {
-      const amt = Math.min(action.amount, state.inventory.wood);
+      const source = resolveBuildingSource(state, state.selectedCraftingBuildingId);
+      const sourceInv = getCraftingSourceInventory(state, source);
+      const amt = Math.min(action.amount, sourceInv.wood as number);
       if (amt > 0) debugLog.smithy(`Added ${amt} Wood as fuel`);
       if (amt <= 0) return state;
       return {
         ...state,
-        inventory: { ...state.inventory, wood: state.inventory.wood - amt },
+        ...applyCraftingSourceInventory(state, source, consumeResources(sourceInv, { wood: amt })),
         smithy: { ...state.smithy, fuel: state.smithy.fuel + amt },
       };
     }
 
     case "SMITHY_ADD_IRON": {
-      const amt = Math.min(action.amount, state.inventory.iron);
+      const source = resolveBuildingSource(state, state.selectedCraftingBuildingId);
+      const sourceInv = getCraftingSourceInventory(state, source);
+      const amt = Math.min(action.amount, sourceInv.iron as number);
       if (amt > 0) debugLog.smithy(`Added ${amt} Iron ore`);
       if (amt <= 0) return state;
       return {
         ...state,
-        inventory: { ...state.inventory, iron: state.inventory.iron - amt },
+        ...applyCraftingSourceInventory(state, source, consumeResources(sourceInv, { iron: amt })),
         smithy: { ...state.smithy, iron: state.smithy.iron + amt },
       };
     }
 
     case "SMITHY_ADD_COPPER": {
-      const amt = Math.min(action.amount, state.inventory.copper);
+      const source = resolveBuildingSource(state, state.selectedCraftingBuildingId);
+      const sourceInv = getCraftingSourceInventory(state, source);
+      const amt = Math.min(action.amount, sourceInv.copper as number);
       if (amt > 0) debugLog.smithy(`Added ${amt} Copper ore`);
       if (amt <= 0) return state;
       return {
         ...state,
-        inventory: { ...state.inventory, copper: state.inventory.copper - amt },
+        ...applyCraftingSourceInventory(state, source, consumeResources(sourceInv, { copper: amt })),
         smithy: { ...state.smithy, copper: state.smithy.copper + amt },
       };
     }
@@ -1974,13 +2672,12 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const ironAmt = state.smithy.outputIngots;
       const copperAmt = state.smithy.outputCopperIngots;
       if (ironAmt <= 0 && copperAmt <= 0) return state;
+      const source = resolveBuildingSource(state, state.selectedCraftingBuildingId);
+      const sourceInv = getCraftingSourceInventory(state, source);
+      const newSourceInv = addResources(sourceInv, { ironIngot: ironAmt, copperIngot: copperAmt });
       return {
         ...state,
-        inventory: {
-          ...state.inventory,
-          ironIngot: state.inventory.ironIngot + ironAmt,
-          copperIngot: state.inventory.copperIngot + copperAmt,
-        },
+        ...applyCraftingSourceInventory(state, source, newSourceInv),
         smithy: { ...state.smithy, outputIngots: 0, outputCopperIngots: 0 },
       };
     }
@@ -1990,25 +2687,26 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (state.manualAssembler.processing) return state;
       const recipe = getManualAssemblerRecipe(action.recipe);
       if (!recipe) return state;
-      const cap = getCapacityPerResource(state);
+      const bId = state.selectedCraftingBuildingId;
+      const source = resolveBuildingSource(state, bId);
+      const sourceInv = getCraftingSourceInventory(state, source);
       const outputKey = recipe.outputItem as keyof Inventory;
       const inputKey = recipe.inputItem as keyof Inventory;
 
-      if ((state.inventory[outputKey] as number) >= cap) {
+      // Capacity check against active source
+      const cap = source.kind === "global" ? getCapacityPerResource(state) : source.kind === "zone" ? getZoneItemCapacity(state, source.zoneId) : (state.mode === "debug" ? Infinity : WAREHOUSE_CAPACITY);
+      if ((sourceInv[outputKey] as number) >= cap) {
         return { ...state, notifications: addErrorNotification(state.notifications, "Lager voll! Baue mehr Lagerhäuser.") };
       }
-      if ((state.inventory[inputKey] as number) < recipe.inputAmount) {
+      if ((sourceInv[inputKey] as number) < recipe.inputAmount) {
         const error = recipe.key === "metal_plate" ? "Nicht genug Metallbarren!" : "Nicht genug Metallplatten!";
         return { ...state, notifications: addErrorNotification(state.notifications, error) };
       }
 
       return {
         ...state,
-        inventory: {
-          ...state.inventory,
-          [inputKey]: (state.inventory[inputKey] as number) - recipe.inputAmount,
-        },
-        manualAssembler: { processing: true, recipe: recipe.key, progress: 0 },
+        ...applyCraftingSourceInventory(state, source, consumeResources(sourceInv, { [inputKey]: recipe.inputAmount })),
+        manualAssembler: { processing: true, recipe: recipe.key, progress: 0, buildingId: bId },
       };
     }
 
@@ -2016,27 +2714,30 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const m = state.manualAssembler;
       if (!m.processing || !m.recipe) return state;
       const recipe = getManualAssemblerRecipe(m.recipe);
-      if (!recipe) return { ...state, manualAssembler: { processing: false, recipe: null, progress: 0 } };
+      if (!recipe) return { ...state, manualAssembler: { processing: false, recipe: null, progress: 0, buildingId: null } };
 
       const newProgress = m.progress + MANUAL_ASSEMBLER_TICK_MS / Math.max(1, recipe.processingTime * 1000);
       if (newProgress < 1) {
         return { ...state, manualAssembler: { ...m, progress: newProgress } };
       }
 
+      // Use the building ID stored at START time for output routing
+      const source = resolveBuildingSource(state, m.buildingId);
+      const sourceInv = getCraftingSourceInventory(state, source);
       const outputKey = recipe.outputItem as keyof Inventory;
-      const cap = getCapacityPerResource(state);
-      if ((state.inventory[outputKey] as number) >= cap) {
+      const cap = source.kind === "global" ? getCapacityPerResource(state) : source.kind === "zone" ? getZoneItemCapacity(state, source.zoneId) : (state.mode === "debug" ? Infinity : WAREHOUSE_CAPACITY);
+      if ((sourceInv[outputKey] as number) >= cap) {
         return {
           ...state,
-          manualAssembler: { processing: false, recipe: null, progress: 0 },
+          manualAssembler: { processing: false, recipe: null, progress: 0, buildingId: null },
           notifications: addErrorNotification(state.notifications, "Lager voll! Baue mehr Lagerhäuser."),
         };
       }
 
       return {
         ...state,
-        inventory: { ...state.inventory, [outputKey]: (state.inventory[outputKey] as number) + recipe.outputAmount },
-        manualAssembler: { processing: false, recipe: null, progress: 0 },
+        ...applyCraftingSourceInventory(state, source, addResources(sourceInv, { [outputKey]: recipe.outputAmount })),
+        manualAssembler: { processing: false, recipe: null, progress: 0, buildingId: null },
         notifications: addNotification(state.notifications, outputKey, recipe.outputAmount),
       };
     }
@@ -2143,12 +2844,14 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     // ============================================================
 
     case "GENERATOR_ADD_FUEL": {
-      const amt = Math.min(action.amount, state.inventory.wood);
+      const source = resolveBuildingSource(state, state.selectedGeneratorId);
+      const sourceInv = getCraftingSourceInventory(state, source);
+      const amt = Math.min(action.amount, (sourceInv.wood as number) ?? 0);
       if (amt <= 0) return state;
       debugLog.building(`Generator: added ${amt} wood as fuel`);
       return {
         ...state,
-        inventory: { ...state.inventory, wood: state.inventory.wood - amt },
+        ...applyCraftingSourceInventory(state, source, consumeResources(sourceInv, { wood: amt })),
         generator: { ...state.generator, fuel: state.generator.fuel + amt },
       };
     }
@@ -2203,9 +2906,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           priority: clampMachinePriority(asset.priority),
           allocationRank: getEnergyAllocationRank(asset.type),
           drain:
-            asset.type === "auto_smelter"
+            (asset.type === "auto_smelter"
               ? (state.autoSmelters?.[asset.id]?.processing ? AUTO_SMELTER_PROCESSING_DRAIN_PER_PERIOD : AUTO_SMELTER_IDLE_DRAIN_PER_PERIOD)
-              : ENERGY_DRAIN[asset.type],
+              : ENERGY_DRAIN[asset.type]) * getBoostMultiplier(asset),
         }))
         .sort((a, b) => a.priority - b.priority || a.allocationRank - b.allocationRank || a.index - b.index);
 
@@ -2314,10 +3017,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
       // Cost check
       const costs = BUILDING_COSTS[bType];
-      for (const [res, amt] of Object.entries(costs)) {
-        if ((state.inventory[res as keyof Inventory] ?? 0) < (amt ?? 0)) {
+      if (!hasResources(state.inventory, costs as Partial<Record<keyof Inventory, number>>)) {
           return { ...state, notifications: addErrorNotification(state.notifications, "Nicht genug Ressourcen!") };
-        }
       }
 
       // ---- SPECIAL: Auto-Miner placement on deposit ----
@@ -2350,12 +3051,16 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           },
         };
         const newCellMap = { ...state.cellMap, [cellKey(x, y)]: minerId };
-        const newInvM = { ...state.inventory };
-        for (const [res, amt] of Object.entries(costs)) (newInvM as any)[res] -= amt ?? 0;
+        const newInvM = consumeResources(state.inventory, costs as Partial<Record<keyof Inventory, number>>);
         const resource = DEPOSIT_RESOURCE[depositAsset.type];
         const newAutoMiners = { ...state.autoMiners, [minerId]: { depositId: depositAssetId, resource, progress: 0 } };
         debugLog.building(`[BuildMode] Placed Auto-Miner at (${x},${y}) on ${depositAsset.type}`);
-        const partialM: GameState = { ...state, assets: newAssets, cellMap: newCellMap, inventory: newInvM, autoMiners: newAutoMiners };
+        let partialM: GameState = { ...state, assets: newAssets, cellMap: newCellMap, inventory: newInvM, autoMiners: newAutoMiners };
+        // Auto-assign nearest warehouse source for zone-aware output
+        const nearestWhIdM = getNearestWarehouseId(partialM, x, y);
+        if (nearestWhIdM) {
+          partialM = { ...partialM, buildingSourceWarehouseIds: { ...partialM.buildingSourceWarehouseIds, [minerId]: nearestWhIdM } };
+        }
         return { ...partialM, connectedAssetIds: computeConnectedAssetIds(partialM) };
       }
 
@@ -2370,8 +3075,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         if (!convPlaced) return state;
         const assetWithDir = { ...convPlaced.assets[convPlaced.id], direction: dir };
         const newAssetsC = { ...convPlaced.assets, [convPlaced.id]: assetWithDir };
-        const newInvC = { ...state.inventory };
-        for (const [res, amt] of Object.entries(costs)) (newInvC as any)[res] -= amt ?? 0;
+        const newInvC = consumeResources(state.inventory, costs as Partial<Record<keyof Inventory, number>>);
         const newConveyors = { ...state.conveyors, [convPlaced.id]: { queue: [] as ConveyorItem[] } };
         debugLog.building(`[BuildMode] Placed ${BUILDING_LABELS[bType]} at (${x},${y}) facing ${dir}`);
         const partialC: GameState = { ...state, assets: newAssetsC, cellMap: convPlaced.cellMap, inventory: newInvC, conveyors: newConveyors };
@@ -2428,8 +3132,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             priority: DEFAULT_MACHINE_PRIORITY,
           },
         };
-        const newInv = { ...state.inventory };
-        for (const [res, amt] of Object.entries(costs)) (newInv as any)[res] -= amt ?? 0;
+        const newInv = consumeResources(state.inventory, costs as Partial<Record<keyof Inventory, number>>);
         const newAutoSmelters = {
           ...state.autoSmelters,
           [placed.id]: {
@@ -2489,14 +3192,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (!placed) return state;
 
       // Deduct costs
-      const newInvB = { ...state.inventory };
-      for (const [res, amt] of Object.entries(costs)) {
-        (newInvB as any)[res] -= amt ?? 0;
-      }
+      const newInvB = consumeResources(state.inventory, costs as Partial<Record<keyof Inventory, number>>);
 
       debugLog.building(`[BuildMode] Placed ${BUILDING_LABELS[bType]} at (${x},${y})`);
 
-      const partialBuild: GameState =
+      let partialBuild: GameState =
         bType === "warehouse"
           ? {
               ...state,
@@ -2521,6 +3221,18 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           : bType === "power_pole"
           ? { ...state, assets: placed.assets, cellMap: placed.cellMap, inventory: newInvB, powerPolesPlaced: state.powerPolesPlaced + 1 }
           : { ...state, assets: placed.assets, cellMap: placed.cellMap, inventory: newInvB, placedBuildings: [...state.placedBuildings, bType], purchasedBuildings: [...state.purchasedBuildings, bType] };
+
+      // Auto-assign nearest warehouse source for newly placed crafting buildings
+      if (BUILDINGS_WITH_DEFAULT_SOURCE.has(bType)) {
+        const nearestWhId = getNearestWarehouseId(partialBuild, x, y);
+        if (nearestWhId) {
+          partialBuild = {
+            ...partialBuild,
+            buildingSourceWarehouseIds: { ...partialBuild.buildingSourceWarehouseIds, [placed.id]: nearestWhId },
+          };
+        }
+      }
+
       return { ...partialBuild, connectedAssetIds: computeConnectedAssetIds(partialBuild) };
     }
 
@@ -2540,16 +3252,19 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const removedB = removeAsset(state, action.assetId);
       const bTypeR = targetAsset.type as BuildingType;
       const costsR = BUILDING_COSTS[bTypeR];
-      const newInvR = { ...state.inventory };
+      const refundMap: Partial<Record<keyof Inventory, number>> = {};
       for (const [res, amt] of Object.entries(costsR)) {
-        const refund = Math.max(1, Math.floor((amt ?? 0) / 3));
-        (newInvR as any)[res] = ((newInvR as any)[res] ?? 0) + refund;
+        refundMap[res as keyof Inventory] = Math.max(1, Math.floor((amt ?? 0) / 3));
       }
+      const newInvR = addResources(state.inventory, refundMap);
 
       let partialRemove: GameState;
       if (bTypeR === "warehouse") {
         const newWarehouseInventories = { ...state.warehouseInventories };
         delete newWarehouseInventories[action.assetId];
+        // Reassign affected building→warehouse mappings to nearest remaining warehouse (or drop → global)
+        const stateForReassign: GameState = { ...state, warehouseInventories: newWarehouseInventories };
+        const reassignedSources = reassignBuildingSourceIds(state.buildingSourceWarehouseIds, stateForReassign, action.assetId);
         partialRemove = {
           ...state,
           ...removedB,
@@ -2557,6 +3272,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           warehousesPlaced: state.warehousesPlaced - 1,
           warehousesPurchased: state.warehousesPurchased - 1,
           warehouseInventories: newWarehouseInventories,
+          buildingSourceWarehouseIds: reassignedSources,
           selectedWarehouseId: state.selectedWarehouseId === action.assetId ? null : state.selectedWarehouseId,
           openPanel: null as UIPanel,
         };
@@ -2593,7 +3309,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           placedBuildings: state.placedBuildings.filter((b) => b !== bTypeR),
           purchasedBuildings: state.purchasedBuildings.filter((b) => b !== bTypeR),
           openPanel: null as UIPanel,
-          manualAssembler: { processing: false, recipe: null, progress: 0 },
+          manualAssembler: { processing: false, recipe: null, progress: 0, buildingId: null },
         };
       } else if (bTypeR === "auto_smelter") {
         const newAutoSmelters = { ...state.autoSmelters };
@@ -2611,6 +3327,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       } else {
         partialRemove = { ...state, ...removedB, inventory: newInvR, placedBuildings: state.placedBuildings.filter((b) => b !== bTypeR), purchasedBuildings: state.purchasedBuildings.filter((b) => b !== bTypeR), openPanel: null as UIPanel };
       }
+      // Clean up zone assignment for the removed building
+      if (partialRemove.buildingZoneIds[action.assetId]) {
+        const { [action.assetId]: _z, ...restZoneIds } = partialRemove.buildingZoneIds;
+        partialRemove = { ...partialRemove, buildingZoneIds: restZoneIds };
+      }
       return { ...partialRemove, connectedAssetIds: computeConnectedAssetIds(partialRemove) };
     }
 
@@ -2623,10 +3344,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
       // Cost check
       const tileCosts = FLOOR_TILE_COSTS[tileType];
-      for (const [res, amt] of Object.entries(tileCosts)) {
-        if ((state.inventory[res as keyof Inventory] ?? 0) < (amt ?? 0)) {
+      if (!hasResources(state.inventory, tileCosts as Partial<Record<keyof Inventory, number>>)) {
           return { ...state, notifications: addErrorNotification(state.notifications, "Nicht genug Ressourcen!") };
-        }
       }
 
       if (tileType === "stone_floor") {
@@ -2638,8 +3357,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           return { ...state, notifications: addErrorNotification(state.notifications, "Das Feld ist belegt.") };
         }
         const newFloorMap = { ...state.floorMap, [key]: "stone_floor" as const };
-        const newInvF = { ...state.inventory };
-        for (const [res, amt] of Object.entries(tileCosts)) (newInvF as any)[res] -= amt ?? 0;
+        const newInvF = consumeResources(state.inventory, tileCosts as Partial<Record<keyof Inventory, number>>);
         debugLog.building(`[BuildMode] Placed stone_floor at (${x},${y})`);
         return { ...state, floorMap: newFloorMap, inventory: newInvF };
       } else {
@@ -2652,8 +3370,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         }
         const newFloorMap = { ...state.floorMap };
         delete newFloorMap[key];
-        const newInvF = { ...state.inventory };
-        for (const [res, amt] of Object.entries(tileCosts)) (newInvF as any)[res] -= amt ?? 0;
+        const newInvF = consumeResources(state.inventory, tileCosts as Partial<Record<keyof Inventory, number>>);
         debugLog.building(`[BuildMode] Placed grass_block at (${x},${y}) – stone floor removed`);
         return { ...state, floorMap: newFloorMap, inventory: newInvF };
       }
@@ -2676,12 +3393,42 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           ? state.warehouseInventories[warehouseId]
           : newWarehouseInventoriesL[warehouseId]);
         if (!whInv) return false;
-        // Route into the shared island inventory (same pool as manual gathering)
-        const cap = getCapacityPerResource(state);
+        // Store into the warehouse's own inventory (per-WH storage)
+        const cap = getWarehouseCapacity(state.mode);
         const resKey = resource as keyof Inventory;
-        if ((newInvL[resKey] as number) >= cap) return false;
-        newInvL = { ...newInvL, [resKey]: (newInvL[resKey] as number) + 1 };
+        if ((whInv[resKey] as number) >= cap) return false;
+        newWarehouseInventoriesL = newWarehouseInventoriesL === state.warehouseInventories
+          ? { ...state.warehouseInventories }
+          : newWarehouseInventoriesL;
+        newWarehouseInventoriesL[warehouseId] = addResources(whInv, { [resKey]: 1 });
         return true;
+      };
+
+      const getLiveLogisticsState = (): GameState => {
+        if (newInvL === state.inventory && newWarehouseInventoriesL === state.warehouseInventories) {
+          return state;
+        }
+        return {
+          ...state,
+          inventory: newInvL,
+          warehouseInventories: newWarehouseInventoriesL,
+        };
+      };
+
+      const getSourceCapacity = (liveState: GameState, source: CraftingSource): number => {
+        if (source.kind === "global") return getCapacityPerResource(liveState);
+        if (source.kind === "zone") return getZoneItemCapacity(liveState, source.zoneId);
+        return getWarehouseCapacity(liveState.mode);
+      };
+
+      const applySourceInventory = (source: CraftingSource, nextInv: Inventory): void => {
+        const partial = applyCraftingSourceInventory(getLiveLogisticsState(), source, nextInv);
+        if (partial.inventory) {
+          newInvL = partial.inventory;
+        }
+        if (partial.warehouseInventories) {
+          newWarehouseInventoriesL = partial.warehouseInventories;
+        }
       };
 
       // ---- Auto-Miners: produce resources ----
@@ -2690,15 +3437,22 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         if (!minerAsset) continue;
         const isConnected = state.connectedAssetIds.includes(minerId);
         const powerRatio = Math.max(0, Math.min(1, state.machinePowerRatio?.[minerId] ?? (poweredSet.has(minerId) ? 1 : 0)));
-        if (!isConnected || powerRatio <= 0) continue;
+        // Unterstrom = kompletter Stopp: Progress bleibt eingefroren, bis die Maschine wieder voll versorgt ist.
+        // Hinweis: der Scheduler hat den (ggf. boosted) Mehrverbrauch bereits eingerechnet — liefert er ratio === 1,
+        // ist der Bedarf gedeckt. Ist der Bedarf nicht gedeckt, ratio < 1 → hier wird abgebrochen.
+        if (!isConnected || powerRatio < 1) continue;
 
-        let progress = miner.progress + powerRatio;
+        const minerBoost = getBoostMultiplier(minerAsset);
+        let progress = miner.progress + minerBoost;
         if (progress >= AUTO_MINER_PRODUCE_TICKS) {
           const dir = minerAsset.direction ?? "east";
           const [ox, oy] = directionOffset(dir);
           const outX = minerAsset.x + ox;
           const outY = minerAsset.y + oy;
-          if (outX >= 0 && outX < GRID_W && outY >= 0 && outY < GRID_H) {
+          let outputDone = false;
+
+          // Priority 1: Adjacent conveyor — unchanged physical belt output.
+          if (!outputDone && outX >= 0 && outX < GRID_W && outY >= 0 && outY < GRID_H) {
             const outAssetId = state.cellMap[cellKey(outX, outY)];
             const outAsset = outAssetId ? state.assets[outAssetId] : null;
             if (outAsset?.type === "conveyor" || outAsset?.type === "conveyor_corner") {
@@ -2709,16 +3463,34 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
                 newConveyorsL[outAssetId] = { queue: [...outQueue, miner.resource] };
                 progress = 0;
                 changed = true;
-              }
-            } else if (outAsset?.type === "warehouse" && isValidWarehouseInput(minerAsset.x, minerAsset.y, dir, outAsset)) {
-              if (tryStoreInWarehouse(outAsset.id, miner.resource)) {
-                newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "auto_miner", minerId, miner.resource, outAsset.id);
-                progress = 0;
-                changed = true;
+                outputDone = true;
               }
             }
           }
-          // If still at max, stay blocked
+
+          // Priority 2: Zone-aware source output (Zone > Legacy-Warehouse > Global).
+          if (!outputDone) {
+            const liveState = getLiveLogisticsState();
+            const source = resolveBuildingSource(liveState, minerId);
+            const sourceInv = getCraftingSourceInventory(liveState, source);
+            const sourceCapacity = getSourceCapacity(liveState, source);
+            const resKey = miner.resource as keyof Inventory;
+            if ((sourceInv[resKey] as number) < sourceCapacity) {
+              const newSourceInv = addResources(sourceInv, { [resKey]: 1 });
+              applySourceInventory(source, newSourceInv);
+              const logWhId = source.kind === "warehouse"
+                ? source.warehouseId
+                : source.kind === "zone"
+                ? (getZoneWarehouseIds(liveState, source.zoneId)[0] ?? minerId)
+                : minerId;
+              newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "auto_miner", minerId, miner.resource, logWhId);
+              progress = 0;
+              changed = true;
+              outputDone = true;
+            }
+          }
+
+          // If still at max, stay blocked (output-Ziel hat keinen Platz).
           if (progress >= AUTO_MINER_PRODUCE_TICKS) progress = AUTO_MINER_PRODUCE_TICKS;
         }
         if (progress !== miner.progress) {
@@ -2749,7 +3521,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         for (const wAsset of Object.values(state.assets)) {
           if (wAsset.type !== "warehouse") continue;
           if (convAsset.x === wAsset.x && convAsset.y === wAsset.y + assetHeight(wAsset)) {
-            if (tryStoreInWarehouse(wAsset.id, currentItem)) {
+            const convZoneDirect = state.buildingZoneIds[convId] ?? null;
+            const whZoneDirect = state.buildingZoneIds[wAsset.id] ?? null;
+            if (areZonesTransportCompatible(convZoneDirect, whZoneDirect) && tryStoreInWarehouse(wAsset.id, currentItem)) {
               newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "conveyor", convId, currentItem, wAsset.id);
               newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
               newConveyorsL[convId] = { queue: activeQueue.slice(1) };
@@ -2762,16 +3536,10 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         if (deliveredToWarehouse) continue;
 
         const inDir = convAsset.direction ?? "east";
-        const dir =
-          convAsset.type === "conveyor_corner"
-            ? inDir === "north"
-              ? "east"
-              : inDir === "east"
-              ? "south"
-              : inDir === "south"
-              ? "west"
-              : "north"
-            : inDir;
+        // For both conveyor and conveyor_corner, `direction` is the OUTPUT direction.
+        // The corner shape is purely visual (sprite rotation); the tile pushes items
+        // in the direction the asset is facing — identical to a straight belt.
+        const dir = inDir;
         const [ox, oy] = directionOffset(dir);
         const nextX = convAsset.x + ox;
         const nextY = convAsset.y + oy;
@@ -2780,7 +3548,16 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         const nextAssetId = state.cellMap[cellKey(nextX, nextY)];
         const nextAsset = nextAssetId ? state.assets[nextAssetId] : null;
 
-        if ((nextAsset?.type === "conveyor" || nextAsset?.type === "conveyor_corner") && !movedThisTick.has(nextAssetId)) {
+        // Straight belts only accept items arriving from behind (same output direction).
+        // Corner belts accept from any direction — they are the intended turn mechanism.
+        const nextBeltCompatible =
+          nextAsset?.type === "conveyor_corner" ||
+          (nextAsset?.type === "conveyor" && (nextAsset.direction ?? "east") === dir);
+        // Zone-aware transport: block belt-to-belt if both have explicit, differing zones.
+        const convZone = state.buildingZoneIds[convId] ?? null;
+        const nextTileZone = nextAssetId ? (state.buildingZoneIds[nextAssetId] ?? null) : null;
+        const beltToNextZoneOk = areZonesTransportCompatible(convZone, nextTileZone);
+        if (nextBeltCompatible && !movedThisTick.has(nextAssetId) && beltToNextZoneOk) {
           const nextConv = newConveyorsL === state.conveyors ? state.conveyors[nextAssetId] : newConveyorsL[nextAssetId];
           const nextQueue = nextConv?.queue ?? [];
           if (nextQueue.length < CONVEYOR_TILE_CAPACITY) {
@@ -2790,28 +3567,36 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             movedThisTick.add(nextAssetId);
             changed = true;
           }
-        } else if (nextAsset?.type === "warehouse" && isValidWarehouseInput(convAsset.x, convAsset.y, convAsset.direction ?? "east", nextAsset)) {
-          if (tryStoreInWarehouse(nextAsset.id, currentItem)) {
+        } else if (nextAsset?.type === "warehouse" && isValidWarehouseInput(convAsset.x, convAsset.y, dir, nextAsset)) {
+          const adjWhZone = state.buildingZoneIds[nextAsset.id] ?? null;
+          if (areZonesTransportCompatible(convZone, adjWhZone) && tryStoreInWarehouse(nextAsset.id, currentItem)) {
             newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "conveyor", convId, currentItem, nextAsset.id);
             newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
             newConveyorsL[convId] = { queue: activeQueue.slice(1) };
             changed = true;
           }
         } else if (nextAsset?.type === "workbench") {
-          // Workbench has no dedicated input slots; inject into shared inventory as crafting supply.
-          const cap = getCapacityPerResource(state);
-          const resKey = currentItem as keyof Inventory;
-          if ((newInvL[resKey] as number) < cap) {
-            newInvL = newInvL === state.inventory ? { ...state.inventory } : newInvL;
-            (newInvL as any)[resKey] = (newInvL[resKey] as number) + 1;
-            newNotifsL = addNotification(newNotifsL, currentItem, 1);
-            newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-            newConveyorsL[convId] = { queue: activeQueue.slice(1) };
-            changed = true;
+          // Inject into the workbench's resolved source (zone/warehouse/global) so zone-assigned workbenches
+          // receive conveyor items in their zone inventory, not always in global.
+          const wbZone = state.buildingZoneIds[nextAsset.id] ?? null;
+          if (areZonesTransportCompatible(convZone, wbZone)) {
+            const liveForWb = getLiveLogisticsState();
+            const wbSource = resolveBuildingSource(liveForWb, nextAsset.id);
+            const wbSourceInv = getCraftingSourceInventory(liveForWb, wbSource);
+            const wbCap = getSourceCapacity(liveForWb, wbSource);
+            const resKey = currentItem as keyof Inventory;
+            if ((wbSourceInv[resKey] as number) < wbCap) {
+              applySourceInventory(wbSource, addResources(wbSourceInv, { [resKey]: 1 }));
+              newNotifsL = addNotification(newNotifsL, currentItem, 1);
+              newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
+              newConveyorsL[convId] = { queue: activeQueue.slice(1) };
+              changed = true;
+            }
           }
         } else if (nextAsset?.type === "smithy") {
           // Feed ore into smithy internal slots
-          if (currentItem === "iron" || currentItem === "copper") {
+          const smithyZone = state.buildingZoneIds[nextAsset.id] ?? null;
+          if (areZonesTransportCompatible(convZone, smithyZone) && (currentItem === "iron" || currentItem === "copper")) {
             const oreKey = currentItem === "iron" ? "iron" : "copper";
             if ((newSmithyL as any)[oreKey] < 50) {
               newSmithyL = { ...newSmithyL, [oreKey]: (newSmithyL as any)[oreKey] + 1 };
@@ -2823,27 +3608,16 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         }
       }
 
-      // ---- Auto Smelters: belt input -> process -> belt output ----
+      // ---- Auto Smelters: source input -> process -> source output ----
       let newAutoSmeltersL = state.autoSmelters;
       for (const [smelterId, smelterState] of Object.entries(state.autoSmelters ?? {})) {
         const smelterAsset = state.assets[smelterId];
         if (!smelterAsset || smelterAsset.type !== "auto_smelter") continue;
 
-        const io = getAutoSmelterIoCells(smelterAsset);
-        const inputAssetId = state.cellMap[cellKey(io.input.x, io.input.y)];
-        const outputAssetId = state.cellMap[cellKey(io.output.x, io.output.y)];
-        const inputAsset = inputAssetId ? state.assets[inputAssetId] : null;
-        const outputAsset = outputAssetId ? state.assets[outputAssetId] : null;
-
-        if ((inputAsset?.type !== "conveyor" && inputAsset?.type !== "conveyor_corner") || (outputAsset?.type !== "conveyor" && outputAsset?.type !== "conveyor_corner")) {
-          newAutoSmeltersL = newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;
-          newAutoSmeltersL[smelterId] = { ...smelterState, status: "MISCONFIGURED" };
-          changed = true;
-          continue;
-        }
-
         const powerRatio = Math.max(0, Math.min(1, state.machinePowerRatio?.[smelterId] ?? (poweredSet.has(smelterId) ? 1 : 0)));
-        if (powerRatio <= 0) {
+        // Unterstrom = kompletter Stopp: jede Unterversorgung (ratio < 1) stoppt die Verarbeitung vollständig.
+        // Laufender progressMs bleibt erhalten und wird pausiert, bis wieder volle Versorgung anliegt.
+        if (powerRatio < 1) {
           newAutoSmeltersL = newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;
           newAutoSmeltersL[smelterId] = { ...smelterState, status: "NO_POWER" };
           changed = true;
@@ -2851,50 +3625,85 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         }
 
         let nextSmelter = { ...smelterState };
-        let inputConv = newConveyorsL[inputAssetId];
-        let outputConv = newConveyorsL[outputAssetId];
+        const selectedRecipe = getSmeltingRecipe(nextSmelter.selectedRecipe);
+        if (!selectedRecipe) {
+          nextSmelter.status = "MISCONFIGURED";
+          if (!areAutoSmelterEntriesEqual(nextSmelter, smelterState)) {
+            newAutoSmeltersL = newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;
+            newAutoSmeltersL[smelterId] = nextSmelter;
+            changed = true;
+          }
+          continue;
+        }
 
-        // Pull recipe-valid items from input belt front while buffer has room.
+        const source = resolveBuildingSource(getLiveLogisticsState(), smelterId);
+        let sourceInv = getCraftingSourceInventory(getLiveLogisticsState(), source);
+        const sourceCapacity = getSourceCapacity(getLiveLogisticsState(), source);
+        const inputKey = selectedRecipe.inputItem as keyof Inventory;
+
+        // Pull recipe-sized batches from source inventory into the internal input buffer.
         while (
-          inputConv &&
           nextSmelter.inputBuffer.length < AUTO_SMELTER_BUFFER_CAPACITY &&
-          inputConv.queue.length > 0
+          hasResources(sourceInv, { [inputKey]: selectedRecipe.inputAmount })
         ) {
-          const front = inputConv.queue[0];
-          // Only accept items matching the selected recipe
-          if (front !== nextSmelter.selectedRecipe) {
-            break;
-          }
-          const recipe = getSmeltingRecipe(front);
-          if (import.meta.env.DEV) {
-            console.log("[Smelter] Item geprüft:", front, "Rezept gefunden:", recipe !== null);
-          }
-          if (!recipe) {
-            // Unbekanntes Item blockiert bewusst den Input, ohne den Smelter zu zerstören.
-            break;
-          }
-          nextSmelter.inputBuffer = [...nextSmelter.inputBuffer, front];
-          nextSmelter.lastRecipeInput = recipe.inputItem;
-          nextSmelter.lastRecipeOutput = recipe.outputItem;
-          newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-          inputConv = { queue: inputConv.queue.slice(1) };
-          newConveyorsL[inputAssetId] = inputConv;
+          const consumed = consumeResources(sourceInv, { [inputKey]: selectedRecipe.inputAmount });
+          applySourceInventory(source, consumed);
+          sourceInv = consumed;
+          nextSmelter.inputBuffer = [...nextSmelter.inputBuffer, nextSmelter.selectedRecipe];
+          nextSmelter.lastRecipeInput = selectedRecipe.inputItem;
+          nextSmelter.lastRecipeOutput = selectedRecipe.outputItem;
           changed = true;
         }
 
-        // Flush pending output first.
-        while (
-          outputConv &&
-          nextSmelter.pendingOutput.length > 0 &&
-          outputConv.queue.length < CONVEYOR_TILE_CAPACITY
-        ) {
-          const out = nextSmelter.pendingOutput[0];
-          newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-          outputConv = { queue: [...outputConv.queue, out] };
-          newConveyorsL[outputAssetId] = outputConv;
-          nextSmelter.pendingOutput = nextSmelter.pendingOutput.slice(1);
-          nextSmelter.throughputEvents = [...nextSmelter.throughputEvents, Date.now()];
-          changed = true;
+        // Flush pending output — Priority 1: output conveyor belt, Priority 2: source inventory.
+        while (nextSmelter.pendingOutput.length > 0) {
+          const pendingInputItem = nextSmelter.pendingOutput[0];
+          const pendingRecipe = getSmeltingRecipe(pendingInputItem);
+          if (!pendingRecipe) {
+            nextSmelter.pendingOutput = nextSmelter.pendingOutput.slice(1);
+            changed = true;
+            continue;
+          }
+          const pendingOutputKey = pendingRecipe.outputItem as keyof Inventory;
+          const pendingOutputItem = pendingRecipe.outputItem as ConveyorItem;
+          let outputDone = false;
+
+          // Priority 1: Adjacent output conveyor belt (direction-aware, mirrors Auto-Miner logic).
+          const smelterIo = getAutoSmelterIoCells(smelterAsset);
+          const outX = smelterIo.output.x;
+          const outY = smelterIo.output.y;
+          if (outX >= 0 && outX < GRID_W && outY >= 0 && outY < GRID_H) {
+            const outAssetId = state.cellMap[cellKey(outX, outY)];
+            const outAsset = outAssetId ? state.assets[outAssetId] : null;
+            if (outAsset?.type === "conveyor" || outAsset?.type === "conveyor_corner") {
+              const outConv = newConveyorsL === state.conveyors ? state.conveyors[outAssetId] : newConveyorsL[outAssetId];
+              const outQueue = outConv?.queue ?? [];
+              if (outQueue.length < CONVEYOR_TILE_CAPACITY) {
+                newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
+                newConveyorsL[outAssetId] = { queue: [...outQueue, pendingOutputItem] };
+                nextSmelter.pendingOutput = nextSmelter.pendingOutput.slice(1);
+                nextSmelter.throughputEvents = [...nextSmelter.throughputEvents, Date.now()];
+                changed = true;
+                outputDone = true;
+              } else {
+                // Output conveyor is present but full — stay blocked, don't bypass to source inventory.
+                break;
+              }
+            }
+          }
+
+          // Priority 2: Source inventory fallback (no conveyor at output cell).
+          if (!outputDone) {
+            if ((sourceInv[pendingOutputKey] as number) + pendingRecipe.outputAmount > sourceCapacity) {
+              break;
+            }
+            const added = addResources(sourceInv, { [pendingOutputKey]: pendingRecipe.outputAmount });
+            applySourceInventory(source, added);
+            sourceInv = added;
+            nextSmelter.pendingOutput = nextSmelter.pendingOutput.slice(1);
+            nextSmelter.throughputEvents = [...nextSmelter.throughputEvents, Date.now()];
+            changed = true;
+          }
         }
 
         // Start processing if idle.
@@ -2919,15 +3728,17 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           }
         }
 
-        // Advance active processing proportionally to power ratio.
+        // Ab hier gilt powerRatio === 1 (volle Versorgung). Produktion läuft mit voller Geschwindigkeit
+        // oder — bei Unterstrom — wurde oben bereits per `continue` komplett gestoppt.
         if (nextSmelter.processing) {
-          const processingScale = powerRatio;
+          const smelterBoost = getBoostMultiplier(smelterAsset);
           nextSmelter.processing = {
             ...nextSmelter.processing,
-            progressMs: nextSmelter.processing.progressMs + LOGISTICS_TICK_MS * processingScale,
+            progressMs: nextSmelter.processing.progressMs + LOGISTICS_TICK_MS * smelterBoost,
           };
           if (nextSmelter.processing.progressMs >= nextSmelter.processing.durationMs) {
-            nextSmelter.pendingOutput = [...nextSmelter.pendingOutput, nextSmelter.processing.outputItem];
+            // Store the recipe input token (iron/copper) to resolve deterministic output metadata later.
+            nextSmelter.pendingOutput = [...nextSmelter.pendingOutput, nextSmelter.processing.inputItem];
             nextSmelter.processing = null;
           }
           changed = true;
@@ -2941,11 +3752,35 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           changed = true;
         }
 
-        if (nextSmelter.pendingOutput.length > 0 && outputConv.queue.length >= CONVEYOR_TILE_CAPACITY) {
-          nextSmelter.status = "OUTPUT_BLOCKED";
+        if (nextSmelter.pendingOutput.length > 0) {
+          const pendingRecipe = getSmeltingRecipe(nextSmelter.pendingOutput[0]);
+          if (!pendingRecipe) {
+            nextSmelter.status = "MISCONFIGURED";
+          } else {
+            const pendingOutputKey = pendingRecipe.outputItem as keyof Inventory;
+            // Check output route: conveyor takes priority over source inventory.
+            const statusIo = getAutoSmelterIoCells(smelterAsset);
+            const statusOutX = statusIo.output.x;
+            const statusOutY = statusIo.output.y;
+            let hasOutputConveyor = false;
+            let outputConveyorHasSpace = false;
+            if (statusOutX >= 0 && statusOutX < GRID_W && statusOutY >= 0 && statusOutY < GRID_H) {
+              const statusOutId = state.cellMap[cellKey(statusOutX, statusOutY)];
+              const statusOutAsset = statusOutId ? state.assets[statusOutId] : null;
+              if (statusOutAsset?.type === "conveyor" || statusOutAsset?.type === "conveyor_corner") {
+                hasOutputConveyor = true;
+                const statusConv = newConveyorsL === state.conveyors ? state.conveyors[statusOutId] : newConveyorsL[statusOutId];
+                outputConveyorHasSpace = (statusConv?.queue?.length ?? 0) < CONVEYOR_TILE_CAPACITY;
+              }
+            }
+            const outputCanProceed = hasOutputConveyor
+              ? outputConveyorHasSpace
+              : (sourceInv[pendingOutputKey] as number) + pendingRecipe.outputAmount <= sourceCapacity;
+            nextSmelter.status = outputCanProceed ? "IDLE" : "OUTPUT_BLOCKED";
+          }
         } else if (nextSmelter.processing) {
           nextSmelter.status = "PROCESSING";
-        } else if (nextSmelter.inputBuffer.length > 0 || inputConv.queue.length > 0) {
+        } else if (nextSmelter.inputBuffer.length > 0) {
           nextSmelter.status = "IDLE";
         } else {
           nextSmelter.status = "IDLE";
@@ -2993,7 +3828,91 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       };
     }
 
+    case "SET_MACHINE_BOOST": {
+      const asset = state.assets[action.assetId];
+      if (!asset) return state;
+      // Harte Einschränkung: Overclocking-Stufe 1 ist nur für auto_miner und auto_smelter.
+      if (!isBoostSupportedType(asset.type)) return state;
+      const nextBoost = !!action.boosted;
+      if ((asset.boosted ?? false) === nextBoost) return state;
+      return {
+        ...state,
+        assets: {
+          ...state.assets,
+          [action.assetId]: {
+            ...asset,
+            boosted: nextBoost,
+          },
+        },
+      };
+    }
+
+    case "SET_BUILDING_SOURCE": {
+      const { buildingId, warehouseId } = action;
+      if (!state.assets[buildingId]) return state;
+      if (!warehouseId) {
+        // Reset to global: remove the mapping entry
+        const { [buildingId]: _, ...rest } = state.buildingSourceWarehouseIds;
+        return { ...state, buildingSourceWarehouseIds: rest };
+      }
+      if (!state.assets[warehouseId] || !state.warehouseInventories[warehouseId]) return state;
+      return { ...state, buildingSourceWarehouseIds: { ...state.buildingSourceWarehouseIds, [buildingId]: warehouseId } };
+    }
+
+    // ---- Production Zone Actions ----
+
+    case "CREATE_ZONE": {
+      if (Object.keys(state.productionZones).length >= MAX_ZONES) return state;
+      const zoneId = makeId();
+      const idx = Object.keys(state.productionZones).length + 1;
+      const name = action.name || `Zone ${idx}`;
+      return {
+        ...state,
+        productionZones: { ...state.productionZones, [zoneId]: { id: zoneId, name } },
+      };
+    }
+
+    case "DELETE_ZONE": {
+      const { zoneId } = action;
+      if (!state.productionZones[zoneId]) return state;
+      const { [zoneId]: _, ...remainingZones } = state.productionZones;
+      // Remove all building-zone assignments for this zone
+      const newBuildingZoneIds: Record<string, string> = {};
+      for (const [bid, zid] of Object.entries(state.buildingZoneIds)) {
+        if (zid !== zoneId) newBuildingZoneIds[bid] = zid;
+      }
+      return {
+        ...state,
+        productionZones: remainingZones,
+        buildingZoneIds: newBuildingZoneIds,
+      };
+    }
+
+    case "SET_BUILDING_ZONE": {
+      const { buildingId, zoneId } = action;
+      if (!state.assets[buildingId]) return state;
+      if (!zoneId) {
+        // Remove from zone
+        const { [buildingId]: _, ...rest } = state.buildingZoneIds;
+        return { ...state, buildingZoneIds: rest };
+      }
+      if (!state.productionZones[zoneId]) return state;
+      return { ...state, buildingZoneIds: { ...state.buildingZoneIds, [buildingId]: zoneId } };
+    }
+
     default:
       return state;
   }
+}
+
+/** Wraps the core reducer with dev-mode invariant assertions. */
+export function gameReducerWithInvariants(state: GameState, action: GameAction): GameState {
+  const next = gameReducer(state, action);
+  if (import.meta.env.DEV && next !== state) {
+    devAssertInventoryNonNegative("state.inventory", next.inventory);
+    for (const [whId, whInv] of Object.entries(next.warehouseInventories)) {
+      devAssertInventoryNonNegative(`warehouseInventories[${whId}]`, whInv);
+    }
+  }
+  return next;
 }

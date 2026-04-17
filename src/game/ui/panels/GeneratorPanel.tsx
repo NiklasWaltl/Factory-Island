@@ -24,8 +24,8 @@ const ENERGY_PER_SEC = Math.round((GENERATOR_ENERGY_PER_TICK * 1000) / GENERATOR
 const WOOD_PER_SEC = (1000 / GENERATOR_TICK_MS / GENERATOR_TICKS_PER_WOOD).toFixed(2);
 
 export const GeneratorPanel: React.FC<GeneratorPanelProps> = React.memo(({ state, dispatch }) => {
-  const g = state.generator;
   const generatorId = state.selectedGeneratorId;
+  const g = (generatorId && state.generators[generatorId]) || { fuel: 0, progress: 0, running: false };
 
   const sourceInfo = getSourceStatusInfo(state, generatorId);
   const sourceInv = getCraftingSourceInventory(state, sourceInfo.source);

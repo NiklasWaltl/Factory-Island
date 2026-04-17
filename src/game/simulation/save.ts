@@ -43,16 +43,10 @@ import {
 // ---- Version constants -----------------------------------------------
 
 /** Current save format version.  Bump when GameState shape changes. */
-export const CURRENT_SAVE_VERSION = 1;
+export const CURRENT_SAVE_VERSION = 2;
 
 // ---- Save schema (V1 – initial versioned format) ---------------------
 
-/**
- * V1 persists everything that is *not* purely derived at runtime.
- * Fields like `connectedAssetIds`, `poweredMachineIds`, transient UI
- * selections and the notification queue are intentionally excluded
- * because they are re-derived on load.
- */
 export interface SaveGameV1 {
   version: 1;
   mode: GameMode;
@@ -78,17 +72,47 @@ export interface SaveGameV1 {
   manualAssembler: ManualAssemblerState;
   machinePowerRatio: Record<string, number>;
   saplingGrowAt: Record<string, number>;
-  /** Per-building warehouse source mapping (added after initial V1 release). */
   buildingSourceWarehouseIds?: Record<string, string>;
-  /** Production zones (added after initial V1 release). */
   productionZones?: Record<string, ProductionZone>;
-  /** Per-building zone assignment (added after initial V1 release). */
+  buildingZoneIds?: Record<string, string>;
+}
+
+// ---- Save schema (V2 – per-instance generator state) -----------------
+
+export interface SaveGameV2 {
+  version: 2;
+  mode: GameMode;
+  assets: Record<string, PlacedAsset>;
+  cellMap: Record<string, string>;
+  inventory: Inventory;
+  purchasedBuildings: BuildingType[];
+  placedBuildings: BuildingType[];
+  warehousesPurchased: number;
+  warehousesPlaced: number;
+  warehouseInventories: Record<string, Inventory>;
+  cablesPlaced: number;
+  powerPolesPlaced: number;
+  hotbarSlots: HotbarSlot[];
+  activeSlot: number;
+  smithy: SmithyState;
+  /** Per-instance generator state keyed by asset ID. */
+  generators: Record<string, GeneratorState>;
+  battery: BatteryState;
+  floorMap: Record<string, "stone_floor">;
+  autoMiners: Record<string, AutoMinerEntry>;
+  conveyors: Record<string, ConveyorState>;
+  autoSmelters: Record<string, AutoSmelterEntry>;
+  manualAssembler: ManualAssemblerState;
+  machinePowerRatio: Record<string, number>;
+  saplingGrowAt: Record<string, number>;
+  buildingSourceWarehouseIds?: Record<string, string>;
+  productionZones?: Record<string, ProductionZone>;
   buildingZoneIds?: Record<string, string>;
 }
 
 // ---- Latest alias (always points at the newest version) ---------------
 
-export type SaveGameLatest = SaveGameV1;
+export type SaveGameLatest = SaveGameV2;
 
 // ---- Legacy (pre-version) format  ------------------------------------
 
@@ -232,8 +256,8 @@ function migrateV0ToV1(raw: SaveGameV0): SaveGameV1 {
       ? { ...base.smithy, ...(raw.smithy as Partial<SmithyState>) }
       : base.smithy,
     generator: raw.generator && typeof raw.generator === "object"
-      ? { ...base.generator, ...(raw.generator as Partial<GeneratorState>) }
-      : base.generator,
+      ? { fuel: 0, progress: 0, running: false, ...(raw.generator as Partial<GeneratorState>) }
+      : { fuel: 0, progress: 0, running: false },
     battery: raw.battery && typeof raw.battery === "object"
       ? { ...base.battery, ...(raw.battery as Partial<BatteryState>) }
       : base.battery,
@@ -249,12 +273,25 @@ function migrateV0ToV1(raw: SaveGameV0): SaveGameV1 {
   };
 }
 
+// ---- V1 → V2: singular `generator` → per-id `generators` map --------
+
+function migrateV1ToV2(save: SaveGameV1): SaveGameV2 {
+  const oldGen: GeneratorState = save.generator ?? { fuel: 0, progress: 0, running: false };
+  const generators: Record<string, GeneratorState> = {};
+  // Assign old singleton state to the first generator found; remaining generators start empty.
+  let first = true;
+  for (const [id, asset] of Object.entries(save.assets ?? {})) {
+    if ((asset as PlacedAsset).type === "generator") {
+      generators[id] = first ? { ...oldGen } : { fuel: 0, progress: 0, running: false };
+      first = false;
+    }
+  }
+  const { generator: _dropped, ...rest } = save as any;
+  return { ...rest, version: 2, generators } as SaveGameV2;
+}
+
 // ---- Migration registry ----------------------------------------------
 
-/**
- * Each entry maps `fromVersion → { toVersion, migrate }`.
- * Migrations are applied sequentially: v0→v1→v2→…→CURRENT.
- */
 type MigrationStep = {
   from: number;
   to: number;
@@ -263,7 +300,7 @@ type MigrationStep = {
 
 const MIGRATIONS: MigrationStep[] = [
   { from: 0, to: 1, migrate: migrateV0ToV1 },
-  // Future: { from: 1, to: 2, migrate: migrateV1ToV2 },
+  { from: 1, to: 2, migrate: migrateV1ToV2 },
 ];
 
 // ---- Central migration entry-point -----------------------------------
@@ -339,7 +376,7 @@ export function serializeState(state: GameState): SaveGameLatest {
     hotbarSlots: state.hotbarSlots,
     activeSlot: state.activeSlot,
     smithy: state.smithy,
-    generator: state.generator,
+    generators: state.generators,
     battery: state.battery,
     floorMap: state.floorMap,
     autoMiners: state.autoMiners,
@@ -380,7 +417,7 @@ export function deserializeState(save: SaveGameLatest): GameState {
     hotbarSlots: save.hotbarSlots,
     activeSlot: save.activeSlot,
     smithy: save.smithy,
-    generator: save.generator,
+    generators: save.generators ?? {},
     battery: save.battery,
     floorMap: save.floorMap,
     autoMiners: save.autoMiners,

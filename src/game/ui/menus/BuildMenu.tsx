@@ -101,8 +101,9 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
 
   const isAlreadyPlaced = (bType: BuildingType): boolean => {
     if (STACKABLE_BUILDINGS.has(bType)) return false;
-    if (bType === "warehouse") return state.warehousesPlaced >= MAX_WAREHOUSES;
-    return state.placedBuildings.includes(bType);
+    if (bType === "warehouse") return state.warehousesPlaced >= (import.meta.env.DEV ? 100 : MAX_WAREHOUSES);
+    const limit = import.meta.env.DEV ? 100 : 1;
+    return state.placedBuildings.filter(b => b === bType).length >= limit;
   };
 
   const getStatus = (bType: BuildingType): { label: string; className: string } => {

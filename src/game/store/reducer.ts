@@ -238,9 +238,9 @@ export interface GameState {
   mode: GameMode;
   assets: Record<string, PlacedAsset>;
   cellMap: Record<string, string>;
-  /** Central resource pool for all island resources (manual harvest, crafting output, auto-delivery).
-   *  This is the single source of truth for wood, stone, iron, copper, ingots, etc.
-   *  Use getCapacityPerResource(state) for the per-resource cap. */
+  /** Global logistics buffer — passive fallback pool used when no warehouse or zone is assigned
+   *  to a building. Receives manual harvest and auto-delivery output when no more specific
+   *  target is configured. Use getCapacityPerResource(state) for the per-resource cap. */
   inventory: Inventory;
   purchasedBuildings: BuildingType[];
   placedBuildings: BuildingType[];
@@ -260,7 +260,7 @@ export interface GameState {
   hotbarSlots: HotbarSlot[];
   activeSlot: number;
   smithy: SmithyState;
-  generator: GeneratorState;
+  generators: Record<string, GeneratorState>;
   battery: BatteryState;
   /** Asset IDs currently reachable from a generator via cables */
   connectedAssetIds: string[];
@@ -365,7 +365,7 @@ export const BUILDING_SIZES: Record<BuildingType, 1 | 2> = {
 };
 
 /** Building types that can be purchased/placed multiple times */
-export const STACKABLE_BUILDINGS = new Set<BuildingType>(["cable", "power_pole", "auto_miner", "conveyor", "conveyor_corner", "auto_smelter"]);
+export const STACKABLE_BUILDINGS = new Set<BuildingType>(["cable", "power_pole", "auto_miner", "conveyor", "conveyor_corner", "auto_smelter", "generator"]);
 
 /** Building types that receive an automatic default warehouse source on placement. */
 export const BUILDINGS_WITH_DEFAULT_SOURCE = new Set<BuildingType>(["workbench", "smithy", "manual_assembler", "auto_smelter", "auto_miner"]);
@@ -626,15 +626,18 @@ export function getConnectedConsumerDrainEntries(
 }
 
 export function getEnergyProductionPerPeriod(
-  state: Pick<GameState, "assets" | "connectedAssetIds" | "generator">
+  state: Pick<GameState, "assets" | "connectedAssetIds" | "generators">
 ): number {
-  const genConnectedToPole = state.connectedAssetIds.some(
+  const hasPole = state.connectedAssetIds.some(
     (id) => state.assets[id]?.type === "power_pole"
   );
+  if (!hasPole) return 0;
   const ticksPerPeriod = Math.round(ENERGY_NET_TICK_MS / GENERATOR_TICK_MS);
-  return state.generator.running && genConnectedToPole
-    ? ticksPerPeriod * GENERATOR_ENERGY_PER_TICK
-    : 0;
+  const runningCount = state.connectedAssetIds.filter((id) => {
+    const a = state.assets[id];
+    return a?.type === "generator" && state.generators[id]?.running;
+  }).length;
+  return runningCount * ticksPerPeriod * GENERATOR_ENERGY_PER_TICK;
 }
 
 export function getConnectedDemandPerPeriod(
@@ -1164,22 +1167,22 @@ export function getSourceStatusInfo(state: GameState, buildingId: string | null)
     }
   } else {
     // global
-    sourceLabel = "Globales Inventar";
+    sourceLabel = "Globaler Puffer";
     if (assignedZoneId && state.productionZones[assignedZoneId]) {
       const zwhIds = getZoneWarehouseIds(state, assignedZoneId);
       if (zwhIds.length === 0) {
         fallbackReason = "zone_no_warehouses";
-        reasonLabel = "Zone hat keine Lagerhäuser — Fallback: Global";
+        reasonLabel = "Zone hat keine Lagerhäuser — Fallback: Globaler Puffer";
       } else {
         fallbackReason = "none";
-        reasonLabel = "Global";
+        reasonLabel = "Globaler Puffer";
       }
     } else if (isStale) {
       fallbackReason = "stale_warehouse";
-      reasonLabel = "Zugewiesenes Lagerhaus entfernt — Fallback: Global";
+      reasonLabel = "Zugewiesenes Lagerhaus entfernt — Fallback: Globaler Puffer";
     } else if (legacyWhId) {
       fallbackReason = "stale_warehouse";
-      reasonLabel = "Ungültige Lagerhauszuweisung — Fallback: Global";
+      reasonLabel = "Ungültige Lagerhauszuweisung — Fallback: Globaler Puffer";
     } else {
       fallbackReason = "no_assignment";
       reasonLabel = "Keine Zone oder Lagerhaus zugewiesen";
@@ -1921,7 +1924,6 @@ export function createInitialState(mode: GameMode): GameState {
   const autoMiners: Record<string, AutoMinerEntry> = {};
   const conveyors: Record<string, ConveyorState> = {};
   const autoSmelters: Record<string, AutoSmelterEntry> = {};
-  let generatorState: GeneratorState = { fuel: 0, progress: 0, running: false };
   let selectedPowerPoleId: string | null = null;
 
   function removeNonFixedAssetAtCell(x: number, y: number) {
@@ -2095,7 +2097,16 @@ export function createInitialState(mode: GameMode): GameState {
         });
       }
 
-      generatorState = { fuel: 500, progress: 0, running: true };
+    }
+  }
+
+  // Build per-instance generator state; debug mode pre-fuels all generators and starts them.
+  const generators: Record<string, GeneratorState> = {};
+  for (const asset of Object.values(assets)) {
+    if (asset.type === "generator") {
+      generators[asset.id] = isDebug
+        ? { fuel: 500, progress: 0, running: true }
+        : { fuel: 0, progress: 0, running: false };
     }
   }
 
@@ -2138,7 +2149,8 @@ export function createInitialState(mode: GameMode): GameState {
   const powerPoleCount = Object.values(assets).filter((a) => a.type === "power_pole").length;
   const hasGenerator = Object.values(assets).some((a) => a.type === "generator");
   const connectedAssetIds = computeConnectedAssetIds({ assets, cellMap });
-  const poweredMachineIds = generatorState.running
+  const anyGeneratorRunning = Object.values(generators).some((g) => g.running);
+  const poweredMachineIds = anyGeneratorRunning
     ? connectedAssetIds.filter((id) => {
         const a = assets[id];
         return !!a && isEnergyConsumerType(a.type);
@@ -2162,7 +2174,7 @@ export function createInitialState(mode: GameMode): GameState {
     hotbarSlots: hotbar,
     activeSlot: 0,
     smithy: { fuel: 0, iron: 0, copper: 0, selectedRecipe: "iron", processing: false, progress: 0, outputIngots: 0, outputCopperIngots: 0 },
-    generator: generatorState,
+    generators,
     battery: { stored: 0, capacity: BATTERY_CAPACITY },
     connectedAssetIds,
     poweredMachineIds,
@@ -2844,47 +2856,60 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     // ============================================================
 
     case "GENERATOR_ADD_FUEL": {
-      const source = resolveBuildingSource(state, state.selectedGeneratorId);
+      const genId = state.selectedGeneratorId;
+      if (!genId || !state.generators[genId]) return state;
+      const source = resolveBuildingSource(state, genId);
       const sourceInv = getCraftingSourceInventory(state, source);
       const amt = Math.min(action.amount, (sourceInv.wood as number) ?? 0);
       if (amt <= 0) return state;
-      debugLog.building(`Generator: added ${amt} wood as fuel`);
+      debugLog.building(`Generator ${genId}: added ${amt} wood as fuel`);
+      const gen = state.generators[genId];
       return {
         ...state,
         ...applyCraftingSourceInventory(state, source, consumeResources(sourceInv, { wood: amt })),
-        generator: { ...state.generator, fuel: state.generator.fuel + amt },
+        generators: { ...state.generators, [genId]: { ...gen, fuel: gen.fuel + amt } },
       };
     }
 
     case "GENERATOR_START": {
-      if (state.generator.running || state.generator.fuel <= 0) return state;
-      debugLog.building("Generator: started");
-      return { ...state, generator: { ...state.generator, running: true } };
+      const genId = state.selectedGeneratorId;
+      if (!genId) return state;
+      const gen = state.generators[genId];
+      if (!gen || gen.running || gen.fuel <= 0) return state;
+      debugLog.building(`Generator ${genId}: started`);
+      return { ...state, generators: { ...state.generators, [genId]: { ...gen, running: true } } };
     }
 
     case "GENERATOR_STOP": {
-      debugLog.building("Generator: stopped – current burn progress discarded");
-      const g = state.generator;
-      // If the generator was mid-burn, the current wood unit is consumed
-      const fuelAfterStop = g.progress > 0 ? Math.max(0, g.fuel - 1) : g.fuel;
-      return { ...state, generator: { ...g, running: false, progress: 0, fuel: fuelAfterStop } };
+      const genId = state.selectedGeneratorId;
+      if (!genId) return state;
+      const gen = state.generators[genId];
+      if (!gen) return state;
+      debugLog.building(`Generator ${genId}: stopped`);
+      const fuelAfterStop = gen.progress > 0 ? Math.max(0, gen.fuel - 1) : gen.fuel;
+      return { ...state, generators: { ...state.generators, [genId]: { ...gen, running: false, progress: 0, fuel: fuelAfterStop } } };
     }
 
     case "GENERATOR_TICK": {
-      const g = state.generator;
-      if (!g.running || g.fuel <= 0) {
-        return { ...state, generator: { ...g, running: false } };
+      const newGenerators = { ...state.generators };
+      let changed = false;
+      for (const id of Object.keys(newGenerators)) {
+        const g = newGenerators[id];
+        if (!g.running || g.fuel <= 0) {
+          if (g.running) { newGenerators[id] = { ...g, running: false }; changed = true; }
+          continue;
+        }
+        const newProgress = g.progress + 1 / GENERATOR_TICKS_PER_WOOD;
+        if (newProgress >= 1) {
+          const newFuel = g.fuel - 1;
+          newGenerators[id] = { ...g, fuel: newFuel, progress: 0, running: newFuel > 0 };
+        } else {
+          newGenerators[id] = { ...g, progress: newProgress };
+        }
+        changed = true;
       }
-      // Burning progresses; each full cycle consumes one wood unit
-      const newProgress = g.progress + 1 / GENERATOR_TICKS_PER_WOOD;
-      if (newProgress >= 1) {
-        const newFuel = g.fuel - 1;
-        return {
-          ...state,
-          generator: { ...g, fuel: newFuel, progress: 0, running: newFuel > 0 },
-        };
-      }
-      return { ...state, generator: { ...g, progress: newProgress } };
+      if (!changed) return state;
+      return { ...state, generators: newGenerators };
     }
 
     case "ENERGY_NET_TICK": {
@@ -3159,13 +3184,14 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       }
 
       // Non-stackable uniqueness check
+      const _nonStackableLimit = import.meta.env.DEV ? 100 : 1;
       if (!STACKABLE_BUILDINGS.has(bType) && bType !== "warehouse") {
-        const isPlaced = state.placedBuildings.includes(bType);
-        if (isPlaced) {
+        const count = state.placedBuildings.filter(b => b === bType).length;
+        if (count >= _nonStackableLimit) {
           return { ...state, notifications: addErrorNotification(state.notifications, `${BUILDING_LABELS[bType]} ist bereits platziert.`) };
         }
       }
-      if (bType === "warehouse" && state.warehousesPlaced >= MAX_WAREHOUSES) {
+      if (bType === "warehouse" && state.warehousesPlaced >= (import.meta.env.DEV ? 100 : MAX_WAREHOUSES)) {
         return { ...state, notifications: addErrorNotification(state.notifications, "Maximale Anzahl an Lagerhäusern erreicht.") };
       }
 
@@ -3220,6 +3246,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           ? { ...state, assets: placed.assets, cellMap: placed.cellMap, inventory: newInvB, cablesPlaced: state.cablesPlaced + 1 }
           : bType === "power_pole"
           ? { ...state, assets: placed.assets, cellMap: placed.cellMap, inventory: newInvB, powerPolesPlaced: state.powerPolesPlaced + 1 }
+          : bType === "generator"
+          ? { ...state, assets: placed.assets, cellMap: placed.cellMap, inventory: newInvB, generators: { ...state.generators, [placed.id]: { fuel: 0, progress: 0, running: false } } }
           : { ...state, assets: placed.assets, cellMap: placed.cellMap, inventory: newInvB, placedBuildings: [...state.placedBuildings, bType], purchasedBuildings: [...state.purchasedBuildings, bType] };
 
       // Auto-assign nearest warehouse source for newly placed crafting buildings
@@ -3301,6 +3329,17 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         const newConveyors = { ...state.conveyors };
         delete newConveyors[action.assetId];
         partialRemove = { ...state, ...removedB, inventory: newInvR, conveyors: newConveyors, openPanel: null as UIPanel };
+      } else if (bTypeR === "generator") {
+        const newGenerators = { ...state.generators };
+        delete newGenerators[action.assetId];
+        partialRemove = {
+          ...state,
+          ...removedB,
+          inventory: newInvR,
+          generators: newGenerators,
+          selectedGeneratorId: state.selectedGeneratorId === action.assetId ? null : state.selectedGeneratorId,
+          openPanel: null as UIPanel,
+        };
       } else if (bTypeR === "manual_assembler") {
         partialRemove = {
           ...state,

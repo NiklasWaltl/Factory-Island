@@ -239,14 +239,15 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
     return () => clearInterval(id);
   }, []);
 
-  // Generator tick
+  // Generator tick — fires when any generator is running
+  const anyGeneratorRunning = Object.values(state.generators).some((g) => g.running);
   useEffect(() => {
-    if (!state.generator.running) return;
+    if (!anyGeneratorRunning) return;
     const id = setInterval(() => {
       dispatch({ type: "GENERATOR_TICK" });
     }, GENERATOR_TICK_MS);
     return () => clearInterval(id);
-  }, [state.generator.running]);
+  }, [anyGeneratorRunning]);
 
   // Unified energy-network balance: production - consumption -> battery
   useEffect(() => {

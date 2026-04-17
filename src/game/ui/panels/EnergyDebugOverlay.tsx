@@ -31,10 +31,13 @@ function getEnergyStats(state: GameState): EnergyStats {
   const genConnectedToPole = state.connectedAssetIds.some(
     (id) => state.assets[id]?.type === "power_pole",
   );
-  const production =
-    state.generator.running && genConnectedToPole
-      ? ticksPerPeriod * GENERATOR_ENERGY_PER_TICK
-      : 0;
+  const runningConnectedGenerators = genConnectedToPole
+    ? state.connectedAssetIds.filter((id) => {
+        const a = state.assets[id];
+        return a?.type === "generator" && state.generators[id]?.running;
+      }).length
+    : 0;
+  const production = runningConnectedGenerators * ticksPerPeriod * GENERATOR_ENERGY_PER_TICK;
 
   let consumption = 0;
   for (const cId of state.poweredMachineIds ?? []) {
@@ -146,7 +149,7 @@ export const EnergyDebugOverlay: React.FC<EnergyDebugOverlayProps> = ({ state })
                 cx={cx}
                 cy={cy}
                 r={14}
-                fill={state.generator.running ? "#f59e0b" : "#6b7280"}
+                fill={state.generators[gen.id]?.running ? "#f59e0b" : "#6b7280"}
                 stroke="#fff"
                 strokeWidth={2}
               />

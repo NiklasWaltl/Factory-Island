@@ -1,11 +1,10 @@
-﻿import React from "react";
+import React from "react";
 import {
   RESOURCE_LABELS,
   RESOURCE_EMOJIS,
   WAREHOUSE_CAPACITY,
   MAX_ZONES,
   BUILDING_LABELS,
-  getCapacityPerResource,
   getZoneWarehouseIds,
   getZoneBuildingIds,
   getZoneAggregateInventory,
@@ -28,7 +27,6 @@ const EQUIPPABLE_ITEMS: { key: keyof Inventory; kind: "axe" | "wood_pickaxe" | "
   { key: "sapling", kind: "sapling" },
 ];
 
-/** Items that can be transferred between global and warehouse inventories. */
 const TRANSFERABLE_ITEMS: (keyof Inventory)[] = [
   "wood",
   "stone",
@@ -42,7 +40,6 @@ const TRANSFERABLE_ITEMS: (keyof Inventory)[] = [
 
 export const WarehousePanel: React.FC<WarehousePanelProps> = React.memo(({ state, dispatch }) => {
   const whCap = state.mode === "debug" ? Infinity : WAREHOUSE_CAPACITY;
-  const globalCap = getCapacityPerResource(state);
   const selectedWarehouseId = state.selectedWarehouseId;
   const selectedWarehouseInv = selectedWarehouseId ? state.warehouseInventories[selectedWarehouseId] : null;
 
@@ -50,25 +47,10 @@ export const WarehousePanel: React.FC<WarehousePanelProps> = React.memo(({ state
     return null;
   }
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (e.dataTransfer.getData("source") === "hotbar") {
-      const slot = parseInt(e.dataTransfer.getData("slot"), 10);
-      if (!isNaN(slot)) dispatch({ type: "REMOVE_FROM_HOTBAR", slot });
-    }
-  };
-
-  const transferTo = (item: keyof Inventory, amount: number) =>
-    dispatch({ type: "TRANSFER_TO_WAREHOUSE", item, amount });
-  const transferFrom = (item: keyof Inventory, amount: number) =>
-    dispatch({ type: "TRANSFER_FROM_WAREHOUSE", item, amount });
-
   return (
     <div
       className="fi-panel fi-warehouse"
       onClick={(e) => e.stopPropagation()}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={handleDrop}
     >
       <h2>📦 Lagerhaus</h2>
       <p className="fi-warehouse-capacity">
@@ -77,9 +59,9 @@ export const WarehousePanel: React.FC<WarehousePanelProps> = React.memo(({ state
           : `Kapazität: ${whCap} / Ressource`}
       </p>
 
-      {/* ---- Warehouse inventory: stored items + withdraw buttons ---- */}
+      {/* ---- Lagerbestand: read-only ---- */}
       <h3 className="fi-panel-section-title">Lagerbestand</h3>
-      <p className="fi-warehouse-hint">Im Lagerhaus eingelagerte Ressourcen</p>
+      <p className="fi-warehouse-hint">Wird automatisch durch Förderbänder und Abbaumaschinen befüllt</p>
       <div className="fi-warehouse-transfer-list">
         {TRANSFERABLE_ITEMS.map((key) => {
           const whAmount = selectedWarehouseInv[key] as number;
@@ -91,51 +73,12 @@ export const WarehousePanel: React.FC<WarehousePanelProps> = React.memo(({ state
               <span className="fi-warehouse-amount" style={{ minWidth: 40, textAlign: "right" }}>
                 {whAmount}{whCap !== Infinity ? `/${whCap}` : ""}
               </span>
-              <button className="fi-btn fi-btn-sm" disabled={whAmount <= 0} onClick={() => transferFrom(key, 1)}>
-                ← 1
-              </button>
-              <button className="fi-btn fi-btn-sm" disabled={whAmount < 10} onClick={() => transferFrom(key, 10)}>
-                ← 10
-              </button>
-              <button className="fi-btn fi-btn-sm" disabled={whAmount <= 0} onClick={() => transferFrom(key, whAmount)}>
-                ← Alle
-              </button>
             </div>
           );
         })}
       </div>
 
-      {/* ---- Global inventory: available items + deposit buttons ---- */}
-      <h3 className="fi-panel-section-title" style={{ marginTop: 14 }}>Globaler Vorrat → Einlagern</h3>
-      <p className="fi-warehouse-hint">Vom Insel-Inventar ins Lagerhaus verschieben</p>
-      <div className="fi-warehouse-transfer-list">
-        {TRANSFERABLE_ITEMS.map((key) => {
-          const globalAmount = state.inventory[key] as number;
-          const whAmount = selectedWarehouseInv[key] as number;
-          const space = whCap === Infinity ? Infinity : Math.max(0, whCap - whAmount);
-          const canDeposit = globalAmount > 0 && space > 0;
-          return (
-            <div key={key} className="fi-warehouse-transfer-row">
-              <span className="fi-warehouse-emoji">{RESOURCE_EMOJIS[key] ?? "?"}</span>
-              <span className="fi-warehouse-name" style={{ flex: 1 }}>{RESOURCE_LABELS[key] ?? key}</span>
-              <span style={{ minWidth: 40, textAlign: "right", fontSize: 13, color: "#aaa" }}>
-                {globalAmount}{globalCap !== Infinity ? `/${globalCap}` : ""}
-              </span>
-              <button className="fi-btn fi-btn-sm" disabled={!canDeposit} onClick={() => transferTo(key, 1)}>
-                1 →
-              </button>
-              <button className="fi-btn fi-btn-sm" disabled={!canDeposit || globalAmount < 10} onClick={() => transferTo(key, 10)}>
-                10 →
-              </button>
-              <button className="fi-btn fi-btn-sm" disabled={!canDeposit} onClick={() => transferTo(key, globalAmount)}>
-                Alle →
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ---- Tools & equipment (existing) ---- */}
+      {/* ---- Werkzeuge & Ausrüstung: read-only ---- */}
       <h3 className="fi-panel-section-title" style={{ marginTop: 14 }}>Werkzeuge &amp; Ausrüstung</h3>
       <div className="fi-warehouse-equip-list">
         {EQUIPPABLE_ITEMS.map(({ key, kind }) => {
@@ -144,35 +87,12 @@ export const WarehousePanel: React.FC<WarehousePanelProps> = React.memo(({ state
             .filter((s) => s.toolKind === kind)
             .reduce((sum, s) => sum + s.amount, 0);
           return (
-            <div
-              key={key}
-              className="fi-warehouse-equip-row"
-              draggable={amount > 0}
-              onDragStart={(e) => {
-                e.dataTransfer.setData("source", "warehouse");
-                e.dataTransfer.setData("kind", kind);
-                e.dataTransfer.effectAllowed = "move";
-              }}
-            >
+            <div key={key} className="fi-warehouse-equip-row">
               <span className="fi-warehouse-emoji">{RESOURCE_EMOJIS[key] ?? "?"}</span>
               <span className="fi-warehouse-name" style={{ flex: 1 }}>{RESOURCE_LABELS[key] ?? key}</span>
               <span className="fi-warehouse-amount" style={{ minWidth: 60, textAlign: "right" }}>
                 Lager: {amount} | Hotbar: {inHotbar}
               </span>
-              <button
-                className="fi-btn fi-btn-sm"
-                disabled={amount <= 0}
-                onClick={() => dispatch({ type: "EQUIP_FROM_WAREHOUSE", itemKind: kind, amount: 1 })}
-              >
-                +1 → Hotbar
-              </button>
-              <button
-                className="fi-btn fi-btn-sm"
-                disabled={amount < 5}
-                onClick={() => dispatch({ type: "EQUIP_FROM_WAREHOUSE", itemKind: kind, amount: 5 })}
-              >
-                +5 →
-              </button>
             </div>
           );
         })}

@@ -40,10 +40,10 @@ describe("serializeState", () => {
   it("preserves key persistent fields", () => {
     const state = createInitialState("release");
     state.inventory.wood = 42;
-    state.generator.fuel = 10;
+    state.generators["test-gen-1"] = { fuel: 10, progress: 0, running: false };
     const save = serializeState(state);
     expect(save.inventory.wood).toBe(42);
-    expect(save.generator.fuel).toBe(10);
+    expect(save.generators["test-gen-1"].fuel).toBe(10);
     expect(save.mode).toBe("release");
   });
 
@@ -103,7 +103,7 @@ describe("migrateSave – v0 → v1", () => {
     };
     const result = migrateSave(legacySave);
     expect(result).not.toBeNull();
-    expect(result!.version).toBe(1);
+    expect(result!.version).toBe(CURRENT_SAVE_VERSION);
     expect(result!.inventory.coins).toBe(50);
     expect(result!.inventory.wood).toBe(10);
   });
@@ -191,8 +191,9 @@ describe("migrateSave – missing fields get defaults", () => {
     const legacySave = { mode: "release" };
     const result = migrateSave(legacySave);
     expect(result).not.toBeNull();
-    expect(result!.generator).toBeDefined();
-    expect(result!.generator.fuel).toBe(0);
+    // V2: generators is a per-instance map; no assets → empty object
+    expect(result!.generators).toBeDefined();
+    expect(typeof result!.generators).toBe("object");
     expect(result!.battery).toBeDefined();
     expect(typeof result!.battery.stored).toBe("number");
   });
@@ -225,7 +226,7 @@ describe("migrateSave – invalid data", () => {
   it("handles completely empty object gracefully", () => {
     const result = migrateSave({});
     expect(result).not.toBeNull();
-    expect(result!.version).toBe(1);
+    expect(result!.version).toBe(CURRENT_SAVE_VERSION);
     expect(result!.mode).toBe("release"); // default
   });
 });
@@ -273,7 +274,7 @@ describe("round-trip", () => {
     const original = createInitialState("release");
     original.inventory.wood = 123;
     original.inventory.ironIngot = 7;
-    original.generator.fuel = 5;
+    original.generators["rt-gen-1"] = { fuel: 5, progress: 0, running: false };
 
     const json = JSON.stringify(serializeState(original));
     const parsed = JSON.parse(json);
@@ -281,7 +282,7 @@ describe("round-trip", () => {
 
     expect(loaded.inventory.wood).toBe(123);
     expect(loaded.inventory.ironIngot).toBe(7);
-    expect(loaded.generator.fuel).toBe(5);
+    expect(loaded.generators["rt-gen-1"].fuel).toBe(5);
     expect(loaded.mode).toBe("release");
   });
 

@@ -82,7 +82,7 @@ describe("SourceStatusInfo — source display", () => {
   test("null buildingId returns global source", () => {
     const info = getSourceStatusInfo(makeTestState(), null);
     expect(info.source.kind).toBe("global");
-    expect(info.sourceLabel).toBe("Globales Inventar");
+    expect(info.sourceLabel).toBe("Globaler Puffer");
   });
 
   test("building with no assignment returns global", () => {

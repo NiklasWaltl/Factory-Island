@@ -7,6 +7,7 @@
 // double-count stale values carried over from old saves.
 
 import { serializeState, deserializeState } from "../save";
+import { rebuildGlobalInventoryFromStorage } from "../save";
 import {
   createInitialState,
   addResources,
@@ -131,5 +132,84 @@ describe("deserializeState — globalInventory rebuild", () => {
 
     expect(hasResourcesInPhysicalStorage(loaded, { wood: 10 })).toBe(true);
     expect(hasResourcesInPhysicalStorage(loaded, { wood: 11 })).toBe(false);
+  });
+});
+
+describe("rebuildGlobalInventoryFromStorage — helper guards", () => {
+  it("is idempotent when called twice on the same loaded state", () => {
+    let s = bareState();
+    s = withWarehouse(s, "wh-A", { wood: 7 });
+    s = { ...s, inventory: addResources(s.inventory, { wood: 99, coins: 5 }) };
+
+    const loaded = deserializeState(serializeState(s));
+    const onceMore = rebuildGlobalInventoryFromStorage(loaded);
+
+    // Reference equality is allowed because no further changes are needed.
+    expect(onceMore.wood).toBe(loaded.inventory.wood);
+    expect(onceMore.coins).toBe(loaded.inventory.coins);
+    expect(onceMore.wood).toBe(0);
+    expect(onceMore.coins).toBe(5);
+  });
+
+  it("does not touch non-physical keys (coins, sapling, tools, building counters)", () => {
+    let s = bareState();
+    s = withWarehouse(s, "wh-A", { wood: 1 });
+    s = {
+      ...s,
+      inventory: addResources(s.inventory, {
+        coins: 42,
+        sapling: 3,
+        axe: 1,
+        wood_pickaxe: 2,
+        workbench: 5,
+        cable: 9,
+      }),
+    };
+
+    const next = rebuildGlobalInventoryFromStorage(s);
+
+    expect(next.coins).toBe(42);
+    expect(next.sapling).toBe(3);
+    expect(next.axe).toBe(1);
+    expect(next.wood_pickaxe).toBe(2);
+    expect(next.workbench).toBe(5);
+    expect(next.cable).toBe(9);
+  });
+
+  it("tolerates undefined warehouseInventories / serviceHubs without crashing", () => {
+    const s = bareState();
+    const broken = {
+      inventory: addResources(emptyInv(), { wood: 12, coins: 1 }),
+      // Cast intentionally: simulate a malformed runtime snapshot
+      warehouseInventories: undefined as unknown as GameState["warehouseInventories"],
+      serviceHubs: undefined as unknown as GameState["serviceHubs"],
+    };
+    const next = rebuildGlobalInventoryFromStorage({
+      inventory: broken.inventory,
+      warehouseInventories: broken.warehouseInventories,
+      serviceHubs: broken.serviceHubs,
+    });
+    // No physical home anywhere → keep legacy values untouched.
+    expect(next.wood).toBe(12);
+    expect(next.coins).toBe(1);
+    // Sanity: bareState() created via createInitialState still works.
+    expect(s.inventory.coins).toBe(0);
+  });
+
+  it("warehouse rule wins over hub rule when both exist (ingots also zeroed)", () => {
+    let s = bareState();
+    s = withWarehouse(s, "wh-A", { ironIngot: 4 });
+    s = withHub(s, "hub-1", { wood: 2 });
+    s = {
+      ...s,
+      inventory: addResources(emptyInv(), { wood: 50, ironIngot: 50, coins: 1 }),
+    };
+
+    const next = rebuildGlobalInventoryFromStorage(s);
+
+    // Both wood AND ironIngot zeroed (warehouse branch).
+    expect(next.wood).toBe(0);
+    expect(next.ironIngot).toBe(0);
+    expect(next.coins).toBe(1);
   });
 });

@@ -13,7 +13,7 @@
  *  - node gone mid-flight (moving_to_collect → idle)
  */
 
-import { gameReducer, createInitialState, addToCollectionNodeAt, BUILDING_COSTS, SERVICE_HUB_TARGET_STOCK, PROTO_HUB_TARGET_STOCK, createEmptyHubInventory, selectDroneTask, CONSTRUCTION_SITE_BUILDINGS, MAX_HUB_TARGET_STOCK, createDefaultHubTargetStock, scoreDroneTask, DRONE_TASK_BASE_SCORE, DRONE_ROLE_BONUS, DRONE_STICKY_BONUS, DRONE_URGENCY_BONUS_MAX, getParkedDrones, getDroneHomeDock } from "../reducer";
+import { gameReducer, createInitialState, addToCollectionNodeAt, BUILDING_COSTS, SERVICE_HUB_TARGET_STOCK, PROTO_HUB_TARGET_STOCK, createEmptyHubInventory, selectDroneTask, CONSTRUCTION_SITE_BUILDINGS, MAX_HUB_TARGET_STOCK, createDefaultHubTargetStock, scoreDroneTask, DRONE_TASK_BASE_SCORE, DRONE_ROLE_BONUS, DRONE_STICKY_BONUS, DRONE_URGENCY_BONUS_MAX, DRONE_DEMAND_BONUS_MAX, DRONE_SPREAD_PENALTY_PER_DRONE, MAX_DRONES_PER_CONSTRUCTION_TARGET, getParkedDrones, getDroneHomeDock } from "../reducer";
 import type { GameState, CollectionNode, StarterDroneState, GameAction, Inventory, ServiceHubEntry, ConstructionSite, CollectableItemType } from "../reducer";
 import { MAP_SHOP_POS, DRONE_CAPACITY, DRONE_COLLECT_TICKS, DRONE_DEPOSIT_TICKS } from "../reducer";
 
@@ -1799,3 +1799,268 @@ describe("DRONE_TICK – dropoff target is hub, not trader", () => {
     expect(state.starterDrone.tileX).not.toBe(MAP_SHOP_POS.x);
   });
 });
+
+// ============================================================
+// Demand-bonus / spread-penalty tuning
+// ============================================================
+
+describe("Task Scoring – demand and spread tuning", () => {
+  function makeMultiDroneState(state: GameState, count: number): GameState {
+    const hubId = state.starterDrone.hubId!;
+    const droneIds = [state.starterDrone.droneId];
+    const drones: GameState["drones"] = { ...state.drones };
+    for (let i = 1; i < count; i++) {
+      const id = `drone-extra-${i}`;
+      droneIds.push(id);
+      drones[id] = {
+        ...state.starterDrone,
+        droneId: id,
+        tileX: state.starterDrone.tileX + i,
+        tileY: state.starterDrone.tileY,
+        currentTaskType: null,
+        targetNodeId: null,
+        deliveryTargetId: null,
+        cargo: null,
+        status: "idle",
+        ticksRemaining: 0,
+      };
+    }
+    return {
+      ...state,
+      drones,
+      serviceHubs: {
+        ...state.serviceHubs,
+        [hubId]: { ...state.serviceHubs[hubId], tier: 2, droneIds },
+      },
+    };
+  }
+
+  it("scoreDroneTask adds positive demand and negative spread", () => {
+    const baseScore = scoreDroneTask("construction_supply", 0, 0, 5, 0);
+    const withBoth = scoreDroneTask("construction_supply", 0, 0, 5, 0, { demand: 12, spread: -10 });
+    expect(withBoth).toBe(baseScore + 12 - 10);
+  });
+
+  it("DRONE_DEMAND_BONUS_MAX caps the demand bonus regardless of remaining need", () => {
+    // Sanity: constants are defined and bounded
+    expect(DRONE_DEMAND_BONUS_MAX).toBeGreaterThan(0);
+    expect(DRONE_SPREAD_PENALTY_PER_DRONE).toBeGreaterThan(0);
+    // Spread penalty must stay smaller than sticky bonus to avoid flapping
+    expect(DRONE_SPREAD_PENALTY_PER_DRONE).toBeLessThan(DRONE_STICKY_BONUS);
+  });
+
+  it("prefers the larger-need construction site when distances are equal (demand bonus)", () => {
+    const { state: hubState } = placeServiceHub(createInitialState("release"), 6, 6);
+    const drone = hubState.starterDrone;
+    const siteSmallId = "site-small";
+    const siteLargeId = "site-large";
+    let state: GameState = {
+      ...hubState,
+      assets: {
+        ...hubState.assets,
+        [siteSmallId]: { id: siteSmallId, type: "workbench", x: drone.tileX + 5, y: drone.tileY, size: 2, width: 2, height: 2 } as any,
+        [siteLargeId]: { id: siteLargeId, type: "workbench", x: drone.tileX - 5, y: drone.tileY, size: 2, width: 2, height: 2 } as any,
+      },
+      constructionSites: {
+        [siteSmallId]: { buildingType: "workbench", remaining: { wood: 2 } },
+        [siteLargeId]: { buildingType: "workbench", remaining: { wood: 15 } },
+      },
+    };
+    // Single wood node placed equidistant from the drone; both sites can pair with it.
+    state = addNode(state, "wood", drone.tileX, drone.tileY + 1, 5);
+
+    const task = selectDroneTask(state);
+    expect(task).not.toBeNull();
+    expect(task!.taskType).toBe("construction_supply");
+    expect(task!.deliveryTargetId).toBe(siteLargeId);
+  });
+
+  it("spreads a fresh drone toward an unloaded site when an equally-good site already has assignments", () => {
+    const { state: hubState } = placeServiceHub(createInitialState("release"), 6, 6);
+    const drone = hubState.starterDrone;
+    const siteAId = "site-A-loaded";
+    const siteBId = "site-B-empty";
+    let state: GameState = {
+      ...hubState,
+      assets: {
+        ...hubState.assets,
+        [siteAId]: { id: siteAId, type: "workbench", x: drone.tileX + 5, y: drone.tileY, size: 2, width: 2, height: 2 } as any,
+        [siteBId]: { id: siteBId, type: "workbench", x: drone.tileX + 5, y: drone.tileY + 2, size: 2, width: 2, height: 2 } as any,
+      },
+      constructionSites: {
+        // Both large enough to saturate the demand bonus
+        [siteAId]: { buildingType: "workbench", remaining: { wood: 20 } },
+        [siteBId]: { buildingType: "workbench", remaining: { wood: 20 } },
+      },
+    };
+    // One node equidistant from the drone for both sites
+    state = addNode(state, "wood", drone.tileX + 4, drone.tileY + 1, 5);
+
+    // Pre-assign two extra drones to site A — they aren't holding cargo or
+    // reservations, so they don't reduce site A's "remainingNeed", but they DO
+    // count toward getAssignedConstructionDroneCount → spread penalty kicks in.
+    state = makeMultiDroneState(state, 3);
+    const droneIds = state.serviceHubs[state.starterDrone.hubId!].droneIds;
+    state = {
+      ...state,
+      drones: {
+        ...state.drones,
+        [droneIds[1]]: { ...state.drones[droneIds[1]], currentTaskType: "construction_supply", deliveryTargetId: siteAId },
+        [droneIds[2]]: { ...state.drones[droneIds[2]], currentTaskType: "construction_supply", deliveryTargetId: siteAId },
+      },
+    };
+
+    const task = selectDroneTask(state);
+    expect(task).not.toBeNull();
+    expect(task!.taskType).toBe("construction_supply");
+    expect(task!.deliveryTargetId).toBe(siteBId);
+  });
+
+  it("does not over-assign drones beyond MAX_DRONES_PER_CONSTRUCTION_TARGET", () => {
+    const { state: hubState } = placeServiceHub(createInitialState("release"), 6, 6);
+    const drone = hubState.starterDrone;
+    const siteId = "site-huge";
+    let state: GameState = {
+      ...hubState,
+      assets: {
+        ...hubState.assets,
+        [siteId]: { id: siteId, type: "workbench", x: drone.tileX + 5, y: drone.tileY, size: 2, width: 2, height: 2 } as any,
+      },
+      // Far more material needed than the cap could ever justify.
+      constructionSites: {
+        [siteId]: { buildingType: "workbench", remaining: { wood: 100 } },
+      },
+    };
+    // Plenty of wood nodes so no drone is starved by node availability.
+    for (let i = 0; i < 8; i++) {
+      state = addNode(state, "wood", drone.tileX + 4 + i, drone.tileY, 5);
+    }
+    state = makeMultiDroneState(state, 6);
+
+    const next = gameReducer(state, { type: "DRONE_TICK" });
+    const dispatched = Object.values(next.drones).filter(
+      (d) => d.currentTaskType === "construction_supply" && d.deliveryTargetId === siteId,
+    );
+    expect(dispatched.length).toBe(MAX_DRONES_PER_CONSTRUCTION_TARGET);
+  });
+
+  it("a small construction site never receives more than one drone", () => {
+    const { state: hubState } = placeServiceHub(createInitialState("release"), 6, 6);
+    const drone = hubState.starterDrone;
+    const siteId = "site-tiny";
+    let state: GameState = {
+      ...hubState,
+      assets: {
+        ...hubState.assets,
+        [siteId]: { id: siteId, type: "workbench", x: drone.tileX + 5, y: drone.tileY, size: 2, width: 2, height: 2 } as any,
+      },
+      constructionSites: {
+        [siteId]: { buildingType: "workbench", remaining: { wood: 2 } },
+      },
+    };
+    for (let i = 0; i < 4; i++) {
+      state = addNode(state, "wood", drone.tileX + 4 + i, drone.tileY, 5);
+    }
+    state = makeMultiDroneState(state, 4);
+
+    const next = gameReducer(state, { type: "DRONE_TICK" });
+    const dispatched = Object.values(next.drones).filter(
+      (d) => d.currentTaskType === "construction_supply" && d.deliveryTargetId === siteId,
+    );
+    expect(dispatched).toHaveLength(1);
+  });
+
+  it("hub_restock receives extra drones only when no construction need is open", () => {
+    const { state: hubState } = placeServiceHub(createInitialState("release"), 6, 6);
+    const drone = hubState.starterDrone;
+    // Tiny construction site (desired = 1) so additional drones are NOT eligible for it.
+    const siteId = "site-tiny-cap";
+    let state: GameState = {
+      ...hubState,
+      assets: {
+        ...hubState.assets,
+        [siteId]: { id: siteId, type: "workbench", x: drone.tileX + 5, y: drone.tileY, size: 2, width: 2, height: 2 } as any,
+      },
+      constructionSites: {
+        [siteId]: { buildingType: "workbench", remaining: { wood: 2 } },
+      },
+    };
+    for (let i = 0; i < 4; i++) {
+      state = addNode(state, "wood", drone.tileX + 4 + i, drone.tileY, 5);
+    }
+    state = makeMultiDroneState(state, 4);
+
+    const next = gameReducer(state, { type: "DRONE_TICK" });
+    const construction = Object.values(next.drones).filter(
+      (d) => d.currentTaskType === "construction_supply" && d.deliveryTargetId === siteId,
+    );
+    const restock = Object.values(next.drones).filter((d) => d.currentTaskType === "hub_restock");
+    expect(construction).toHaveLength(1);
+    // The remaining drones must service the hub instead of piling onto the site.
+    expect(restock.length).toBeGreaterThan(0);
+  });
+
+  it("a drone with a reserved node sticks to its target instead of switching to a closer one", () => {
+    const { state: hubState } = placeServiceHub(createInitialState("release"), 6, 6);
+    const drone = hubState.starterDrone;
+    const siteAId = "site-sticky-A";
+    const siteBId = "site-sticky-B";
+    let state: GameState = {
+      ...hubState,
+      assets: {
+        ...hubState.assets,
+        [siteAId]: { id: siteAId, type: "workbench", x: drone.tileX + 6, y: drone.tileY, size: 2, width: 2, height: 2 } as any,
+        [siteBId]: { id: siteBId, type: "workbench", x: drone.tileX + 4, y: drone.tileY, size: 2, width: 2, height: 2 } as any,
+      },
+      constructionSites: {
+        [siteAId]: { buildingType: "workbench", remaining: { wood: 5 } },
+        [siteBId]: { buildingType: "workbench", remaining: { wood: 5 } },
+      },
+    };
+    // Reserved node — slightly farther
+    state = addNode(state, "wood", drone.tileX + 5, drone.tileY, 5);
+    const reservedNodeId = Object.keys(state.collectionNodes)[0];
+    state = {
+      ...state,
+      collectionNodes: {
+        ...state.collectionNodes,
+        [reservedNodeId]: { ...state.collectionNodes[reservedNodeId], reservedByDroneId: drone.droneId },
+      },
+    };
+    // Closer alternative node (no reservation)
+    state = addNode(state, "wood", drone.tileX + 3, drone.tileY, 5);
+
+    const task = selectDroneTask(state);
+    expect(task).not.toBeNull();
+    // Sticky bonus (15) outweighs the 2-tile distance advantage of the closer node.
+    expect(task!.nodeId).toBe(reservedNodeId);
+  });
+
+  it("selection between two competing demand sites is deterministic across calls", () => {
+    const { state: hubState } = placeServiceHub(createInitialState("release"), 6, 6);
+    const drone = hubState.starterDrone;
+    const siteAId = "det-site-A";
+    const siteBId = "det-site-B";
+    let state: GameState = {
+      ...hubState,
+      assets: {
+        ...hubState.assets,
+        [siteAId]: { id: siteAId, type: "workbench", x: drone.tileX + 5, y: drone.tileY, size: 2, width: 2, height: 2 } as any,
+        [siteBId]: { id: siteBId, type: "workbench", x: drone.tileX - 5, y: drone.tileY, size: 2, width: 2, height: 2 } as any,
+      },
+      constructionSites: {
+        [siteAId]: { buildingType: "workbench", remaining: { wood: 10 } },
+        [siteBId]: { buildingType: "workbench", remaining: { wood: 10 } },
+      },
+    };
+    state = addNode(state, "wood", drone.tileX, drone.tileY + 1, 5);
+
+    const first = selectDroneTask(state);
+    const second = selectDroneTask(state);
+    const third = selectDroneTask(state);
+    expect(first).toEqual(second);
+    expect(second).toEqual(third);
+  });
+});
+
+

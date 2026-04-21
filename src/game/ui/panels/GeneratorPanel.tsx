@@ -3,6 +3,7 @@ import {
   GENERATOR_TICKS_PER_WOOD,
   GENERATOR_ENERGY_PER_TICK,
   GENERATOR_TICK_MS,
+  GENERATOR_MAX_FUEL,
   ENERGY_NET_TICK_MS,
   getConnectedDemandPerPeriod,
   getEnergyProductionPerPeriod,
@@ -101,10 +102,10 @@ export const GeneratorPanel: React.FC<GeneratorPanelProps> = React.memo(({ state
       </div>
 
       {/* Fuel slot */}
-      <div className="fi-generator-section-title">🪵 Brennstoff (Holz)</div>
+      <div className="fi-generator-section-title">🪵 Brennstoff (Holz) — lokales Inventar</div>
       <div className="fi-smithy-slot" style={{ marginBottom: 12 }}>
         <span>Holz im Generator</span>
-        <strong>{g.fuel}</strong>
+        <strong>{g.fuel} / {GENERATOR_MAX_FUEL}</strong>
 
         {g.running && g.fuel > 0 && (
           <div style={{ width: "100%" }}>
@@ -120,17 +121,23 @@ export const GeneratorPanel: React.FC<GeneratorPanelProps> = React.memo(({ state
           </div>
         )}
 
+        {g.fuel >= GENERATOR_MAX_FUEL && (
+          <div style={{ fontSize: 11, color: "#facc15", marginTop: 4 }}>
+            Lokales Holz-Inventar voll ({GENERATOR_MAX_FUEL}/{GENERATOR_MAX_FUEL}). Drohnen liefern erst nach Verbrauch nach.
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
           <button
             className="fi-btn fi-btn-sm"
-            disabled={woodAvailable < 1}
+            disabled={woodAvailable < 1 || g.fuel >= GENERATOR_MAX_FUEL}
             onClick={() => dispatch({ type: "GENERATOR_ADD_FUEL", amount: 1 })}
           >
             +1 Holz
           </button>
           <button
             className="fi-btn fi-btn-sm"
-            disabled={woodAvailable < 5}
+            disabled={woodAvailable < 5 || g.fuel >= GENERATOR_MAX_FUEL}
             onClick={() => dispatch({ type: "GENERATOR_ADD_FUEL", amount: 5 })}
           >
             +5 Holz

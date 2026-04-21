@@ -259,6 +259,17 @@ describe("loadAndHydrate", () => {
     expect(Array.isArray(state.connectedAssetIds)).toBe(true);
   });
 
+  it("preserves a starter proto-hub as tier 1 when hydrating a raw runtime snapshot", () => {
+    const runtimeState = createInitialState("release");
+    const hubId = runtimeState.starterDrone.hubId;
+
+    expect(hubId).not.toBeNull();
+
+    const hydrated = loadAndHydrate(runtimeState, "release");
+
+    expect(hydrated.serviceHubs[hubId!]?.tier).toBe(1);
+  });
+
   it("loads a legacy v0 save via migration", () => {
     const legacy = { mode: "release", inventory: { coins: 77 } };
     const state = loadAndHydrate(legacy, "release");

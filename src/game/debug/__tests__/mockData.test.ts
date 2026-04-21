@@ -5,9 +5,14 @@
 // Physical resource keys must land in real physical storage
 // (warehouse → hub), never silently in state.inventory.
 
-import { applyMockToState, MOCK_RESOURCES } from "../mockData";
+import {
+  applyMockToState,
+  MOCK_DRONE_HUB_INVENTORY,
+  MOCK_RESOURCES,
+} from "../mockData";
 import {
   createInitialState,
+  gameReducer,
   type GameState,
   type Inventory,
   type ServiceHubEntry,
@@ -42,6 +47,37 @@ function withHub(state: GameState, id: string): GameState {
 function bareState(): GameState {
   const s = createInitialState("release");
   return { ...s, inventory: emptyInv(), warehouseInventories: {}, serviceHubs: {} };
+}
+
+function placeServiceHub(state: GameState, x: number, y: number): { state: GameState; hubId: string } {
+  const clearedCellMap = { ...state.cellMap };
+  const clearedAssets = { ...state.assets };
+  for (let dy = 0; dy < 2; dy++) {
+    for (let dx = 0; dx < 2; dx++) {
+      const key = `${x + dx},${y + dy}`;
+      const occupant = clearedCellMap[key];
+      if (occupant && !clearedAssets[occupant]?.fixed) {
+        delete clearedAssets[occupant];
+        delete clearedCellMap[key];
+      }
+    }
+  }
+  let s: GameState = {
+    ...state,
+    assets: clearedAssets,
+    cellMap: clearedCellMap,
+    buildMode: true,
+    selectedBuildingType: "service_hub" as GameState["selectedBuildingType"],
+  };
+  const existingHubIds = new Set(Object.keys(state.assets).filter(id => state.assets[id].type === "service_hub"));
+  s = gameReducer(s, { type: "BUILD_PLACE_BUILDING", x, y });
+  const hubId = Object.keys(s.assets).find(
+    (id) => s.assets[id].type === "service_hub" && !existingHubIds.has(id),
+  );
+  if (!hubId) throw new Error("service_hub placement failed");
+  const { [hubId]: _site, ...restSites } = s.constructionSites;
+  s = { ...s, constructionSites: restSites };
+  return { state: s, hubId };
 }
 
 describe("applyMockToState / DEBUG_MOCK_RESOURCES", () => {
@@ -90,5 +126,35 @@ describe("applyMockToState / DEBUG_MOCK_RESOURCES", () => {
     const s1 = applyMockToState(s0, "DEBUG_MOCK_RESOURCES");
     expect(s1.inventory.coins).toBe(MOCK_RESOURCES.coins);
     expect(s1.inventory.sapling).toBe(MOCK_RESOURCES.sapling);
+  });
+});
+
+describe("applyMockToState / DEBUG_MOCK_DRONE_HUB_INVENTORY", () => {
+  it("fills all service hub inventories", () => {
+    const s0 = withHub(withHub(bareState(), "hub-1"), "hub-2");
+    const s1 = applyMockToState(s0, "DEBUG_MOCK_DRONE_HUB_INVENTORY");
+
+    expect(s1.serviceHubs["hub-1"].inventory).toEqual(MOCK_DRONE_HUB_INVENTORY);
+    expect(s1.serviceHubs["hub-2"].inventory).toEqual(MOCK_DRONE_HUB_INVENTORY);
+  });
+
+  it("also fills a hub that was placed later through the build flow", () => {
+    const base = createInitialState("release");
+    const starterHubId = base.starterDrone.hubId;
+
+    expect(starterHubId).not.toBeNull();
+
+    const { state, hubId } = placeServiceHub(base, 6, 6);
+    const s1 = applyMockToState(state, "DEBUG_MOCK_DRONE_HUB_INVENTORY");
+
+    expect(s1.serviceHubs[starterHubId!].inventory).toEqual(MOCK_DRONE_HUB_INVENTORY);
+    expect(s1.serviceHubs[hubId].inventory).toEqual(MOCK_DRONE_HUB_INVENTORY);
+  });
+
+  it("is a no-op when no service hub exists", () => {
+    const s0 = bareState();
+    const s1 = applyMockToState(s0, "DEBUG_MOCK_DRONE_HUB_INVENTORY");
+
+    expect(s1).toBe(s0);
   });
 });

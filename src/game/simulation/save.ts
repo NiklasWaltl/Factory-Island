@@ -52,6 +52,7 @@ import {
   GRID_W,
   GRID_H,
   cellKey,
+  GENERATOR_MAX_FUEL,
 } from "../store/reducer";
 import type { HubTier } from "../store/reducer";
 import type { NetworkSlice, Reservation } from "../inventory/reservationTypes";
@@ -64,6 +65,83 @@ import { debugLog } from "../debug/debugLogger";
 
 /** Current save format version.  Bump when GameState shape changes. */
 export const CURRENT_SAVE_VERSION = 14;
+
+// ---- globalInventory rebuild helper ---------------------------------
+
+/**
+ * Physical-storage keys that warehouses are allowed to hold.
+ * (Warehouses accept every resource that has a physical home.)
+ */
+const PHYSICAL_WAREHOUSE_KEYS: ReadonlyArray<keyof Inventory> = [
+  "wood",
+  "stone",
+  "iron",
+  "copper",
+  "ironIngot",
+  "copperIngot",
+];
+
+/**
+ * Physical-storage keys that service hubs are allowed to hold
+ * (the COLLECTABLE_KEYS subset — no ingots).
+ */
+const PHYSICAL_HUB_KEYS: ReadonlyArray<keyof Inventory> = [
+  "wood",
+  "stone",
+  "iron",
+  "copper",
+];
+
+/**
+ * Re-derive `state.inventory` (the "global fallback pool") from the physical
+ * stores that survived migration.
+ *
+ * `state.inventory` is NOT the primary source of truth for any key that has a
+ * physical home (wood/stone/iron/copper/ingots). Carrying such values forward
+ * from an older save would double-count with warehouse/hub stock in
+ * `selectGlobalInventoryView` and diverge from what build/consume paths see.
+ *
+ * Rules (mirror the consume/debug-fill priority used at runtime):
+ *   1. ≥1 warehouse → zero every physical key (warehouses can hold all of them).
+ *   2. else ≥1 hub  → zero only hub-eligible keys (no ingots; ingots stay in
+ *      global as legacy fallback because no hub can hold them).
+ *   3. else         → keep `state.inventory` as-is (pure legacy fallback —
+ *      no physical home exists anywhere in the loaded state).
+ *
+ * Non-physical keys (coins, sapling, tools, building counters) are never
+ * touched. The function is pure, idempotent, and tolerates missing/empty
+ * `warehouseInventories` / `serviceHubs` maps.
+ */
+export function rebuildGlobalInventoryFromStorage(
+  state: Pick<GameState, "inventory" | "warehouseInventories" | "serviceHubs">,
+): Inventory {
+  const hasWarehouse =
+    !!state.warehouseInventories && Object.keys(state.warehouseInventories).length > 0;
+  const hasHub = !!state.serviceHubs && Object.keys(state.serviceHubs).length > 0;
+  const keysToZero: ReadonlyArray<keyof Inventory> = hasWarehouse
+    ? PHYSICAL_WAREHOUSE_KEYS
+    : hasHub
+      ? PHYSICAL_HUB_KEYS
+      : [];
+  if (keysToZero.length === 0) {
+    return state.inventory;
+  }
+  const nextInv = { ...state.inventory } as Record<string, number>;
+  let changed = false;
+  for (const key of keysToZero) {
+    const current = nextInv[key as string] ?? 0;
+    if (current !== 0) {
+      nextInv[key as string] = 0;
+      changed = true;
+    }
+  }
+  if (!changed) return state.inventory;
+  debugLog.general(
+    `Load: re-derived globalInventory — zeroed physical keys [${keysToZero.join(", ")}] ` +
+      `(warehouse=${hasWarehouse}, hub=${hasHub}).`,
+  );
+  return nextInv as unknown as Inventory;
+}
 
 // ---- Save schema (V1 – initial versioned format) ---------------------
 
@@ -249,6 +327,19 @@ export type SaveGameLatest = SaveGameV14;
 type SaveGameV0 = Record<string, unknown>;
 
 // ---- Individual migrations -------------------------------------------
+
+/**
+ * Clamp each generator's local fuel buffer to GENERATOR_MAX_FUEL.
+ * Pure & idempotent — applied on load so legacy saves stay consistent
+ * with the new building-input-buffer cap.
+ */
+function clampGeneratorFuel(generators: Record<string, GeneratorState>): Record<string, GeneratorState> {
+  const out: Record<string, GeneratorState> = {};
+  for (const [id, g] of Object.entries(generators)) {
+    out[id] = g.fuel > GENERATOR_MAX_FUEL ? { ...g, fuel: GENERATOR_MAX_FUEL } : g;
+  }
+  return out;
+}
 
 /**
  * Migrate a pre-version (V0) save into the first versioned format (V1).
@@ -932,7 +1023,7 @@ export function deserializeState(save: SaveGameLatest): GameState {
     hotbarSlots: save.hotbarSlots,
     activeSlot: save.activeSlot,
     smithy: { ...base.smithy, ...save.smithy, buildingId: save.smithy?.buildingId ?? null },
-    generators: save.generators ?? {},
+    generators: clampGeneratorFuel(save.generators ?? {}),
     battery: save.battery,
     floorMap: save.floorMap,
     autoMiners: save.autoMiners,
@@ -1125,50 +1216,7 @@ export function deserializeState(save: SaveGameLatest): GameState {
   );
 
   // ---- Phase 1: re-derive globalInventory from physical stores ------
-  // `state.inventory` is no longer the primary source of truth for keys that
-  // have a physical home (wood/stone/iron/copper/ingots). Any such value
-  // coming from an older save would double-count with warehouse/hub stock in
-  // `selectGlobalInventoryView` and diverge from what build/consume paths see.
-  //
-  // Rule (mirrors the debug-fill & consume priority introduced in Phase 1):
-  //   - If at least one warehouse exists → zero every physical key in global
-  //     (warehouses can hold every physical key).
-  //   - Else if at least one hub exists  → zero only hub-eligible keys
-  //     (wood/stone/iron/copper). Ingots stay in global as legacy fallback
-  //     because no hub can hold them.
-  //   - Else → keep globalInventory as-is (pure legacy fallback: no physical
-  //     home exists anywhere in the loaded state).
-  //
-  // Non-physical keys (coins, sapling, tools, building counters) are never
-  // touched — they only ever live in `state.inventory`.
-  {
-    const hasWarehouse = Object.keys(partial.warehouseInventories).length > 0;
-    const hasHub = Object.keys(partial.serviceHubs).length > 0;
-    const PHYSICAL_WAREHOUSE_KEYS = ["wood", "stone", "iron", "copper", "ironIngot", "copperIngot"] as const;
-    const PHYSICAL_HUB_KEYS = ["wood", "stone", "iron", "copper"] as const;
-    const keysToZero: ReadonlyArray<keyof Inventory> = hasWarehouse
-      ? (PHYSICAL_WAREHOUSE_KEYS as unknown as ReadonlyArray<keyof Inventory>)
-      : hasHub
-        ? (PHYSICAL_HUB_KEYS as unknown as ReadonlyArray<keyof Inventory>)
-        : [];
-    if (keysToZero.length > 0) {
-      const nextInv = { ...partial.inventory } as Record<string, number>;
-      let changed = false;
-      for (const key of keysToZero) {
-        if ((nextInv[key as string] ?? 0) !== 0) {
-          nextInv[key as string] = 0;
-          changed = true;
-        }
-      }
-      if (changed) {
-        partial.inventory = nextInv as unknown as Inventory;
-        debugLog.general(
-          `Load: re-derived globalInventory — zeroed physical keys [${keysToZero.join(", ")}] ` +
-            `(warehouse=${hasWarehouse}, hub=${hasHub}).`,
-        );
-      }
-    }
-  }
+  partial.inventory = rebuildGlobalInventoryFromStorage(partial);
 
   // Re-derive connectivity (two-phase BFS)
   partial.connectedAssetIds = computeConnectedAssetIds(partial);
@@ -1202,11 +1250,25 @@ export function deserializeState(save: SaveGameLatest): GameState {
  * Returns a fresh initial state if anything goes wrong.
  */
 export function loadAndHydrate(raw: unknown, mode: GameMode): GameState {
-  const migrated = migrateSave(raw);
+  const normalizedRaw = isRuntimeGameStateSnapshot(raw)
+    ? serializeState(raw)
+    : raw;
+  const migrated = migrateSave(normalizedRaw);
   if (!migrated) return createInitialState(mode);
 
   // Only load if the saved mode matches the requested mode
   if (migrated.mode !== mode) return createInitialState(mode);
 
   return deserializeState(migrated);
+}
+
+function isRuntimeGameStateSnapshot(raw: unknown): raw is GameState {
+  if (!raw || typeof raw !== "object") return false;
+  const candidate = raw as Record<string, unknown>;
+  if (typeof candidate.version === "number") return false;
+  return Array.isArray(candidate.connectedAssetIds)
+    && Array.isArray(candidate.poweredMachineIds)
+    && Array.isArray(candidate.notifications)
+    && Object.prototype.hasOwnProperty.call(candidate, "openPanel")
+    && Object.prototype.hasOwnProperty.call(candidate, "buildMode");
 }

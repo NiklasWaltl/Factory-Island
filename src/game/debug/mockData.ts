@@ -5,7 +5,7 @@
 // Completely tree-shaken in production because every public function
 // exits early when `!import.meta.env.DEV`.
 
-import type { GameState, GameAction, Inventory } from "../store/reducer";
+import type { GameState, GameAction, Inventory, ServiceHubInventory } from "../store/reducer";
 import { createInitialHotbar, HOTBAR_STACK_MAX } from "../store/reducer";
 import { debugLog } from "./debugLogger";
 
@@ -29,7 +29,9 @@ const PHYSICAL_RESOURCE_KEYS: ReadonlyArray<keyof Inventory> = [
  * Subset of `PHYSICAL_RESOURCE_KEYS` that service hubs can physically hold.
  * Mirrors `COLLECTABLE_KEYS` in the reducer (kept local to avoid a new export).
  */
-const HUB_ELIGIBLE_KEYS: ReadonlyArray<keyof Inventory> = ["wood", "stone", "iron", "copper"];
+const HUB_ELIGIBLE_KEYS = ["wood", "stone", "iron", "copper"] as const;
+
+type HubEligibleKey = (typeof HUB_ELIGIBLE_KEYS)[number];
 
 export const MOCK_RESOURCES: Partial<Inventory> = {
   coins: 99999,
@@ -42,11 +44,46 @@ export const MOCK_RESOURCES: Partial<Inventory> = {
   copperIngot: 999,
 };
 
+export const MOCK_DRONE_HUB_INVENTORY: ServiceHubInventory = {
+  wood: MOCK_RESOURCES.wood ?? 0,
+  stone: MOCK_RESOURCES.stone ?? 0,
+  iron: MOCK_RESOURCES.iron ?? 0,
+  copper: MOCK_RESOURCES.copper ?? 0,
+};
+
 export const MOCK_TOOLS: Partial<Inventory> = {
   axe: 99,
   wood_pickaxe: 99,
   stone_pickaxe: 99,
 };
+
+function addManyToHubInventory(
+  serviceHubs: GameState["serviceHubs"],
+  hubId: string,
+  deposit: Partial<Record<HubEligibleKey, number>>,
+): GameState["serviceHubs"] {
+  const hub = serviceHubs[hubId];
+  if (!hub) return serviceHubs;
+
+  let changed = false;
+  const nextInventory: ServiceHubInventory = { ...hub.inventory };
+  for (const key of HUB_ELIGIBLE_KEYS) {
+    const amount = deposit[key] ?? 0;
+    if (amount <= 0) continue;
+    nextInventory[key] = (nextInventory[key] ?? 0) + amount;
+    changed = true;
+  }
+
+  if (!changed) return serviceHubs;
+
+  return {
+    ...serviceHubs,
+    [hubId]: {
+      ...hub,
+      inventory: nextInventory,
+    },
+  };
+}
 
 /**
  * Apply mock resources to the current state.
@@ -55,6 +92,7 @@ export const MOCK_TOOLS: Partial<Inventory> = {
  */
 export type MockAction =
   | { type: "DEBUG_MOCK_RESOURCES" }
+  | { type: "DEBUG_MOCK_DRONE_HUB_INVENTORY" }
   | { type: "DEBUG_MOCK_TOOLS" }
   | { type: "DEBUG_MOCK_BUILDINGS" }
   | { type: "DEBUG_MOCK_ALL" }
@@ -66,6 +104,25 @@ export function applyMockToState(state: GameState, mock: MockAction["type"]): Ga
   // exercise the deposit logic directly.
 
   switch (mock) {
+    case "DEBUG_MOCK_DRONE_HUB_INVENTORY": {
+      const hubIds = Object.keys(state.serviceHubs);
+      if (hubIds.length === 0) {
+        debugLog.mock("Drone-hub fill skipped: no service hub exists.");
+        return state;
+      }
+
+      const nextHubs = hubIds.reduce(
+        (serviceHubs, hubId) => addManyToHubInventory(serviceHubs, hubId, MOCK_DRONE_HUB_INVENTORY),
+        state.serviceHubs,
+      );
+
+      debugLog.mock(`Filled drone-hub inventory for ${hubIds.length} hub(s)`);
+      return {
+        ...state,
+        serviceHubs: nextHubs,
+      };
+    }
+
     case "DEBUG_MOCK_RESOURCES": {
       // Debug fill priority (physical = wood/stone/iron/copper/ingots):
       //   1. First warehouse (accepts every physical key)
@@ -89,6 +146,7 @@ export function applyMockToState(state: GameState, mock: MockAction["type"]): Ga
 
       let nextWarehouses = state.warehouseInventories;
       let nextHubs = state.serviceHubs;
+      const hubDeposit: Partial<Record<HubEligibleKey, number>> = {};
       const deposited: string[] = [];
       const skipped: string[] = [];
 
@@ -102,23 +160,18 @@ export function applyMockToState(state: GameState, mock: MockAction["type"]): Ga
           deposited.push(`${key}→wh:${firstWarehouseId}`);
           continue;
         }
-        if (firstHubId && (HUB_ELIGIBLE_KEYS as readonly string[]).includes(key)) {
-          const hub = nextHubs[firstHubId];
-          nextHubs = {
-            ...nextHubs,
-            [firstHubId]: {
-              ...hub,
-              inventory: {
-                ...hub.inventory,
-                [key]: (hub.inventory[key as "wood" | "stone" | "iron" | "copper"] ?? 0) + (amt as number),
-              },
-            },
-          };
+        if (firstHubId && HUB_ELIGIBLE_KEYS.includes(key as HubEligibleKey)) {
+          const hubKey = key as HubEligibleKey;
+          hubDeposit[hubKey] = (hubDeposit[hubKey] ?? 0) + (amt as number);
           deposited.push(`${key}→hub:${firstHubId}`);
           continue;
         }
         // No physical home: skip rather than poison globalInventory.
         skipped.push(key);
+      }
+
+      if (firstHubId) {
+        nextHubs = addManyToHubInventory(nextHubs, firstHubId, hubDeposit);
       }
 
       if (skipped.length > 0) {

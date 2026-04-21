@@ -636,6 +636,46 @@ function makeWarehouseInputTile(): string {
 }
 
 // ---------------------------------------------------------------------------
+// SERVICE HUB (Drone Hub) — 2×2 (64×64 SVG)
+// ---------------------------------------------------------------------------
+
+function makeServiceHub(): string {
+  // 2x2 building (64x64)
+  let s = "";
+  // Dark blue background
+  s += r(2, 2, 60, 60, "#1a2a5e");
+  s += r(4, 4, 56, 56, "#2a3e8c");
+  // Border
+  s += r(0, 0, 64, 2, "#4169E1");
+  s += r(0, 62, 64, 2, "#4169E1");
+  s += r(0, 0, 2, 64, "#4169E1");
+  s += r(62, 0, 2, 64, "#4169E1");
+  // Drone body (center hexagon approximation)
+  s += r(24, 28, 16, 8, "#a0c8ff");
+  s += r(20, 30, 24, 4, "#c8e0ff");
+  // Drone arms
+  s += r(10, 26, 12, 4, "#7aa8d8");
+  s += r(42, 26, 12, 4, "#7aa8d8");
+  s += r(10, 34, 12, 4, "#7aa8d8");
+  s += r(42, 34, 12, 4, "#7aa8d8");
+  // Rotor circles (approximate)
+  s += r(8, 22, 8, 8, "#3a6aaa");
+  s += r(48, 22, 8, 8, "#3a6aaa");
+  s += r(8, 34, 8, 8, "#3a6aaa");
+  s += r(48, 34, 8, 8, "#3a6aaa");
+  // Highlight dot on rotors
+  s += r(10, 24, 2, 2, "#90c0ff");
+  s += r(50, 24, 2, 2, "#90c0ff");
+  s += r(10, 36, 2, 2, "#90c0ff");
+  s += r(50, 36, 2, 2, "#90c0ff");
+  // Signal arc above hub
+  s += r(26, 10, 12, 2, "#5af");
+  s += r(22, 14, 20, 2, "#48a0ff");
+  s += r(18, 18, 28, 2, "#3080e0");
+  return svgURI(64, 64, s);
+}
+
+// ---------------------------------------------------------------------------
 // EXPORT MAPS
 // ---------------------------------------------------------------------------
 
@@ -662,6 +702,7 @@ export const ASSET_SPRITES: Record<AssetType, string> = {
   conveyor_corner: makeConveyorCorner(),
   manual_assembler: makeManualAssembler(),
   auto_smelter: makeAutoSmelter(),
+  service_hub: makeServiceHub(),
 };
 
 /** Grass tile variants (0 / 1 for checkerboard) */

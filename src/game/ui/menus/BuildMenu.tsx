@@ -38,6 +38,7 @@ const CATEGORIES: BuildCategory[] = [
   { label: "Produktion", emoji: "??", buildings: ["workbench", "smithy", "auto_miner", "manual_assembler", "auto_smelter"] },
   { label: "Logistik", emoji: "??", buildings: ["conveyor", "conveyor_corner"] },
   { label: "Lager", emoji: "??", buildings: ["warehouse"] },
+  { label: "Hub", emoji: "\uD83D\uDEF8", buildings: ["service_hub"] },
 ];
 
 const FLOOR_TILES: FloorTileType[] = ["stone_floor", "grass_block"];
@@ -55,6 +56,7 @@ const BUILDING_DESCRIPTIONS: Record<BuildingType, string> = {
   auto_smelter: "Automatisches Schmelzen per F�rderband. 2�1, rotierbar, Input/Output auf gegen�berliegenden Seiten.",
   conveyor: "Transportiert Items automatisch in eine Richtung. Ben�tigt Energie. R zum Drehen.",
   conveyor_corner: "Leitet Items in einer 90�-Ecke weiter. Ben�tigt Energie. R zum Drehen.",
+  service_hub: "Platziert einen Proto-Hub (Stufe 1). Kann sp\u00e4ter zu einem Service-Hub (Stufe 2) aufger\u00fcstet werden.",
 };
 
 const BuildMenuDebugSection: React.FC<BuildMenuDebugSectionProps> = ({

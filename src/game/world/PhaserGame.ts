@@ -20,6 +20,12 @@ export const FLOOR_MAP_EVENT = "floorMapChanged";
 /** Event name used to push static asset snapshots from React into the Phaser scene. */
 export const STATIC_ASSETS_EVENT = "staticAssetsChanged";
 
+/** Event name used to push collection node snapshots from React into the Phaser scene. */
+export const COLLECTION_NODES_EVENT = "collectionNodesChanged";
+
+/** Event name used to push drone state from React into the Phaser scene. */
+export const DRONE_STATE_EVENT = "droneStateChanged";
+
 /** The floorMap shape coming from React state. */
 export type FloorMapData = Record<string, string>;
 
@@ -46,13 +52,57 @@ export interface StaticAssetSnapshot {
     | "warehouse"
     | "workbench"
     | "smithy"
-    | "manual_assembler";
+    | "manual_assembler"
+    | "service_hub";
   x: number;
   y: number;
   width: 1 | 2;
   height: 1 | 2;
   direction?: Direction;
+  isUnderConstruction?: boolean;
 }
+
+export interface CollectionNodeSnapshot {
+  id: string;
+  itemType: "wood" | "stone" | "iron" | "copper";
+  amount: number;
+  tileX: number;
+  tileY: number;
+}
+
+export interface DroneSnapshot {
+  droneId: string;
+  status: string;
+  tileX: number;
+  tileY: number;
+  cargo: { itemType: string; amount: number } | null;
+  hubId: string | null;
+  isParkedAtHub: boolean;
+  parkingSlot: number | null;
+}
+
+const COLLECTION_NODE_COLORS: Record<string, number> = {
+  wood: 0x8b4513,
+  stone: 0x808080,
+  iron: 0x708090,
+  copper: 0xb87333,
+};
+
+const COLLECTION_NODE_LABELS: Record<string, string> = {
+  wood: "Holz",
+  stone: "Stein",
+  iron: "Eisen",
+  copper: "Kupfer",
+};
+
+const DRONE_STATUS_LABELS: Record<string, string> = {
+  idle: "Drohne: bereit",
+  moving_to_collect: "Drohne: ->Node",
+  collecting: "Drohne: sammle",
+  moving_to_dropoff: "Drohne: ->Ziel",
+  depositing: "Drohne: abladen",
+  returning_to_dock: "Drohne: ->Hub",
+};
 
 const DIRECTION_ROTATION: Record<Direction, number> = {
   north: 270,
@@ -69,6 +119,14 @@ class WorldScene extends Phaser.Scene {
   private floorFirstGid = 0;
   /** Static world assets currently rendered by Phaser. */
   private staticAssetNodes = new Map<string, Phaser.GameObjects.Container>();
+  /** Collection node drop markers (manual harvests). */
+  private collectionNodeContainers = new Map<string, Phaser.GameObjects.Container>();
+  /** The single starter drone marker. */
+  private droneContainers = new Map<string, Phaser.GameObjects.Container>();
+  /** Last logged hub parking signature to avoid per-update spam in DEV. */
+  private lastParkingDebugSignature = "";
+  /** Previous parked/not-parked state per drone for transition logs. */
+  private lastDroneParkingState = new Map<string, { hubId: string | null; parked: boolean; status: string }>();
 
   constructor() {
     super({ key: "WorldScene" });
@@ -96,6 +154,7 @@ class WorldScene extends Phaser.Scene {
     this.load.image("asset:workbench", ASSET_SPRITES.workbench);
     this.load.image("asset:smithy", ASSET_SPRITES.smithy);
     this.load.image("asset:manual_assembler", ASSET_SPRITES.manual_assembler);
+    this.load.image("asset:service_hub", ASSET_SPRITES.service_hub);
   }
 
   create(): void {
@@ -108,6 +167,14 @@ class WorldScene extends Phaser.Scene {
 
     this.events.on(STATIC_ASSETS_EVENT, (data: StaticAssetSnapshot[]) => {
       this.applyStaticAssets(data);
+    });
+
+    this.events.on(COLLECTION_NODES_EVENT, (data: CollectionNodeSnapshot[]) => {
+      this.applyCollectionNodes(data);
+    });
+
+    this.events.on(DRONE_STATE_EVENT, (data: DroneSnapshot[]) => {
+      this.applyDroneStates(data);
     });
   }
 
@@ -208,9 +275,181 @@ class WorldScene extends Phaser.Scene {
       image.setAngle(0);
     }
 
-    label.setText(ASSET_LABELS[asset.type]);
+    label.setText(asset.isUnderConstruction ? `${ASSET_LABELS[asset.type]} 🔧` : ASSET_LABELS[asset.type]);
     label.setOrigin(0.5, 0);
     label.setPosition(worldWidth / 2, worldHeight - 15);
+
+    // Construction site visual: reduced opacity
+    image.setAlpha(asset.isUnderConstruction ? 0.45 : 1);
+  }
+
+  private applyCollectionNodes(data: CollectionNodeSnapshot[]): void {
+    const nextIds = new Set<string>();
+    for (const node of data) {
+      nextIds.add(node.id);
+      if (!this.collectionNodeContainers.has(node.id)) {
+        this.collectionNodeContainers.set(node.id, this.createCollectionNodeContainer());
+      }
+      this.updateCollectionNodeContainer(this.collectionNodeContainers.get(node.id)!, node);
+    }
+    for (const [id, container] of this.collectionNodeContainers.entries()) {
+      if (!nextIds.has(id)) {
+        container.destroy(true);
+        this.collectionNodeContainers.delete(id);
+      }
+    }
+  }
+
+  private createCollectionNodeContainer(): Phaser.GameObjects.Container {
+    const container = this.add.container(0, 0);
+    const gfx = this.add.graphics();
+    gfx.name = "gfx";
+    const label = this.add.text(0, 0, "", {
+      fontFamily: "Arial",
+      fontSize: "10px",
+      color: "#ffffff",
+      backgroundColor: "rgba(0,0,0,0.7)",
+      padding: { left: 3, right: 3, top: 1, bottom: 1 },
+    }).setOrigin(0.5, 0);
+    label.name = "label";
+    container.add([gfx, label]);
+    container.setDepth(10);
+    return container;
+  }
+
+  private updateCollectionNodeContainer(
+    container: Phaser.GameObjects.Container,
+    node: CollectionNodeSnapshot
+  ): void {
+    const cx = node.tileX * CELL_PX + CELL_PX / 2;
+    const cy = node.tileY * CELL_PX + CELL_PX / 2;
+    container.setPosition(cx, cy);
+    const gfx = container.getByName("gfx") as Phaser.GameObjects.Graphics;
+    const label = container.getByName("label") as Phaser.GameObjects.Text;
+    const size = 32;
+    const color = COLLECTION_NODE_COLORS[node.itemType] ?? 0xffff00;
+    const name = COLLECTION_NODE_LABELS[node.itemType] ?? node.itemType;
+    gfx.clear();
+    gfx.fillStyle(color, 0.9);
+    gfx.fillRect(-size / 2, -size / 2, size, size);
+    gfx.lineStyle(2, 0xffffff, 0.8);
+    gfx.strokeRect(-size / 2, -size / 2, size, size);
+    label.setText(`${name} x${node.amount}`);
+    label.setPosition(0, size / 2 + 2);
+  }
+
+  private applyDroneStates(data: DroneSnapshot[]): void {
+    const activeIds = new Set<string>();
+    for (const drone of data) {
+      activeIds.add(drone.droneId);
+      let container = this.droneContainers.get(drone.droneId);
+      if (!container) {
+        container = this.createDroneContainer();
+        this.droneContainers.set(drone.droneId, container);
+      }
+      container.setVisible(true);
+      this.updateDroneContainer(drone);
+    }
+    // Hide/remove containers for drones no longer present
+    for (const [id, container] of this.droneContainers.entries()) {
+      if (!activeIds.has(id)) {
+        container.destroy(true);
+        this.droneContainers.delete(id);
+      }
+    }
+
+    this.debugParkingSync(data);
+  }
+
+  private createDroneContainer(): Phaser.GameObjects.Container {
+    const container = this.add.container(0, 0);
+    const gfx = this.add.graphics();
+    gfx.name = "gfx";
+    const label = this.add.text(0, 0, "", {
+      fontFamily: "Arial",
+      fontSize: "10px",
+      color: "#ffffff",
+      backgroundColor: "rgba(0,0,50,0.85)",
+      padding: { left: 3, right: 3, top: 1, bottom: 1 },
+    }).setOrigin(0.5, 0);
+    label.name = "label";
+    container.add([gfx, label]);
+    container.setDepth(15);
+    return container;
+  }
+
+  private updateDroneContainer(data: DroneSnapshot): void {
+    const container = this.droneContainers.get(data.droneId);
+    if (!container) return;
+    const cx = data.tileX * CELL_PX + CELL_PX / 2;
+    const cy = data.tileY * CELL_PX + CELL_PX / 2;
+    container.setPosition(cx, cy);
+    const gfx = container.getByName("gfx") as Phaser.GameObjects.Graphics;
+    const label = container.getByName("label") as Phaser.GameObjects.Text;
+    const radius = data.isParkedAtHub ? 12 : 16;
+    const alpha = data.isParkedAtHub ? 0.78 : 0.9;
+    gfx.clear();
+    gfx.fillStyle(0x00ccff, alpha);
+    gfx.fillCircle(0, 0, radius);
+    gfx.lineStyle(2, 0x0044aa, 1);
+    gfx.strokeCircle(0, 0, radius);
+    gfx.fillStyle(0x0044aa, 1);
+    gfx.fillCircle(0, 0, 5);
+    const cargoText = data.cargo ? ` (${data.cargo.amount}x ${data.cargo.itemType})` : "";
+    const parkingText = data.isParkedAtHub && data.parkingSlot !== null ? ` [P${data.parkingSlot + 1}]` : "";
+    label.setText(`${DRONE_STATUS_LABELS[data.status] ?? data.status}${parkingText}${cargoText}`);
+    label.setPosition(0, 18);
+    container.setDepth(data.isParkedAtHub ? 14 : 15);
+  }
+
+  private debugParkingSync(data: DroneSnapshot[]): void {
+    if (!import.meta.env.DEV) return;
+
+    const hubStats = new Map<string, { total: number; parked: number; active: number }>();
+    const nextDroneParkingState = new Map<string, { hubId: string | null; parked: boolean; status: string }>();
+
+    for (const drone of data) {
+      nextDroneParkingState.set(drone.droneId, {
+        hubId: drone.hubId,
+        parked: drone.isParkedAtHub,
+        status: drone.status,
+      });
+
+      const previous = this.lastDroneParkingState.get(drone.droneId);
+      if (!previous || previous.parked !== drone.isParkedAtHub || previous.status !== drone.status || previous.hubId !== drone.hubId) {
+        if (previous?.parked && !drone.isParkedAtHub) {
+          console.debug(`[Parking visuals] Drone ${drone.droneId} status=${drone.status} -> remove from parked visuals`);
+        }
+        if ((!previous || !previous.parked) && drone.isParkedAtHub) {
+          console.debug(`[Parking visuals] Drone ${drone.droneId} returned -> show in parked visuals`);
+        }
+      }
+
+      if (!drone.hubId) continue;
+      const stats = hubStats.get(drone.hubId) ?? { total: 0, parked: 0, active: 0 };
+      stats.total += 1;
+      if (drone.isParkedAtHub) {
+        stats.parked += 1;
+      } else {
+        stats.active += 1;
+      }
+      hubStats.set(drone.hubId, stats);
+    }
+
+    const nextSignature = [...hubStats.entries()]
+      .sort(([leftId], [rightId]) => leftId.localeCompare(rightId))
+      .map(([hubId, stats]) => `${hubId}:${stats.total}:${stats.parked}:${stats.active}`)
+      .join("|");
+
+    if (nextSignature !== this.lastParkingDebugSignature) {
+      for (const [hubId, stats] of hubStats.entries()) {
+        console.debug(`[Hub ${hubId}] total drones=${stats.total}, parked=${stats.parked}, active=${stats.active}`);
+        console.debug(`[Parking visuals] hub=${hubId} visibleSlots=${stats.parked}, expected=${stats.parked}`);
+      }
+      this.lastParkingDebugSignature = nextSignature;
+    }
+
+    this.lastDroneParkingState = nextDroneParkingState;
   }
 
   /**

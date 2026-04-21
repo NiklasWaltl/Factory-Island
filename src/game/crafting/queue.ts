@@ -115,6 +115,7 @@ export function enqueueJob(
     recipeId: input.recipeId,
     workbenchId: input.workbenchId,
     inventorySource: input.inventorySource,
+    inputBuffer: [],
     status: "queued",
     priority,
     source: input.source,

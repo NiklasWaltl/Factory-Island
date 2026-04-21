@@ -817,6 +817,29 @@ describe("Construction Sites – drone priority", () => {
     expect(task!.deliveryTargetId).toBe(siteId);
   });
 
+  it("DRONE_TICK assigns the drone to construction before hub_restock when both compete", () => {
+    const { state: hubState } = placeServiceHub(base, 6, 6);
+    const siteId = "tick-priority-site";
+    let state: GameState = {
+      ...hubState,
+      assets: {
+        ...hubState.assets,
+        [siteId]: { id: siteId, type: "workbench", x: 12, y: 12, size: 2, width: 2, height: 2 } as any,
+      },
+      constructionSites: {
+        [siteId]: { buildingType: "workbench", remaining: { wood: 5 } },
+      },
+    };
+    state = addNode(state, "wood", 8, 8, 10);
+
+    const next = gameReducer(state, { type: "DRONE_TICK" });
+
+    expect(next.starterDrone.currentTaskType).toBe("construction_supply");
+    expect(next.starterDrone.currentTaskType).not.toBe("hub_restock");
+    expect(next.starterDrone.deliveryTargetId).toBe(siteId);
+    expect(next.starterDrone.targetNodeId).toBeTruthy();
+  });
+
   it("selectDroneTask falls back to hub_restock when no construction sites", () => {
     const { state: hubState, hubId } = placeServiceHub(base, 6, 6);
     let state = addNode(hubState, "wood", 8, 8, 10);
@@ -1001,6 +1024,34 @@ describe("Task Scoring – selectDroneTask() picks nearest node of same type", (
     expect(task).not.toBeNull();
     expect(task!.taskType).toBe("construction_supply");
     expect(task!.deliveryTargetId).toBe(siteId);
+  });
+
+  it("selectDroneTask is deterministic when equal-score construction candidates compete with hub_restock", () => {
+    const siteId = "deterministic-site";
+    const { state: hubState } = placeServiceHub(createInitialState("release"), 6, 6);
+    let state: GameState = {
+      ...hubState,
+      assets: {
+        ...hubState.assets,
+        [siteId]: { id: siteId, type: "workbench", x: 20, y: 20, size: 2, width: 2, height: 2 } as any,
+      },
+      constructionSites: {
+        [siteId]: { buildingType: "workbench", remaining: { wood: 2 } },
+      },
+    };
+    state = addNode(state, "wood", 30, 24, 1);
+    state = addNode(state, "wood", 30, 24, 1);
+    const expectedNodeId = Object.keys(state.collectionNodes).sort()[0];
+
+    const first = selectDroneTask(state);
+    const second = selectDroneTask(state);
+
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(first).toEqual(second);
+    expect(first!.taskType).toBe("construction_supply");
+    expect(first!.nodeId).toBe(expectedNodeId);
+    expect(first!.deliveryTargetId).toBe(siteId);
   });
 
   it("invalid/removed site asset is not selected", () => {

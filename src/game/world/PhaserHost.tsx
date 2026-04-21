@@ -3,20 +3,26 @@ import {
   createPhaserGame,
   FLOOR_MAP_EVENT,
   STATIC_ASSETS_EVENT,
+  DRONE_STATE_EVENT,
+  COLLECTION_NODES_EVENT,
   type FloorMapData,
   type StaticAssetSnapshot,
+  type DroneSnapshot,
+  type CollectionNodeSnapshot,
 } from "./PhaserGame";
 
 interface PhaserHostProps {
   floorMap: FloorMapData;
   staticAssets: StaticAssetSnapshot[];
+  drones: DroneSnapshot[];
+  collectionNodes: CollectionNodeSnapshot[];
 }
 
 /**
  * React wrapper that mounts a Phaser canvas into the DOM.
  * Handles clean mount/unmount and prevents double-init in React Strict Mode.
  */
-export const PhaserHost: React.FC<PhaserHostProps> = ({ floorMap, staticAssets }) => {
+export const PhaserHost: React.FC<PhaserHostProps> = ({ floorMap, staticAssets, drones, collectionNodes }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
 
@@ -100,6 +106,68 @@ export const PhaserHost: React.FC<PhaserHostProps> = ({ floorMap, staticAssets }
       game.events.off("step", onStep);
     };
   }, [staticAssets]);
+
+  // Push drone snapshots into Phaser scene whenever they change.
+  useEffect(() => {
+    const game = gameRef.current;
+    if (!game) return;
+
+    const tryEmit = (): boolean => {
+      try {
+        const scene = game.scene.getScene("WorldScene");
+        if (scene && scene.scene.isActive()) {
+          scene.events.emit(DRONE_STATE_EVENT, drones);
+          return true;
+        }
+      } catch {
+        // Scene may not be registered yet; retry on next step.
+      }
+      return false;
+    };
+
+    if (tryEmit()) return;
+
+    const onStep = () => {
+      if (tryEmit()) {
+        game.events.off("step", onStep);
+      }
+    };
+    game.events.on("step", onStep);
+    return () => {
+      game.events.off("step", onStep);
+    };
+  }, [drones]);
+
+  // Push collection-node snapshots (manual harvest drops) into Phaser scene.
+  useEffect(() => {
+    const game = gameRef.current;
+    if (!game) return;
+
+    const tryEmit = (): boolean => {
+      try {
+        const scene = game.scene.getScene("WorldScene");
+        if (scene && scene.scene.isActive()) {
+          scene.events.emit(COLLECTION_NODES_EVENT, collectionNodes);
+          return true;
+        }
+      } catch {
+        // Scene may not be registered yet; retry on next step.
+      }
+      return false;
+    };
+
+    if (tryEmit()) return;
+
+    const onStep = () => {
+      if (tryEmit()) {
+        game.events.off("step", onStep);
+      }
+    };
+    game.events.on("step", onStep);
+    return () => {
+      game.events.off("step", onStep);
+    };
+  }, [collectionNodes]);
 
   return (
     <div

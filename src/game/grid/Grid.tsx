@@ -16,6 +16,7 @@ import {
   type GameAction,
   type Direction,
   type PlacedAsset,
+  isUnderConstruction,
 } from "../store/reducer";
 import { WAREHOUSE_INPUT_SPRITE } from "../assets/sprites/sprites";
 import { EnergyDebugOverlay, EnergyDebugHud } from "../ui/panels/EnergyDebugOverlay";
@@ -269,12 +270,14 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
       | "warehouse"
       | "workbench"
       | "smithy"
-      | "manual_assembler";
+      | "manual_assembler"
+      | "service_hub";
     x: number;
     y: number;
     width: 1 | 2;
     height: 1 | 2;
     direction?: Direction;
+    isUnderConstruction?: boolean;
   }> = [];
   const warehouseMarkers: Array<{ id: string; x: number; y: number; hasFeedingBelt: boolean }> = [];
 
@@ -308,6 +311,7 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
     const isAutoSmelter = asset.type === "auto_smelter";
     const hasDir = (isConveyor || isAutoMiner || isAutoSmelter) && asset.direction;
     const rotDeg = hasDir ? DIRECTION_ROTATION[asset.direction!] : 0;
+    const underConstruction = isUnderConstruction(state, asset.id);
 
     // Conveyor item indicators
     const convQueue = isConveyor ? state.conveyors[asset.id]?.queue ?? [] : [];
@@ -335,7 +339,8 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
       asset.type === "warehouse" ||
       asset.type === "workbench" ||
       asset.type === "smithy" ||
-      asset.type === "manual_assembler"
+      asset.type === "manual_assembler" ||
+      asset.type === "service_hub"
     ) {
       phaserStaticAssets.push({
         id: asset.id,
@@ -345,6 +350,7 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
         width: aw,
         height: ah,
         direction: asset.direction,
+        isUnderConstruction: underConstruction,
       });
 
       if (isPowerPole) {
@@ -665,10 +671,46 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
   };
 
   const staticAssetsSignature = phaserStaticAssets
-    .map((a) => `${a.id}|${a.type}|${a.x}|${a.y}|${a.width}|${a.height}|${a.direction ?? ""}`)
+    .map((a) => `${a.id}|${a.type}|${a.x}|${a.y}|${a.width}|${a.height}|${a.direction ?? ""}|${a.isUnderConstruction ? 1 : 0}`)
     .join(";");
 
   const stableStaticAssets = useMemo(() => phaserStaticAssets, [staticAssetsSignature]);
+
+  // Build drone snapshots for Phaser. Memoized by a stable signature so
+  // PhaserHost only re-emits when something actually changed.
+  const droneSnapshots = useMemo(() => {
+    return Object.values(state.drones).map((d) => ({
+      droneId: d.droneId,
+      status: d.status,
+      tileX: d.tileX,
+      tileY: d.tileY,
+      cargo: d.cargo ? { itemType: d.cargo.itemType, amount: d.cargo.amount } : null,
+      hubId: d.hubId,
+      isParkedAtHub: d.status === "idle" && d.hubId !== null,
+      parkingSlot: null as number | null,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    Object.values(state.drones)
+      .map((d) => `${d.droneId}|${d.status}|${d.tileX}|${d.tileY}|${d.hubId ?? ""}|${d.cargo?.itemType ?? ""}|${d.cargo?.amount ?? 0}`)
+      .join(";"),
+  ]);
+
+  // Build collection-node snapshots (manual harvest drops) for Phaser.
+  const collectionNodeSnapshots = useMemo(() => {
+    return Object.values(state.collectionNodes).map((n) => ({
+      id: n.id,
+      itemType: n.itemType,
+      amount: n.amount,
+      tileX: n.tileX,
+      tileY: n.tileY,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    Object.values(state.collectionNodes)
+      .map((n) => `${n.id}|${n.itemType}|${n.amount}|${n.tileX}|${n.tileY}`)
+      .join(";"),
+  ]);
 
   // Hover highlight for building placement
   const slot = state.hotbarSlots[state.activeSlot];
@@ -1110,7 +1152,7 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
       <div style={worldTransformStyle}>
         {/* Phaser world layer: shares the same world transform as all React world overlays. */}
         <div style={worldCanvasLayerStyle}>
-          <PhaserHost floorMap={state.floorMap} staticAssets={stableStaticAssets} />
+          <PhaserHost floorMap={state.floorMap} staticAssets={stableStaticAssets} drones={droneSnapshots} collectionNodes={collectionNodeSnapshots} />
         </div>
 
         {/* React world overlays: intentionally share the exact same transformed world root. */}

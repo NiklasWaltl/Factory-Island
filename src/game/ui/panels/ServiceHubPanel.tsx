@@ -9,7 +9,7 @@ import {
   getMaxDrones,
   getHubDrones,
   HUB_UPGRADE_COST,
-  hasResources,
+  hasResourcesInPhysicalStorage,
 } from "../../store/reducer";
 import type { Inventory } from "../../store/reducer";
 
@@ -48,7 +48,7 @@ export const ServiceHubPanel: React.FC<ServiceHubPanelProps> = ({ state, dispatc
   const range = getHubRange(tier);
   const activeResources = new Set(getActiveResources(tier));
   const maxDrones = getMaxDrones(tier);
-  const canUpgrade = tier === 1 && hasResources(state.inventory, HUB_UPGRADE_COST as Partial<Record<keyof Inventory, number>>);
+  const canUpgrade = tier === 1 && hasResourcesInPhysicalStorage(state, HUB_UPGRADE_COST as Partial<Record<keyof Inventory, number>>);
 
   // Node-Aufschlüsselung nach Typ
   const nodesByType: Record<CollectableItemType, { count: number; amount: number }> = {

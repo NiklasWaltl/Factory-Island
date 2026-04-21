@@ -421,14 +421,17 @@ describe("Resolver fallback for stale references", () => {
     expect(resolveCraftingSource(s, "wh-A")).toEqual({ kind: "global" });
   });
 
-  it("crafting works with global fallback after stale reference", () => {
+  it("stale reference resolves to global (CRAFT_WORKBENCH itself is a deprecated no-op)", () => {
     const s = fullState();
     s.buildingSourceWarehouseIds = { "wb-1": "wh-NONEXISTENT" };
     s.selectedCraftingBuildingId = "wb-1";
     s.inventory = addResources(emptyInv(), { wood: 20 });
 
+    // Resolver must expose the stale ref as global fallback.
+    expect(resolveBuildingSource(s, "wb-1")).toEqual({ kind: "global" });
+    // CRAFT_WORKBENCH is deprecated (queue-based crafting owns this flow now) - no-op.
     const after = gameReducer(s, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(after.inventory.wood).toBe(15);
+    expect(after).toBe(s);
   });
 });
 
@@ -485,24 +488,18 @@ describe("Save/Load with stale references (no reassign)", () => {
 // ===========================================================================
 
 describe("Regression: valid assignments unaffected", () => {
-  it("valid global source still works", () => {
+  it("resolveBuildingSource returns global when mapping is empty", () => {
     const s = fullState();
     s.buildingSourceWarehouseIds = {};
-    s.selectedCraftingBuildingId = "wb-1";
-    s.inventory = addResources(emptyInv(), { wood: 20 });
-
-    const after = gameReducer(s, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(after.inventory.wood).toBe(15);
+    expect(resolveBuildingSource(s, "wb-1")).toEqual({ kind: "global" });
+    // CRAFT_WORKBENCH remains a deprecated no-op - state identity preserved.
+    const after = gameReducer({ ...s, selectedCraftingBuildingId: "wb-1" }, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
+    expect(after.inventory.wood).toBe(s.inventory.wood);
   });
 
-  it("valid warehouse source still works", () => {
+  it("resolveBuildingSource returns warehouse when mapping is valid", () => {
     const s = fullState();
-    s.selectedCraftingBuildingId = "wb-1";
-
-    const after = gameReducer(s, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    // wb-1 → wh-A, should consume from wh-A
-    expect(after.warehouseInventories["wh-A"].wood).toBe(45);
-    expect(after.inventory.wood).toBe(s.inventory.wood);
+    expect(resolveBuildingSource(s, "wb-1")).toEqual({ kind: "warehouse", warehouseId: "wh-A" });
   });
 
   it("manual SET_BUILDING_SOURCE still works after reassign", () => {
@@ -514,16 +511,10 @@ describe("Regression: valid assignments unaffected", () => {
     expect(resolveBuildingSource(after2, "wb-1")).toEqual({ kind: "global" });
   });
 
-  it("crafting on reassigned warehouse works", () => {
+  it("reassigned warehouse is reflected in resolveBuildingSource", () => {
     const s = fullState();
     const after = removeWarehouse(s, "wh-A");
-    // wb-1 now on wh-B. Craft should consume from wh-B
-    const globalWoodAfterDelete = after.inventory.wood; // includes refund
-    const afterCraft = gameReducer(
-      { ...after, selectedCraftingBuildingId: "wb-1" },
-      { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" },
-    );
-    expect(afterCraft.warehouseInventories["wh-B"].wood).toBe(25); // 30 - 5
-    expect(afterCraft.inventory.wood).toBe(globalWoodAfterDelete); // global untouched
+    // wb-1 was on wh-A; after deletion it should be reassigned to wh-B.
+    expect(resolveBuildingSource(after, "wb-1")).toEqual({ kind: "warehouse", warehouseId: "wh-B" });
   });
 });

@@ -9,6 +9,8 @@ import {
   GENERATOR_TICK_MS,
   ENERGY_NET_TICK_MS,
   LOGISTICS_TICK_MS,
+  CRAFTING_TICK_MS,
+  DRONE_TICK_MS,
   type GameMode,
   type GameState,
 } from "../store/reducer";
@@ -26,6 +28,7 @@ import { PowerPolePanel } from "../ui/panels/PowerPolePanel";
 import { AutoMinerPanel } from "../ui/panels/AutoMinerPanel";
 import { AutoSmelterPanel } from "../ui/panels/AutoSmelterPanel";
 import { ManualAssemblerPanel } from "../ui/panels/ManualAssemblerPanel";
+import { ServiceHubPanel } from "../ui/panels/ServiceHubPanel";
 import { BuildMenu } from "../ui/menus/BuildMenu";
 import { Notifications } from "../ui/hud/Notifications";
 import { AutoDeliveryFeed } from "../ui/hud/AutoDeliveryFeed";
@@ -265,6 +268,26 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
     return () => clearInterval(id);
   }, []);
 
+  const hasPendingCraftingJobs = state.crafting.jobs.some(
+    (job) => job.status !== "done" && job.status !== "cancelled",
+  );
+
+  useEffect(() => {
+    if (!hasPendingCraftingJobs) return;
+    const id = setInterval(() => {
+      dispatch({ type: "JOB_TICK" });
+    }, CRAFTING_TICK_MS);
+    return () => clearInterval(id);
+  }, [hasPendingCraftingJobs]);
+
+  // Drone tick: task selection, movement, pickup, deposit
+  useEffect(() => {
+    const id = setInterval(() => {
+      dispatch({ type: "DRONE_TICK" });
+    }, DRONE_TICK_MS);
+    return () => clearInterval(id);
+  }, []);
+
   return (
     <>
       <Grid state={state} dispatch={dispatch} />
@@ -301,6 +324,9 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
       )}
       {state.openPanel === "manual_assembler" && (
         <ManualAssemblerPanel state={state} dispatch={dispatch} />
+      )}
+      {state.openPanel === "service_hub" && (
+        <ServiceHubPanel state={state} dispatch={dispatch} />
       )}
 
       <Hotbar state={state} dispatch={dispatch} />

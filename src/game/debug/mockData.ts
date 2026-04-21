@@ -11,6 +11,26 @@ import { debugLog } from "./debugLogger";
 
 // ---- Mock presets ----
 
+/**
+ * Resources that have a physical home (warehouse / hub). Debug fill routes these
+ * into the first available warehouse instead of state.inventory so that consumption
+ * pulls from the same physical storage the player sees in the warehouse panel.
+ */
+const PHYSICAL_RESOURCE_KEYS: ReadonlyArray<keyof Inventory> = [
+  "wood",
+  "stone",
+  "iron",
+  "copper",
+  "ironIngot",
+  "copperIngot",
+];
+
+/**
+ * Subset of `PHYSICAL_RESOURCE_KEYS` that service hubs can physically hold.
+ * Mirrors `COLLECTABLE_KEYS` in the reducer (kept local to avoid a new export).
+ */
+const HUB_ELIGIBLE_KEYS: ReadonlyArray<keyof Inventory> = ["wood", "stone", "iron", "copper"];
+
 export const MOCK_RESOURCES: Partial<Inventory> = {
   coins: 99999,
   wood: 999,
@@ -41,14 +61,83 @@ export type MockAction =
   | { type: "DEBUG_RESET_STATE" };
 
 export function applyMockToState(state: GameState, mock: MockAction["type"]): GameState {
-  if (!import.meta.env.DEV) return state;
+  // Note: caller (DebugPanel) is already gated behind IS_DEV + state.mode === "debug".
+  // We intentionally don't re-check import.meta.env.DEV here so unit tests can
+  // exercise the deposit logic directly.
 
   switch (mock) {
     case "DEBUG_MOCK_RESOURCES": {
-      debugLog.mock("Applied mock resources (999 each)");
+      // Debug fill priority (physical = wood/stone/iron/copper/ingots):
+      //   1. First warehouse (accepts every physical key)
+      //   2. First service hub (accepts only HUB_ELIGIBLE_KEYS = wood/stone/iron/copper)
+      //   3. No-op for physical keys that found no home — we do NOT silently
+      //      write them to state.inventory anymore, because that would make
+      //      globalInventory diverge from the physical source of truth.
+      // Non-physical keys (coins, sapling) always go to state.inventory.
+      const physicalDeposit: Partial<Inventory> = {};
+      const globalDeposit: Partial<Inventory> = {};
+      for (const [key, amt] of Object.entries(MOCK_RESOURCES)) {
+        if ((PHYSICAL_RESOURCE_KEYS as readonly string[]).includes(key)) {
+          physicalDeposit[key as keyof Inventory] = amt as number;
+        } else {
+          globalDeposit[key as keyof Inventory] = amt as number;
+        }
+      }
+
+      const firstWarehouseId = Object.keys(state.warehouseInventories)[0] ?? null;
+      const firstHubId = Object.keys(state.serviceHubs)[0] ?? null;
+
+      let nextWarehouses = state.warehouseInventories;
+      let nextHubs = state.serviceHubs;
+      const deposited: string[] = [];
+      const skipped: string[] = [];
+
+      for (const [key, amt] of Object.entries(physicalDeposit)) {
+        if (firstWarehouseId) {
+          const wh = nextWarehouses[firstWarehouseId] as unknown as Record<string, number>;
+          nextWarehouses = {
+            ...nextWarehouses,
+            [firstWarehouseId]: { ...wh, [key]: (wh[key] ?? 0) + (amt as number) } as unknown as Inventory,
+          };
+          deposited.push(`${key}→wh:${firstWarehouseId}`);
+          continue;
+        }
+        if (firstHubId && (HUB_ELIGIBLE_KEYS as readonly string[]).includes(key)) {
+          const hub = nextHubs[firstHubId];
+          nextHubs = {
+            ...nextHubs,
+            [firstHubId]: {
+              ...hub,
+              inventory: {
+                ...hub.inventory,
+                [key]: (hub.inventory[key as "wood" | "stone" | "iron" | "copper"] ?? 0) + (amt as number),
+              },
+            },
+          };
+          deposited.push(`${key}→hub:${firstHubId}`);
+          continue;
+        }
+        // No physical home: skip rather than poison globalInventory.
+        skipped.push(key);
+      }
+
+      if (skipped.length > 0) {
+        debugLog.mock(
+          `Mock fill: skipped physical keys without a storage target: ${skipped.join(", ")} ` +
+            `(no warehouse${HUB_ELIGIBLE_KEYS.some((k) => skipped.includes(k as string)) ? " / no hub" : ""} available)`,
+        );
+      }
+      if (deposited.length > 0) {
+        debugLog.mock(`Mock fill deposited: ${deposited.join(", ")}`);
+      } else if (skipped.length > 0) {
+        debugLog.mock("Mock fill: no physical storage exists — only non-physical keys applied.");
+      }
+
       return {
         ...state,
-        inventory: { ...state.inventory, ...MOCK_RESOURCES },
+        inventory: { ...state.inventory, ...globalDeposit },
+        warehouseInventories: nextWarehouses,
+        serviceHubs: nextHubs,
       };
     }
 

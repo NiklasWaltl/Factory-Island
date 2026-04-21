@@ -11,6 +11,7 @@ const tsJestInstance = new TsJestTransformer();
 /** Replace Vite-specific import.meta.env references with constants */
 function replaceImportMeta(src) {
   return src
+    .replace(/import\.meta\.hot/g, "undefined")
     .replace(/import\.meta\.env\.DEV/g, "false")
     .replace(/import\.meta\.env\.PROD/g, "true")
     .replace(/import\.meta\.env\.MODE/g, '"test"')
@@ -23,6 +24,7 @@ module.exports = {
     return tsJestInstance.process(patched, filename, config, transformOptions);
   },
   getCacheKey(src, filename, config, transformOptions) {
-    return tsJestInstance.getCacheKey(src, filename, config, transformOptions);
+    const patched = replaceImportMeta(src);
+    return `import-meta-transformer-v2:${tsJestInstance.getCacheKey(patched, filename, config, transformOptions)}`;
   },
 };

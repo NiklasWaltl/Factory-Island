@@ -56,6 +56,8 @@ export interface CraftingJob {
   readonly workbenchId: WorkbenchId;
   /** Snapshot of the physical stock pool this job reads from and writes to. */
   readonly inventorySource: CraftingInventorySource;
+  /** Physical input that has already been delivered to the workbench for this job. */
+  readonly inputBuffer?: readonly ItemStack[];
   readonly status: JobStatus;
   readonly priority: JobPriority;
   readonly source: JobSource;

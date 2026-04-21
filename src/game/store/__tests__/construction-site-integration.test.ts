@@ -203,6 +203,29 @@ describe("Construction Site Integration — special-case buildings", () => {
     );
     expect(allCollectable).toBe(true);
   });
+
+  it("construction-site buildings do not open active panels before completion", () => {
+    const state = placeBuilding(base, "workbench", 15, 15);
+    const workbench = Object.values(state.assets).find(
+      (asset) => asset.type === "workbench" && asset.x === 15 && asset.y === 15,
+    );
+
+    expect(workbench).toBeDefined();
+    expect(state.constructionSites[workbench!.id]).toBeDefined();
+
+    const clickedState = gameReducer(
+      {
+        ...state,
+        buildMode: false,
+        openPanel: null,
+        selectedCraftingBuildingId: null,
+      },
+      { type: "CLICK_CELL", x: 15, y: 15 },
+    );
+
+    expect(clickedState.openPanel).toBeNull();
+    expect(clickedState.selectedCraftingBuildingId).toBeNull();
+  });
 });
 
 describe("Construction Site Integration — energy grid exclusion", () => {

@@ -10,25 +10,18 @@ import {
   type PlacedAsset,
 } from "../../store/reducer";
 
-// ---------------------------------------------------------------------------
-// Test setup helpers
-// ---------------------------------------------------------------------------
-
 const WB_A = "wb-A";
 const WB_B = "wb-B";
 const WH = "wh-test";
 
-/**
- * Build a minimal state with one warehouse stocked with `wood` and one or
- * two workbenches. We bypass the build flow and place assets directly so the
- * tests stay focused on the crafting subsystem.
- */
 function buildState(opts: {
   wood?: number;
+  stone?: number;
   workbenches?: string[];
 }): GameState {
   const base = createInitialState("release");
   const woodAmount = opts.wood ?? 0;
+  const stoneAmount = opts.stone ?? 0;
   const wbs = opts.workbenches ?? [WB_A];
 
   const newAssets: Record<string, PlacedAsset> = { ...base.assets };
@@ -36,16 +29,15 @@ function buildState(opts: {
     newAssets[id] = { id, type: "workbench", x: 0, y: 0, size: 1 };
   }
 
-  // Replace warehouseInventories with a single test warehouse to make
-  // routing deterministic.
   const wh: PlacedAsset = { id: WH, type: "warehouse", x: 5, y: 5, size: 2 };
   newAssets[WH] = wh;
-  const wInv: Inventory = { ...base.inventory, wood: woodAmount };
+  const wInv: Inventory = { ...base.inventory, wood: woodAmount, stone: stoneAmount };
 
   return {
     ...base,
     assets: newAssets,
     warehouseInventories: { [WH]: wInv },
+    inventory: { ...base.inventory },
     buildingSourceWarehouseIds: Object.fromEntries(wbs.map((id) => [id, WH])),
   };
 }
@@ -72,9 +64,20 @@ function tick(state: GameState, n = 1): GameState {
   return s;
 }
 
-// ---------------------------------------------------------------------------
-// Initial state
-// ---------------------------------------------------------------------------
+function providePhysicalInput(state: GameState, jobId: string): GameState {
+  return {
+    ...state,
+    network: { ...state.network, reservations: [] },
+    crafting: {
+      ...state.crafting,
+      jobs: state.crafting.jobs.map((job) =>
+        job.id === jobId
+          ? { ...job, inputBuffer: [...job.ingredients] }
+          : job,
+      ),
+    },
+  };
+}
 
 describe("createInitialState seeds an empty crafting queue", () => {
   it("crafting slice exists and is empty", () => {
@@ -85,27 +88,17 @@ describe("createInitialState seeds an empty crafting queue", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Single-job happy path
-// ---------------------------------------------------------------------------
-
 describe("single-job lifecycle", () => {
-  it("queued → reserved → crafting → delivering in one tick for 0s recipes", () => {
+  it("queued -> reserved in one tick and waits for delivered input", () => {
     let s = buildState({ wood: 5 });
     s = enqueue(s, "wood_pickaxe", WB_A);
-    expect(s.crafting.jobs[0].status).toBe("queued");
-    expect(s.network.reservations).toEqual([]);
-    expect(s.warehouseInventories[WH].wood).toBe(5);
 
-    // Tick 1: queued → reserved → crafting → delivering (processingTime is 0).
     s = tick(s);
-    const job = s.crafting.jobs[0];
-    expect(job.status).toBe("delivering");
-    // Reservations should be released by the commit.
-    expect(s.network.reservations).toEqual([]);
-    // Stock decremented, output still waiting for drone pickup.
-    expect(s.warehouseInventories[WH].wood).toBe(0);
-    expect(s.warehouseInventories[WH].wood_pickaxe).toBe(0);
+
+    expect(s.crafting.jobs[0].status).toBe("reserved");
+    expect(s.network.reservations).toHaveLength(1);
+    expect(s.warehouseInventories[WH].wood).toBe(5);
+    expect(s.crafting.jobs[0].inputBuffer ?? []).toEqual([]);
   });
 
   it("queued job stays queued when ingredients are missing", () => {
@@ -116,124 +109,76 @@ describe("single-job lifecycle", () => {
     expect(s.network.reservations).toEqual([]);
   });
 
-  it("queued job auto-recovers once ingredients arrive", () => {
-    let s = buildState({ wood: 0 });
+  it("reserved job starts once its physical input buffer is full", () => {
+    let s = buildState({ wood: 5 });
     s = enqueue(s, "wood_pickaxe", WB_A);
     s = tick(s);
-    expect(s.crafting.jobs[0].status).toBe("queued");
+    s = providePhysicalInput(s, "job-1");
 
-    // Add stock then tick again.
-    s = {
-      ...s,
-      warehouseInventories: {
-        ...s.warehouseInventories,
-        [WH]: { ...s.warehouseInventories[WH], wood: 5 },
-      },
-    };
     s = tick(s);
+
     expect(s.crafting.jobs[0].status).toBe("delivering");
     expect(s.warehouseInventories[WH].wood_pickaxe).toBe(0);
+    expect(s.inventory.wood_pickaxe).toBe(0);
   });
 });
 
-// ---------------------------------------------------------------------------
-// Per-workbench limit + scheduling fairness
-// ---------------------------------------------------------------------------
-
 describe("scheduling rules", () => {
-  it("respects priority (high before normal before low) within a workbench", () => {
+  it("does not start any reserved workbench job without physical input", () => {
     let s = buildState({ wood: 50 });
-    s = enqueue(s, "wood_pickaxe", WB_A, "automation", "low");   // job-1
-    s = enqueue(s, "wood_pickaxe", WB_A, "automation", "normal"); // job-2
-    s = enqueue(s, "wood_pickaxe", WB_A, "player", "high");      // job-3
+    s = enqueue(s, "wood_pickaxe", WB_A, "automation", "low");
+    s = enqueue(s, "wood_pickaxe", WB_A, "automation", "normal");
+    s = enqueue(s, "wood_pickaxe", WB_A, "player", "high");
 
-    // Tick 1 should promote job-3 first because of priority.
     s = tick(s);
-    const byId = new Map(s.crafting.jobs.map((j) => [j.id, j]));
-    expect(byId.get("job-3")?.status).toBe("delivering");
-    expect(byId.get("job-1")?.status).toBe("reserved");
-    expect(byId.get("job-2")?.status).toBe("reserved");
+
+    expect(s.crafting.jobs.map((job) => job.status)).toEqual([
+      "reserved",
+      "reserved",
+      "reserved",
+    ]);
   });
 
-  it("limits each workbench to at most one `crafting` job at a time", () => {
-    // Build a recipe-like job with non-zero processingTime via a synthetic
-    // approach: we need a recipe whose processingTime > 0. The bundled
-    // recipes are 0-tick, so we directly inject jobs with processingTime>0
-    // by enqueuing two jobs and asserting that only one is `crafting` at
-    // any moment when both could run.
-    //
-    // Workaround: stone_pickaxe needs wood:10, stone:5. Both have time 0.
-    // Instead we test indirectly: enqueue two jobs that share a workbench
-    // and assert no two are `crafting` simultaneously across many ticks.
-    let s = buildState({ wood: 50 });
-    s = {
-      ...s,
-      warehouseInventories: {
-        ...s.warehouseInventories,
-        [WH]: { ...s.warehouseInventories[WH], stone: 50 },
-      },
-    };
+  it("limits each workbench to at most one active job once input is ready", () => {
+    let s = buildState({ wood: 50, stone: 50 });
     s = enqueue(s, "wood_pickaxe", WB_A);
     s = enqueue(s, "stone_pickaxe", WB_A);
-    s = tick(s, 3);
-    const active = s.crafting.jobs.filter((j) => j.status === "crafting" || j.status === "delivering");
-    expect(active.length).toBeLessThanOrEqual(1);
+    s = tick(s);
+    s = providePhysicalInput(s, "job-1");
+    s = providePhysicalInput(s, "job-2");
+
+    s = tick(s);
+
+    const active = s.crafting.jobs.filter((job) => job.status === "crafting" || job.status === "delivering");
+    expect(active).toHaveLength(1);
   });
 
-  it("two workbenches do not block each other", () => {
+  it("two workbenches can start independently once each input buffer is ready", () => {
     let s = buildState({ wood: 10, workbenches: [WB_A, WB_B] });
     s = enqueue(s, "wood_pickaxe", WB_A);
     s = enqueue(s, "wood_pickaxe", WB_B);
     s = tick(s);
+    s = providePhysicalInput(s, "job-1");
+    s = providePhysicalInput(s, "job-2");
+
+    s = tick(s);
+
     expect(s.crafting.jobs[0].status).toBe("delivering");
     expect(s.crafting.jobs[1].status).toBe("delivering");
-    expect(s.warehouseInventories[WH].wood_pickaxe).toBe(0);
   });
 });
 
-// ---------------------------------------------------------------------------
-// Cancel
-// ---------------------------------------------------------------------------
-
 describe("cancel releases reservations", () => {
   it("cancelling a reserved job frees its reservations", () => {
-    // Use two jobs with limited stock so the second one stays queued.
     let s = buildState({ wood: 5 });
-    // Increase wood enough to keep one reservation alive between actions.
-    s = {
-      ...s,
-      warehouseInventories: {
-        ...s.warehouseInventories,
-        [WH]: { ...s.warehouseInventories[WH], wood: 5 },
-      },
-    };
     s = enqueue(s, "wood_pickaxe", WB_A);
-    // Manually reserve via NETWORK action to put job in `reserved` without
-    // completing it (recipe is 0-tick → tick would also commit + done).
-    s = gameReducer(s, {
-      type: "NETWORK_RESERVE_BATCH",
-      items: [{ itemId: "wood", count: 5 }],
-      ownerKind: "crafting_job",
-      ownerId: "job-1",
-    });
-    // Manually patch job to `reserved` to simulate post-Phase-3 state
-    // without completing it (we cannot pause a 0-tick recipe via the public
-    // tick path). This tests the cancel path in isolation.
-    s = {
-      ...s,
-      crafting: {
-        ...s.crafting,
-        jobs: s.crafting.jobs.map((j) =>
-          j.id === "job-1" ? { ...j, status: "reserved" } : j,
-        ),
-      },
-    };
+    s = tick(s);
+
     expect(s.network.reservations).toHaveLength(1);
 
     s = gameReducer(s, { type: "JOB_CANCEL", jobId: "job-1" });
     expect(s.crafting.jobs[0].status).toBe("cancelled");
     expect(s.network.reservations).toEqual([]);
-    // Stock untouched.
     expect(s.warehouseInventories[WH].wood).toBe(5);
   });
 
@@ -247,63 +192,39 @@ describe("cancel releases reservations", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Output handoff
-// ---------------------------------------------------------------------------
-
 describe("output handoff", () => {
   it("keeps the finished output pending until a drone delivers it", () => {
     let s = buildState({ wood: 5 });
     s = enqueue(s, "wood_pickaxe", WB_A);
     s = tick(s);
+    s = providePhysicalInput(s, "job-1");
+    s = tick(s);
+
     expect(s.crafting.jobs[0].status).toBe("delivering");
     expect(s.warehouseInventories[WH].wood_pickaxe).toBe(0);
-    // Global pool unchanged.
     expect(s.inventory.wood_pickaxe).toBe(0);
   });
 
-  it("falls back to the global inventory when no warehouse exists", () => {
-    let s = buildState({ wood: 5 });
-    // Remove the warehouse so routing must fall back.
-    const { [WH]: _whInv, ...rest } = s.warehouseInventories;
-    void _whInv;
+  it("does not enqueue when only the global fallback has stock", () => {
+    let s = buildState({ wood: 0 });
     s = {
       ...s,
-      // Move the wood into the global pool so the reservation can succeed
-      // against an empty warehouse map.
-      inventory: { ...s.inventory, wood: 0 },
-      warehouseInventories: rest,
+      inventory: { ...s.inventory, wood: 5 },
+      buildingSourceWarehouseIds: {},
     };
-    // Without warehouses there is no stock to reserve from → job stays queued.
+
     s = enqueue(s, "wood_pickaxe", WB_A);
-    s = tick(s);
-    expect(s.crafting.jobs[0].status).toBe("queued");
+
+    expect(s.crafting.jobs).toEqual([]);
+    expect(s.notifications.at(-1)?.kind).toBe("error");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Workbench destroyed mid-job
-// ---------------------------------------------------------------------------
 
 describe("workbench destroyed while job reserved", () => {
   it("cancels the job and releases reservations", () => {
     let s = buildState({ wood: 5 });
     s = enqueue(s, "wood_pickaxe", WB_A);
-    // Manually reserve + set reserved (avoid 0-tick auto-complete).
-    s = gameReducer(s, {
-      type: "NETWORK_RESERVE_BATCH",
-      items: [{ itemId: "wood", count: 5 }],
-      ownerKind: "crafting_job",
-      ownerId: "job-1",
-    });
-    s = {
-      ...s,
-      crafting: {
-        ...s.crafting,
-        jobs: s.crafting.jobs.map((j) => ({ ...j, status: "reserved" as const })),
-      },
-    };
-    // Remove the workbench asset.
+    s = tick(s);
     const { [WB_A]: _wb, ...remainingAssets } = s.assets;
     void _wb;
     s = { ...s, assets: remainingAssets };

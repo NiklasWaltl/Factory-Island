@@ -191,6 +191,12 @@ export function tickCraftingJobs(input: TickInput): TickOutput {
       changed = true;
       continue;
     }
+    if (!hasBufferedIngredients(job)) {
+      if (import.meta.env.DEV) {
+        debugLog.general(`Job ${job.id} waiting: workbench ${job.workbenchId} missing delivered input`);
+      }
+      continue;
+    }
     if (input.readyWorkbenchIds && !input.readyWorkbenchIds.has(job.workbenchId)) {
       if (import.meta.env.DEV) {
         debugLog.general(`Job ${job.id} waiting: workbench ${job.workbenchId} not ready`);
@@ -260,34 +266,8 @@ function finishCraftingJob(
   serviceHubs: Readonly<Record<string, ServiceHubEntry>>;
   network: NetworkSlice;
 } {
-  const inventorySource = getJobInventorySource(job);
-  const sourceView = getSourceView(
-    inventorySource,
-    warehouseInventories,
-    globalInventory,
-    serviceHubs,
-  );
-  // 1. Commit ingredient reservations.
-  const committed = applyNetworkAction(sourceView.warehouseInventories, network, {
-    type: "NETWORK_COMMIT_BY_OWNER",
-    ownerKind: "crafting_job",
-    ownerId: job.reservationOwnerId,
-  });
-  if (committed.network.lastError) {
-    // No reservations? That's a logic bug — the job reached `crafting`
-    // only via Phase 2 which guarantees reservations exist.
-    throw new Error(
-      `[crafting] Cannot commit reservations for job "${job.id}": ${committed.network.lastError.message}`,
-    );
-  }
-  const mergedAfterCommit = mergeSourceView(
-    inventorySource,
-    warehouseInventories,
-    globalInventory,
-    serviceHubs,
-    committed.warehouseInventories,
-  );
-  // 2. Mark the job ready for drone pickup and delivery.
+  // Input is already physically buffered at the workbench before the job may
+  // enter crafting, so no source inventory may be touched here.
   assertTransition(job.status, "delivering");
   if (import.meta.env.DEV) {
     debugLog.general(
@@ -296,11 +276,27 @@ function finishCraftingJob(
   }
   return {
     job: { ...job, status: "delivering", progress: job.processingTime },
-    warehouseInventories: mergedAfterCommit.warehouseInventories,
-    globalInventory: mergedAfterCommit.globalInventory,
-    serviceHubs: mergedAfterCommit.serviceHubs,
-    network: committed.network,
+    warehouseInventories,
+    globalInventory,
+    serviceHubs,
+    network,
   };
+}
+
+function getBufferedAmount(
+  job: CraftingJob,
+  itemId: CraftingJob["ingredients"][number]["itemId"],
+): number {
+  return (job.inputBuffer ?? []).reduce(
+    (sum, stack) => sum + (stack.itemId === itemId ? stack.count : 0),
+    0,
+  );
+}
+
+function hasBufferedIngredients(job: CraftingJob): boolean {
+  return job.ingredients.every(
+    (ingredient) => getBufferedAmount(job, ingredient.itemId) >= ingredient.count,
+  );
 }
 
 function cancelReservedJob(

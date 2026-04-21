@@ -10,10 +10,15 @@ import {
   FLOOR_TILE_COSTS,
   FLOOR_TILE_LABELS,
   FLOOR_TILE_DESCRIPTIONS,
+  hasResources,
+  selectBuildMenuInventoryView,
+  selectGlobalInventoryView,
+  hasResourcesInPhysicalStorage,
   type GameState,
   type GameAction,
   type BuildingType,
   type FloorTileType,
+  type Inventory,
 } from "../../store/reducer";
 import { ASSET_SPRITES, FLOOR_SPRITES, GRASS_TILE_SPRITES } from "../../assets/sprites/sprites";
 
@@ -86,19 +91,26 @@ const BuildMenuDebugSection: React.FC<BuildMenuDebugSectionProps> = ({
 
 export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch }) => {
   const selected = state.selectedBuildingType;
+  const buildingInventoryView: Inventory = selectBuildMenuInventoryView(state);
+  const floorInventoryView: Inventory = selectGlobalInventoryView(state);
 
-  const canAfford = (bType: BuildingType): boolean => {
-    const costs = BUILDING_COSTS[bType];
-    return Object.entries(costs).every(
-      ([res, amt]) => (state.inventory[res as keyof typeof state.inventory] ?? 0) >= (amt ?? 0)
-    );
-  };
+  const canAfford = (bType: BuildingType): boolean =>
+    hasResources(buildingInventoryView, BUILDING_COSTS[bType] as Partial<Record<keyof Inventory, number>>);
 
-  const canAffordFloor = (tileType: FloorTileType): boolean => {
-    const costs = FLOOR_TILE_COSTS[tileType];
-    return Object.entries(costs).every(
-      ([res, amt]) => (state.inventory[res as keyof typeof state.inventory] ?? 0) >= (amt ?? 0)
-    );
+  const canAffordFloor = (tileType: FloorTileType): boolean =>
+    hasResourcesInPhysicalStorage(state, FLOOR_TILE_COSTS[tileType] as Partial<Record<keyof Inventory, number>>);
+
+  const getBuildSourceDebugTitle = (costs: Partial<Record<keyof Inventory, number>>): string => {
+    const missing = Object.entries(costs).flatMap(([res, amt]) => {
+      const required = amt ?? 0;
+      const available = (buildingInventoryView[res as keyof Inventory] ?? 0) as number;
+      const shortfall = required - available;
+      return shortfall > 0 ? [`${shortfall} ${RESOURCE_LABELS[res] ?? res}`] : [];
+    });
+
+    return missing.length === 0
+      ? "Bauquelle UI: Drohnen-Hub + Ressourcen-Drops. Lagerhaus/global werden ignoriert."
+      : `Bauquelle UI: Drohnen-Hub + Ressourcen-Drops. Fehlt: ${missing.join(", ")}. Lagerhaus/global werden ignoriert.`;
   };
 
   const isAlreadyPlaced = (bType: BuildingType): boolean => {
@@ -143,8 +155,14 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
                 <div
                   key={bType}
                   className={`fi-build-item ${isSelected ? "fi-build-item--selected" : ""} ${placed ? "fi-build-item--placed" : ""} ${!affordable && !placed ? "fi-build-item--disabled" : ""}`}
+                  title={placed ? status.label : getBuildSourceDebugTitle(costs)}
                   onClick={() => {
-                    if (placed) return;
+                    if (placed || !affordable) {
+                      if (import.meta.env.DEV && !placed && !affordable) {
+                        console.debug(`[BuildMenu] Blocked ${bType}: ${getBuildSourceDebugTitle(costs)}`);
+                      }
+                      return;
+                    }
                     dispatch({ type: "SELECT_BUILD_BUILDING", buildingType: isSelected ? null : bType });
                   }}
                 >
@@ -157,7 +175,7 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
                     <div className="fi-build-item-desc">{BUILDING_DESCRIPTIONS[bType]}</div>
                     <div className="fi-build-item-costs">
                       {Object.entries(costs).map(([res, amt]) => {
-                        const have = (state.inventory[res as keyof typeof state.inventory] ?? 0) as number;
+                        const have = (buildingInventoryView[res as keyof Inventory] ?? 0) as number;
                         const enough = have >= (amt ?? 0);
                         return (
                           <span key={res} className={`fi-build-cost ${enough ? "" : "fi-build-cost--lacking"}`}>
@@ -200,7 +218,7 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
                   <div className="fi-build-item-desc">{FLOOR_TILE_DESCRIPTIONS[tileType]}</div>
                   <div className="fi-build-item-costs">
                     {Object.entries(costs).map(([res, amt]) => {
-                      const have = (state.inventory[res as keyof typeof state.inventory] ?? 0) as number;
+                      const have = (floorInventoryView[res as keyof Inventory] ?? 0) as number;
                       const enough = have >= (amt ?? 0);
                       return (
                         <span key={res} className={`fi-build-cost ${enough ? "" : "fi-build-cost--lacking"}`}>

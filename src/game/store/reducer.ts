@@ -1045,6 +1045,15 @@ export function getDroneStatusDetail(state: GameState, drone: StarterDroneState)
         const resource = drone.targetNodeId.split(":")[2];
         return { label: "Unterwegs zum Hub", taskGoal: resource ? `${resource} abholen` : undefined };
       }
+      const workbenchTask = parseWorkbenchTaskNodeId(drone.targetNodeId);
+      if (drone.currentTaskType === "workbench_delivery" && workbenchTask?.kind === "input") {
+        const job = getCraftingJobById(state.crafting, workbenchTask.jobId);
+        const reservation = getCraftingReservationById(state.network, workbenchTask.reservationId);
+        return {
+          label: "Unterwegs zum Lager",
+          taskGoal: reservation && job ? `${reservation.amount}× ${reservation.itemId} für ${job.recipeId}` : undefined,
+        };
+      }
       if (drone.currentTaskType === "workbench_delivery" && drone.craftingJobId) {
         const job = getCraftingJobById(state.crafting, drone.craftingJobId);
         return {
@@ -1056,10 +1065,19 @@ export function getDroneStatusDetail(state: GameState, drone: StarterDroneState)
       return { label: "Unterwegs zum Sammeln", taskGoal: node ? `${node.itemType} (${node.amount})` : undefined };
     }
     case "collecting":
+      if (drone.currentTaskType === "workbench_delivery" && parseWorkbenchTaskNodeId(drone.targetNodeId)?.kind === "input") {
+        return { label: "Holt Werkbank-Input…" };
+      }
       if (drone.currentTaskType === "workbench_delivery") return { label: "Holt Werkbank-Output…" };
       if (drone.currentTaskType === "hub_dispatch") return { label: "Entnimmt Hub-Lager…" };
       return { label: "Sammelt ein…" };
     case "moving_to_dropoff":
+      if (drone.currentTaskType === "workbench_delivery" && parseWorkbenchTaskNodeId(drone.targetNodeId)?.kind === "input") {
+        return {
+          label: "Liefert Werkbank-Input",
+          taskGoal: drone.cargo ? `${drone.cargo.amount}× ${drone.cargo.itemType}` : undefined,
+        };
+      }
       if (drone.currentTaskType === "workbench_delivery" && drone.craftingJobId) {
         const job = getCraftingJobById(state.crafting, drone.craftingJobId);
         return {
@@ -1446,6 +1464,23 @@ function getAssignedWorkbenchDeliveryDroneCount(
   return total;
 }
 
+function getAssignedWorkbenchInputDroneCount(
+  state: Pick<GameState, "drones">,
+  reservationId: string,
+  excludeDroneId?: string,
+): number {
+  let total = 0;
+  for (const drone of Object.values(state.drones)) {
+    if (drone.droneId === excludeDroneId) continue;
+    if (drone.currentTaskType !== "workbench_delivery") continue;
+    const task = parseWorkbenchTaskNodeId(drone.targetNodeId);
+    if (task?.kind !== "input") continue;
+    if (task.reservationId !== reservationId) continue;
+    total++;
+  }
+  return total;
+}
+
 /**
  * Selects the highest-scoring drone task from all valid candidates.
  *
@@ -1596,6 +1631,34 @@ export function selectDroneTask(state: GameState, droneOverride?: StarterDroneSt
 
   // --- Gather workbench_delivery candidates (crafted output → destination) ---
   for (const job of state.crafting.jobs) {
+    if (job.status !== "reserved") continue;
+    if (job.inventorySource.kind === "global") continue;
+    if (hasCompleteWorkbenchInput(job)) continue;
+    const pickup = resolveWorkbenchInputPickup(job, state.assets);
+    if (!pickup) continue;
+    for (const reservation of state.network.reservations) {
+      if (reservation.ownerKind !== "crafting_job" || reservation.ownerId !== job.reservationOwnerId) continue;
+      if (!isCollectableCraftingItem(reservation.itemId)) continue;
+      if (getWorkbenchJobInputAmount(job, reservation.itemId) >= reservation.amount) continue;
+      if (getAssignedWorkbenchInputDroneCount(state, reservation.id, drone.droneId) > 0) continue;
+      const syntheticNodeId = `workbench_input:${job.workbenchId}:${job.id}:${reservation.id}`;
+      const stickyBonus = drone.targetNodeId === syntheticNodeId ? DRONE_STICKY_BONUS : 0;
+      candidates.push({
+        taskType: "workbench_delivery",
+        nodeId: syntheticNodeId,
+        deliveryTargetId: job.workbenchId,
+        score: scoreDroneTask("workbench_delivery", drone.tileX, drone.tileY, pickup.x, pickup.y, {
+          sticky: stickyBonus,
+        }),
+        _roleBonus: 0,
+        _stickyBonus: stickyBonus,
+        _urgencyBonus: 0,
+      });
+    }
+  }
+
+  // --- Gather workbench_delivery candidates (crafted output → destination) ---
+  for (const job of state.crafting.jobs) {
     if (job.status !== "delivering") continue;
     if (getAssignedWorkbenchDeliveryDroneCount(state, job.id, drone.droneId) > 0) continue;
     const workbenchAsset = state.assets[job.workbenchId];
@@ -1639,6 +1702,10 @@ export function selectDroneTask(state: GameState, droneOverride?: StarterDroneSt
   // Sort descending by score; ascending nodeId as deterministic tie-break.
   candidates.sort((a, b) => b.score - a.score || a.nodeId.localeCompare(b.nodeId));
   const chosen = candidates[0];
+  const bestConstructionCandidate = candidates.find(
+    (candidate) => candidate.taskType === "construction_supply" || candidate.taskType === "hub_dispatch",
+  );
+  const bestHubRestockCandidate = candidates.find((candidate) => candidate.taskType === "hub_restock");
 
   if (import.meta.env.DEV) {
     console.debug(
@@ -1648,6 +1715,28 @@ export function selectDroneTask(state: GameState, droneOverride?: StarterDroneSt
         ` (+role:${chosen._roleBonus} +sticky:${chosen._stickyBonus} +urgency:${chosen._urgencyBonus})` +
         ` (from ${candidates.length} candidates)`,
     );
+
+    if (
+      bestHubRestockCandidate &&
+      (chosen.taskType === "construction_supply" || chosen.taskType === "hub_dispatch")
+    ) {
+      console.debug(
+        `[DroneTaskPriority] drone=${drone.droneId} construction wins over hub_restock` +
+          ` chosen=${chosen.taskType}:${chosen.nodeId}->${chosen.deliveryTargetId}` +
+          ` chosenScore=${chosen.score}` +
+          ` hubNode=${bestHubRestockCandidate.nodeId}` +
+          ` hubScore=${bestHubRestockCandidate.score}` +
+          ` diff=${chosen.score - bestHubRestockCandidate.score}`,
+      );
+    } else if (chosen.taskType === "hub_restock" && !bestConstructionCandidate) {
+      console.debug(
+        `[DroneTaskPriority] drone=${drone.droneId} hub_restock fallback` +
+          ` node=${chosen.nodeId}` +
+          ` target=${chosen.deliveryTargetId}` +
+          ` score=${chosen.score}` +
+          ` noConstructionCandidate=true`,
+      );
+    }
   }
 
   return { taskType: chosen.taskType, nodeId: chosen.nodeId, deliveryTargetId: chosen.deliveryTargetId };
@@ -1775,11 +1864,66 @@ export function addResources(inv: Inventory, items: Partial<Record<keyof Invento
 }
 
 /**
- * Aggregate global inventory + all service hub inventories for build-cost checks.
- * Only CollectableItemType keys (wood, stone, iron, copper) are summed from hubs.
+ * Phase-1 derived "global inventory" view.
+ *
+ * SOURCE OF TRUTH for physical resources is now `warehouseInventories` and
+ * `serviceHubs[id].inventory`. `state.inventory` continues to back items that
+ * have no physical home (coins, tools, building counters, ingots in flight),
+ * but for any resource key that *also* lives in a warehouse or hub, this view
+ * is the truthful, summed read-only projection.
+ *
+ * USE THIS for: HUD display, build-/craft-affordance UI, debug overlays.
+ * DO NOT mutate the result — write to the underlying physical stores instead.
+ *
+ * Identical aggregation rule as `getEffectiveBuildInventory` (kept as alias for
+ * the existing reducer call sites). Hubs only contribute COLLECTABLE_KEYS.
+ */
+export function selectGlobalInventoryView(state: GameState): Inventory {
+  return getEffectiveBuildInventory(state);
+}
+
+/**
+ * UI-only build-menu view.
+ *
+ * Counts only resources that can directly feed the construction flow today:
+ *   1. service hub inventories
+ *   2. world-bound collection nodes (manual harvest drops)
+ *
+ * Warehouses and `state.inventory` are intentionally excluded so the build UI
+ * reflects construction-accessible stock instead of broad storage totals.
+ */
+export function selectBuildMenuInventoryView(
+  state: Pick<GameState, "serviceHubs" | "collectionNodes">,
+): Inventory {
+  const effective = createEmptyInventory();
+
+  for (const hub of Object.values(state.serviceHubs)) {
+    for (const res of COLLECTABLE_KEYS) {
+      const key = res as CollectableItemType;
+      effective[key] = (effective[key] as number) + (hub.inventory[key] ?? 0);
+    }
+  }
+
+  for (const node of Object.values(state.collectionNodes)) {
+    if (node.amount <= 0) continue;
+    effective[node.itemType] = (effective[node.itemType] as number) + node.amount;
+  }
+
+  return effective;
+}
+
+/**
+ * Aggregate global inventory + all warehouseInventories + all service hub inventories
+ * for build-cost checks. Only CollectableItemType keys (wood, stone, iron, copper) are
+ * summed from hubs; warehouses contribute every key they hold.
  */
 export function getEffectiveBuildInventory(state: GameState): Inventory {
   const effective = { ...state.inventory } as Record<string, number>;
+  for (const whInv of Object.values(state.warehouseInventories)) {
+    for (const [key, amt] of Object.entries(whInv)) {
+      effective[key] = (effective[key] ?? 0) + ((amt as number) ?? 0);
+    }
+  }
   for (const hub of Object.values(state.serviceHubs)) {
     for (const res of COLLECTABLE_KEYS) {
       effective[res] = (effective[res] ?? 0) + (hub.inventory[res as CollectableItemType] ?? 0);
@@ -1789,27 +1933,56 @@ export function getEffectiveBuildInventory(state: GameState): Inventory {
 }
 
 /**
- * Consume build costs from global inventory first, then from service hub inventories.
- * Returns updated inventory, serviceHubs, and the remaining unfulfilled cost.
+ * Consume costs from physical stores (warehouses → hubs), then fall back to
+ * `state.inventory` only for keys with no physical home (coins, tools, …).
+ *
+ * Phase-1 priority intentionally:
+ *   1. Warehouses (any key)
+ *   2. Service hubs (only COLLECTABLE_KEYS)
+ *   3. state.inventory (last-resort fallback for non-physical items)
+ *
+ * Used internally by build-cost paths. Callers must guarantee affordability
+ * via `getEffectiveBuildInventory + hasResources` BEFORE calling — this
+ * function may otherwise leave `remaining > 0` and partially deduct.
+ * For callers that need an all-or-nothing transaction, use
+ * `consumeFromPhysicalStorage` instead.
+ *
+ * Returns updated inventory, warehouseInventories, serviceHubs, and the
+ * remaining unfulfilled cost.
  */
 function consumeBuildResources(
   state: GameState,
   costs: Partial<Record<keyof Inventory, number>>,
-): { inventory: Inventory; serviceHubs: Record<string, ServiceHubEntry>; remaining: Partial<Record<CollectableItemType, number>> } {
+): {
+  inventory: Inventory;
+  warehouseInventories: Record<string, Inventory>;
+  serviceHubs: Record<string, ServiceHubEntry>;
+  remaining: Partial<Record<CollectableItemType, number>>;
+} {
   const inv = { ...state.inventory } as Record<string, number>;
+  let warehouses = state.warehouseInventories;
   let hubs = state.serviceHubs;
   const remaining: Partial<Record<CollectableItemType, number>> = {};
   for (const [key, amt] of Object.entries(costs)) {
     let needed = amt ?? 0;
     if (needed <= 0) continue;
-    // Deduct from global inventory first
-    const globalHave = inv[key] ?? 0;
-    const fromGlobal = Math.min(globalHave, needed);
-    inv[key] = globalHave - fromGlobal;
-    needed -= fromGlobal;
-    // Then from hub inventories (only collectable types)
+    // 1) Warehouses first (any key they happen to hold).
+    for (const [whId, whInv] of Object.entries(warehouses)) {
+      if (needed <= 0) break;
+      const whHave = ((whInv as unknown as Record<string, number>)[key] ?? 0);
+      const fromWh = Math.min(whHave, needed);
+      if (fromWh > 0) {
+        warehouses = {
+          ...warehouses,
+          [whId]: { ...whInv, [key]: whHave - fromWh } as Inventory,
+        };
+        needed -= fromWh;
+      }
+    }
+    // 2) Then hubs (only collectable resource types).
     if (needed > 0 && COLLECTABLE_KEYS.has(key)) {
       for (const [hubId, hub] of Object.entries(hubs)) {
+        if (needed <= 0) break;
         const hubHave = hub.inventory[key as CollectableItemType] ?? 0;
         const fromHub = Math.min(hubHave, needed);
         if (fromHub > 0) {
@@ -1822,14 +1995,85 @@ function consumeBuildResources(
           };
           needed -= fromHub;
         }
-        if (needed <= 0) break;
       }
+    }
+    // 3) Last-resort fallback: global inventory (e.g. coins, items without
+    // a physical home, or pre-Phase-1 saves where stocks still live globally).
+    if (needed > 0) {
+      const globalHave = inv[key] ?? 0;
+      const fromGlobal = Math.min(globalHave, needed);
+      inv[key] = globalHave - fromGlobal;
+      needed -= fromGlobal;
     }
     if (needed > 0) {
       remaining[key as CollectableItemType] = needed;
     }
   }
-  return { inventory: inv as unknown as Inventory, serviceHubs: hubs, remaining };
+  return {
+    inventory: inv as unknown as Inventory,
+    warehouseInventories: warehouses,
+    serviceHubs: hubs,
+    remaining,
+  };
+}
+
+/**
+ * Pure predicate: are `costs` fully covered by the physical storage view
+ * (warehouses + service hubs + last-resort global fallback)?
+ *
+ * This is the single source of truth used by `consumeFromPhysicalStorage`'s
+ * pre-check, so a `true` result here guarantees a successful consume call
+ * against the same `state` snapshot — no drift possible.
+ *
+ * Use this for affordance checks (build menu, upgrade buttons, crafting UI).
+ * `null`/`undefined`/empty `costs` are treated as trivially satisfiable.
+ */
+export function hasResourcesInPhysicalStorage(
+  state: GameState,
+  costs?: Partial<Record<keyof Inventory, number>> | null,
+): boolean {
+  if (!costs) return true;
+  return hasResources(getEffectiveBuildInventory(state), costs);
+}
+
+/**
+ * Public, all-or-nothing consume helper for physical resources.
+ *
+ * Behaviour contract:
+ *  - Pre-checks total availability via `hasResourcesInPhysicalStorage`.
+ *  - Either fully deducts and returns `{ ok: true, ...next }`,
+ *    or returns `{ ok: false }` and DOES NOT mutate any store.
+ *  - Priority: warehouses → service hubs → state.inventory (fallback).
+ *  - Negative inventory values are impossible by construction.
+ *
+ * Use this from gameplay code paths (build, upgrade, future crafting) that
+ * must never partially deduct. UI affordance checks should use
+ * `hasResourcesInPhysicalStorage` (same predicate, no side effects).
+ */
+export function consumeFromPhysicalStorage(
+  state: GameState,
+  costs: Partial<Record<keyof Inventory, number>>,
+): { ok: true; next: Pick<GameState, "inventory" | "warehouseInventories" | "serviceHubs"> } | { ok: false } {
+  if (!hasResourcesInPhysicalStorage(state, costs)) {
+    if (import.meta.env.DEV) {
+      console.warn("[consumeFromPhysicalStorage] Insufficient physical stock for", costs);
+    }
+    return { ok: false };
+  }
+  const consumed = consumeBuildResources(state, costs);
+  // hasResources guarantees remaining is empty; assert in DEV to catch logic drift.
+  if (import.meta.env.DEV && Object.keys(consumed.remaining).length > 0) {
+    console.error("[consumeFromPhysicalStorage] remaining after pre-check:", consumed.remaining);
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    next: {
+      inventory: consumed.inventory,
+      warehouseInventories: consumed.warehouseInventories,
+      serviceHubs: consumed.serviceHubs,
+    },
+  };
 }
 
 /**
@@ -2528,6 +2772,162 @@ function getCraftingJobById(
   return crafting.jobs.find((job) => job.id === jobId) ?? null;
 }
 
+type WorkbenchTaskNodeId =
+  | { kind: "input"; workbenchId: string; jobId: string; reservationId: string }
+  | { kind: "output"; workbenchId: string; jobId: string };
+
+function parseWorkbenchTaskNodeId(nodeId: string | null | undefined): WorkbenchTaskNodeId | null {
+  if (!nodeId) return null;
+
+  if (nodeId.startsWith("workbench_input:")) {
+    const [, workbenchId, jobId, reservationId] = nodeId.split(":");
+    if (!workbenchId || !jobId || !reservationId) return null;
+    return { kind: "input", workbenchId, jobId, reservationId };
+  }
+
+  if (nodeId.startsWith("workbench:")) {
+    const [, workbenchId, jobId] = nodeId.split(":");
+    if (!workbenchId || !jobId) return null;
+    return { kind: "output", workbenchId, jobId };
+  }
+
+  return null;
+}
+
+function isCollectableCraftingItem(
+  itemId: CraftingJob["ingredients"][number]["itemId"],
+): itemId is CollectableItemType {
+  return itemId === "wood" || itemId === "stone" || itemId === "iron" || itemId === "copper";
+}
+
+function getWorkbenchJobInputAmount(
+  job: CraftingJob,
+  itemId: CraftingJob["ingredients"][number]["itemId"],
+): number {
+  return (job.inputBuffer ?? []).reduce(
+    (sum, stack) => sum + (stack.itemId === itemId ? stack.count : 0),
+    0,
+  );
+}
+
+function hasCompleteWorkbenchInput(job: CraftingJob): boolean {
+  return job.ingredients.every(
+    (ingredient) => getWorkbenchJobInputAmount(job, ingredient.itemId) >= ingredient.count,
+  );
+}
+
+function addWorkbenchInputToJob(
+  job: CraftingJob,
+  stack: CraftingJob["ingredients"][number],
+): CraftingJob {
+  const existing = job.inputBuffer ?? [];
+  let merged = false;
+  const nextBuffer = existing.map((entry) => {
+    if (entry.itemId !== stack.itemId) return entry;
+    merged = true;
+    return { ...entry, count: entry.count + stack.count };
+  });
+
+  return {
+    ...job,
+    inputBuffer: merged ? nextBuffer : [...existing, stack],
+  };
+}
+
+function getCraftingReservationById(
+  network: Pick<GameState, "network">["network"],
+  reservationId: string,
+) {
+  return network.reservations.find((reservation) => reservation.id === reservationId) ?? null;
+}
+
+function getWorkbenchInputPickupAssetId(
+  job: CraftingJob,
+  assets: Record<string, PlacedAsset>,
+): string | null {
+  if (job.inventorySource.kind === "warehouse") {
+    return assets[job.inventorySource.warehouseId]?.type === "warehouse"
+      ? job.inventorySource.warehouseId
+      : null;
+  }
+  if (job.inventorySource.kind === "zone") {
+    return [...job.inventorySource.warehouseIds]
+      .sort()
+      .find((warehouseId) => assets[warehouseId]?.type === "warehouse") ?? null;
+  }
+  return null;
+}
+
+function resolveWorkbenchInputPickup(
+  job: CraftingJob,
+  assets: Record<string, PlacedAsset>,
+): { x: number; y: number } | null {
+  const assetId = getWorkbenchInputPickupAssetId(job, assets);
+  if (!assetId) return null;
+  const asset = assets[assetId];
+  return asset ? { x: asset.x, y: asset.y } : null;
+}
+
+function commitWorkbenchInputReservation(
+  state: GameState,
+  job: CraftingJob,
+  reservationId: string,
+): { nextState: GameState; itemType: CollectableItemType; amount: number } | null {
+  const reservation = getCraftingReservationById(state.network, reservationId);
+  if (!reservation) return null;
+  if (reservation.ownerKind !== "crafting_job" || reservation.ownerId !== job.reservationOwnerId) return null;
+  if (!isCollectableCraftingItem(reservation.itemId)) return null;
+  if (job.inventorySource.kind === "global") return null;
+
+  if (job.inventorySource.kind === "warehouse") {
+    const scoped = state.warehouseInventories[job.inventorySource.warehouseId]
+      ? { [job.inventorySource.warehouseId]: state.warehouseInventories[job.inventorySource.warehouseId] }
+      : {};
+    const result = applyNetworkAction(scoped, state.network, {
+      type: "NETWORK_COMMIT_RESERVATION",
+      reservationId,
+    });
+    if (result.network.lastError) return null;
+    return {
+      nextState: {
+        ...state,
+        warehouseInventories: {
+          ...state.warehouseInventories,
+          ...result.warehouseInventories,
+        },
+        network: result.network,
+      },
+      itemType: reservation.itemId,
+      amount: reservation.amount,
+    };
+  }
+
+  const scoped: Record<string, Inventory> = {};
+  for (const warehouseId of job.inventorySource.warehouseIds) {
+    const inventory = state.warehouseInventories[warehouseId];
+    if (inventory) {
+      scoped[warehouseId] = inventory;
+    }
+  }
+  const result = applyNetworkAction(scoped, state.network, {
+    type: "NETWORK_COMMIT_RESERVATION",
+    reservationId,
+  });
+  if (result.network.lastError) return null;
+  return {
+    nextState: {
+      ...state,
+      warehouseInventories: {
+        ...state.warehouseInventories,
+        ...result.warehouseInventories,
+      },
+      network: result.network,
+    },
+    itemType: reservation.itemId,
+    amount: reservation.amount,
+  };
+}
+
 function getWorkbenchDeliveryTargetAssetId(
   job: CraftingJob,
   assets: Record<string, PlacedAsset>,
@@ -2586,7 +2986,14 @@ function resolveDroneDropoff(
   }
 
   if (drone.currentTaskType === "workbench_delivery" && crafting) {
-    const job = getCraftingJobById(crafting, drone.craftingJobId);
+    const task = parseWorkbenchTaskNodeId(drone.targetNodeId);
+    if (task?.kind === "input") {
+      const workbenchAsset = assets[task.workbenchId];
+      if (workbenchAsset?.type === "workbench") {
+        return { x: workbenchAsset.x, y: workbenchAsset.y };
+      }
+    }
+    const job = getCraftingJobById(crafting, drone.craftingJobId ?? task?.jobId ?? null);
     if (job) return resolveWorkbenchDeliveryDropoff(job, assets);
   }
 
@@ -2744,6 +3151,7 @@ function removeAsset(
 
 function tryTogglePanelFromAsset(state: GameState, asset: PlacedAsset | null): GameState | null {
   if (!asset) return null;
+  if (isUnderConstruction(state, asset.id)) return null;
 
   if ((["workbench", "warehouse", "smithy", "generator", "battery", "power_pole", "manual_assembler", "service_hub"] as string[]).includes(asset.type)) {
     const panel = asset.type as UIPanel;
@@ -3649,6 +4057,79 @@ function finalizeWorkbenchDelivery(
   );
 }
 
+function routeWorkbenchInputCargoBack(
+  state: GameState,
+  job: CraftingJob | null,
+  cargo: DroneCargoItem,
+): GameState {
+  if (!job) {
+    return {
+      ...state,
+      inventory: addResources(state.inventory, { [cargo.itemType]: cargo.amount }),
+    };
+  }
+
+  const routed = routeOutput({
+    warehouseInventories: state.warehouseInventories,
+    globalInventory: state.inventory,
+    stack: { itemId: cargo.itemType, count: cargo.amount },
+    source: job.inventorySource,
+  });
+  return {
+    ...state,
+    warehouseInventories: routed.warehouseInventories as Record<string, Inventory>,
+    inventory: routed.globalInventory,
+  };
+}
+
+function finalizeWorkbenchInputDelivery(
+  state: GameState,
+  droneId: string,
+  task: Extract<WorkbenchTaskNodeId, { kind: "input" }>,
+  idleDrone: StarterDroneState,
+): GameState {
+  const drone = state.drones[droneId];
+  const cargo = drone?.cargo;
+  if (!cargo) {
+    return applyDroneUpdate(state, droneId, idleDrone);
+  }
+
+  const job = getCraftingJobById(state.crafting, task.jobId);
+  if (
+    !job ||
+    job.status !== "reserved" ||
+    job.workbenchId !== task.workbenchId ||
+    state.assets[job.workbenchId]?.type !== "workbench"
+  ) {
+    return applyDroneUpdate(
+      routeWorkbenchInputCargoBack(state, job, cargo),
+      droneId,
+      idleDrone,
+    );
+  }
+
+  const nextCrafting = {
+    ...state.crafting,
+    jobs: state.crafting.jobs.map((entry) =>
+      entry.id === job.id
+        ? addWorkbenchInputToJob(entry, { itemId: cargo.itemType, count: cargo.amount })
+        : entry,
+    ),
+  };
+
+  if (import.meta.env.DEV) {
+    debugLog.inventory(
+      `[Drone] workbench_input: delivered ${cargo.amount}× ${cargo.itemType} to ${job.workbenchId} for job ${job.id}`,
+    );
+  }
+
+  return applyDroneUpdate(
+    { ...state, crafting: nextCrafting },
+    droneId,
+    idleDrone,
+  );
+}
+
 /**
  * Tick one drone (identified by droneId) through its state machine for one step.
  * Reads from state.drones[droneId]; writes back via applyDroneUpdate so that
@@ -3703,8 +4184,30 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
       }
 
       if (task.taskType === "workbench_delivery") {
-        const [, workbenchId, jobId] = task.nodeId.split(":");
-        const workbenchAsset = currentState.assets[workbenchId];
+        const workbenchTask = parseWorkbenchTaskNodeId(task.nodeId);
+        if (!workbenchTask) return currentState;
+
+        if (workbenchTask.kind === "input") {
+          const job = getCraftingJobById(currentState.crafting, workbenchTask.jobId);
+          const pickup = job ? resolveWorkbenchInputPickup(job, currentState.assets) : null;
+          if (!job || job.status !== "reserved" || !pickup) {
+            return currentState;
+          }
+          debugLog.inventory(
+            `[Drone] workbench_input: flying to source for ${workbenchTask.reservationId} on job ${workbenchTask.jobId}`,
+          );
+          return applyDroneUpdate(currentState, droneId, {
+            ...drone,
+            status: "moving_to_collect",
+            targetNodeId: task.nodeId,
+            currentTaskType: "workbench_delivery",
+            deliveryTargetId: task.deliveryTargetId || null,
+            craftingJobId: workbenchTask.jobId,
+            ticksRemaining: droneTravelTicks(drone.tileX, drone.tileY, pickup.x, pickup.y),
+          });
+        }
+
+        const workbenchAsset = currentState.assets[workbenchTask.workbenchId];
         if (!workbenchAsset || workbenchAsset.type !== "workbench") {
           const idleDrone: StarterDroneState = {
             ...drone,
@@ -3716,16 +4219,16 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
             deliveryTargetId: null,
             craftingJobId: null,
           };
-          return finalizeWorkbenchDelivery(currentState, droneId, jobId ?? null, idleDrone);
+          return finalizeWorkbenchDelivery(currentState, droneId, workbenchTask.jobId ?? null, idleDrone);
         }
-        debugLog.inventory(`[Drone] workbench_delivery: flying to workbench ${workbenchId} for job ${jobId}`);
+        debugLog.inventory(`[Drone] workbench_delivery: flying to workbench ${workbenchTask.workbenchId} for job ${workbenchTask.jobId}`);
         return applyDroneUpdate(currentState, droneId, {
           ...drone,
           status: "moving_to_collect",
           targetNodeId: task.nodeId,
           currentTaskType: "workbench_delivery",
           deliveryTargetId: task.deliveryTargetId || null,
-          craftingJobId: jobId ?? null,
+          craftingJobId: workbenchTask.jobId ?? null,
           ticksRemaining: droneTravelTicks(drone.tileX, drone.tileY, workbenchAsset.x, workbenchAsset.y),
         });
       }
@@ -3753,9 +4256,39 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
     case "moving_to_collect": {
       const rem = drone.ticksRemaining - 1;
 
-      if (drone.currentTaskType === "workbench_delivery" && drone.targetNodeId?.startsWith("workbench:")) {
-        const [, workbenchId, jobId] = drone.targetNodeId.split(":");
-        const workbenchAsset = state.assets[workbenchId];
+      const workbenchTask = parseWorkbenchTaskNodeId(drone.targetNodeId);
+
+      if (drone.currentTaskType === "workbench_delivery" && workbenchTask?.kind === "input") {
+        const job = getCraftingJobById(state.crafting, workbenchTask.jobId);
+        const pickup = job ? resolveWorkbenchInputPickup(job, state.assets) : null;
+        if (!job || job.status !== "reserved" || !pickup) {
+          return applyDroneUpdate(state, droneId, {
+            ...drone,
+            status: "idle",
+            targetNodeId: null,
+            cargo: null,
+            ticksRemaining: 0,
+            currentTaskType: null,
+            deliveryTargetId: null,
+            craftingJobId: null,
+          });
+        }
+        if (rem > 0) {
+          const { x: nextX, y: nextY } = moveDroneToward(drone.tileX, drone.tileY, pickup.x, pickup.y, DRONE_SPEED_TILES_PER_TICK);
+          const { x: sepX, y: sepY } = nudgeAwayFromDrones(nextX, nextY, pickup.x, pickup.y, state.drones, drone.droneId);
+          return applyDroneUpdate(state, droneId, { ...drone, tileX: sepX, tileY: sepY, ticksRemaining: rem });
+        }
+        return applyDroneUpdate(state, droneId, {
+          ...drone,
+          tileX: pickup.x,
+          tileY: pickup.y,
+          status: "collecting",
+          ticksRemaining: DRONE_COLLECT_TICKS,
+        });
+      }
+
+      if (drone.currentTaskType === "workbench_delivery" && workbenchTask?.kind === "output") {
+        const workbenchAsset = state.assets[workbenchTask.workbenchId];
         if (!workbenchAsset || workbenchAsset.type !== "workbench") {
           const idleDrone: StarterDroneState = {
             ...drone,
@@ -3767,7 +4300,7 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
             deliveryTargetId: null,
             craftingJobId: null,
           };
-          return finalizeWorkbenchDelivery(state, droneId, jobId ?? drone.craftingJobId, idleDrone);
+          return finalizeWorkbenchDelivery(state, droneId, workbenchTask.jobId ?? drone.craftingJobId, idleDrone);
         }
         if (rem > 0) {
           const { x: nextX, y: nextY } = moveDroneToward(drone.tileX, drone.tileY, workbenchAsset.x, workbenchAsset.y, DRONE_SPEED_TILES_PER_TICK);
@@ -3841,7 +4374,61 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
       const rem = drone.ticksRemaining - 1;
       if (rem > 0) return applyDroneUpdate(state, droneId, { ...drone, ticksRemaining: rem });
 
-      if (drone.currentTaskType === "workbench_delivery") {
+      const workbenchTask = parseWorkbenchTaskNodeId(drone.targetNodeId);
+
+      if (drone.currentTaskType === "workbench_delivery" && workbenchTask?.kind === "input") {
+        const job = getCraftingJobById(state.crafting, workbenchTask.jobId);
+        if (!job || job.status !== "reserved") {
+          return applyDroneUpdate(state, droneId, {
+            ...drone,
+            status: "idle",
+            targetNodeId: null,
+            cargo: null,
+            ticksRemaining: 0,
+            currentTaskType: null,
+            deliveryTargetId: null,
+            craftingJobId: null,
+          });
+        }
+        const committed = commitWorkbenchInputReservation(state, job, workbenchTask.reservationId);
+        if (!committed) {
+          return applyDroneUpdate(state, droneId, {
+            ...drone,
+            status: "idle",
+            targetNodeId: null,
+            cargo: null,
+            ticksRemaining: 0,
+            currentTaskType: null,
+            deliveryTargetId: null,
+            craftingJobId: null,
+          });
+        }
+        const dropoff = resolveDroneDropoff(
+          {
+            ...drone,
+            targetNodeId: drone.targetNodeId,
+            deliveryTargetId: job.workbenchId,
+            craftingJobId: job.id,
+          },
+          committed.nextState.assets,
+          committed.nextState.serviceHubs,
+          committed.nextState.crafting,
+        );
+        debugLog.inventory(
+          `[Drone] workbench_input: picked up ${committed.amount}× ${committed.itemType} for ${job.workbenchId} → (${dropoff.x},${dropoff.y})`,
+        );
+        return applyDroneUpdate(committed.nextState, droneId, {
+          ...drone,
+          status: "moving_to_dropoff",
+          cargo: { itemType: committed.itemType, amount: committed.amount },
+          targetNodeId: drone.targetNodeId,
+          deliveryTargetId: job.workbenchId,
+          craftingJobId: job.id,
+          ticksRemaining: droneTravelTicks(drone.tileX, drone.tileY, dropoff.x, dropoff.y),
+        });
+      }
+
+      if (drone.currentTaskType === "workbench_delivery" && workbenchTask?.kind === "output") {
         const job = getCraftingJobById(state.crafting, drone.craftingJobId);
         if (!job || job.status !== "delivering") {
           return applyDroneUpdate(state, droneId, {
@@ -3999,7 +4586,11 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
     case "depositing": {
       const rem = drone.ticksRemaining - 1;
       if (rem > 0) return applyDroneUpdate(state, droneId, { ...drone, ticksRemaining: rem });
-      const idleDrone: StarterDroneState = { ...drone, status: "idle", cargo: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null };
+      const idleDrone: StarterDroneState = { ...drone, status: "idle", targetNodeId: null, cargo: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null };
+      const workbenchTask = parseWorkbenchTaskNodeId(drone.targetNodeId);
+      if (drone.currentTaskType === "workbench_delivery" && workbenchTask?.kind === "input") {
+        return finalizeWorkbenchInputDelivery(state, droneId, workbenchTask, idleDrone);
+      }
       if (drone.currentTaskType === "workbench_delivery") {
         return finalizeWorkbenchDelivery(state, droneId, drone.craftingJobId, idleDrone);
       }
@@ -4142,16 +4733,31 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
       const urgentTask = selectDroneTask(state, drone);
       if (urgentTask) {
         if (urgentTask.taskType === "workbench_delivery") {
-          const [, workbenchId, jobId] = urgentTask.nodeId.split(":");
-          const workbenchAsset = state.assets[workbenchId];
-          if (workbenchAsset?.type === "workbench") {
+          const workbenchTask = parseWorkbenchTaskNodeId(urgentTask.nodeId);
+          if (workbenchTask?.kind === "input") {
+            const job = getCraftingJobById(state.crafting, workbenchTask.jobId);
+            const pickup = job ? resolveWorkbenchInputPickup(job, state.assets) : null;
+            if (job && job.status === "reserved" && pickup) {
+              return applyDroneUpdate(state, droneId, {
+                ...drone,
+                status: "moving_to_collect",
+                targetNodeId: urgentTask.nodeId,
+                currentTaskType: "workbench_delivery",
+                deliveryTargetId: urgentTask.deliveryTargetId || null,
+                craftingJobId: workbenchTask.jobId,
+                ticksRemaining: droneTravelTicks(drone.tileX, drone.tileY, pickup.x, pickup.y),
+              });
+            }
+          }
+          const workbenchAsset = workbenchTask ? state.assets[workbenchTask.workbenchId] : null;
+          if (workbenchTask?.kind === "output" && workbenchAsset?.type === "workbench") {
             return applyDroneUpdate(state, droneId, {
               ...drone,
               status: "moving_to_collect",
               targetNodeId: urgentTask.nodeId,
               currentTaskType: "workbench_delivery",
               deliveryTargetId: urgentTask.deliveryTargetId || null,
-              craftingJobId: jobId ?? null,
+              craftingJobId: workbenchTask.jobId ?? null,
               ticksRemaining: droneTravelTicks(drone.tileX, drone.tileY, workbenchAsset.x, workbenchAsset.y),
             });
           }
@@ -4250,6 +4856,15 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         };
       }
       const resolvedSource = resolveBuildingSource(state, action.workbenchId);
+      if (resolvedSource.kind === "global") {
+        return {
+          ...state,
+          notifications: addErrorNotification(
+            state.notifications,
+            "Werkbank braucht ein physisches Lager als Quelle.",
+          ),
+        };
+      }
       const r = craftingEnqueueJob(state.crafting, {
         recipeId: action.recipeId,
         workbenchId: action.workbenchId,
@@ -5151,7 +5766,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             constructionSites: { ...state.constructionSites, [minerId]: { buildingType: bType, remaining: fullCostAsRemaining(costs) } } };
         } else {
           const consumedM = consumeBuildResources(state, costs as Partial<Record<keyof Inventory, number>>);
-          partialM = { ...state, assets: newAssets, cellMap: newCellMap, inventory: consumedM.inventory, serviceHubs: consumedM.serviceHubs, autoMiners: newAutoMiners };
+          partialM = { ...state, assets: newAssets, cellMap: newCellMap, inventory: consumedM.inventory, warehouseInventories: consumedM.warehouseInventories, serviceHubs: consumedM.serviceHubs, autoMiners: newAutoMiners };
         }
         // Auto-assign nearest warehouse source for zone-aware output
         const nearestWhIdM = getNearestWarehouseId(partialM, x, y);
@@ -5180,7 +5795,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             constructionSites: { ...state.constructionSites, [convPlaced.id]: { buildingType: bType, remaining: fullCostAsRemaining(costs) } } };
         } else {
           const consumedC = consumeBuildResources(state, costs as Partial<Record<keyof Inventory, number>>);
-          partialC = { ...state, assets: newAssetsC, cellMap: convPlaced.cellMap, inventory: consumedC.inventory, serviceHubs: consumedC.serviceHubs, conveyors: newConveyors };
+          partialC = { ...state, assets: newAssetsC, cellMap: convPlaced.cellMap, inventory: consumedC.inventory, warehouseInventories: consumedC.warehouseInventories, serviceHubs: consumedC.serviceHubs, conveyors: newConveyors };
         }
         return { ...partialC, connectedAssetIds: computeConnectedAssetIds(partialC) };
       }
@@ -5266,6 +5881,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             assets: newAssets,
             cellMap: placed.cellMap,
             inventory: newInv.inventory,
+            warehouseInventories: newInv.warehouseInventories,
             serviceHubs: newInv.serviceHubs,
             autoSmelters: newAutoSmelters,
             placedBuildings: [...state.placedBuildings, bType],
@@ -5312,6 +5928,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // Deduct costs — construction site: drone delivers everything; otherwise consume immediately
       let newInvB = state.inventory;
       let newHubsB = state.serviceHubs;
+      let newWarehousesB = state.warehouseInventories;
       let newConstructionSites = state.constructionSites;
       if (useConstructionSite) {
         newConstructionSites = {
@@ -5323,6 +5940,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         const consumedB = consumeBuildResources(state, costs as Partial<Record<keyof Inventory, number>>);
         newInvB = consumedB.inventory;
         newHubsB = consumedB.serviceHubs;
+        newWarehousesB = consumedB.warehouseInventories;
         debugLog.building(`[BuildMode] Placed ${BUILDING_LABELS[bType]} at (${x},${y})`);
       }
 
@@ -5362,6 +5980,12 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // Apply updated hub inventories (resources consumed from hubs for building)
       if (newHubsB !== state.serviceHubs) {
         partialBuild = { ...partialBuild, serviceHubs: newHubsB };
+      }
+      // Apply updated warehouse inventories (resources consumed from warehouses for building)
+      if (newWarehousesB !== state.warehouseInventories) {
+        partialBuild = { ...partialBuild, warehouseInventories: { ...newWarehousesB, ...(partialBuild.warehouseInventories ?? {}) } };
+        // Note: spread order preserves any in-place additions (e.g. new warehouse asset above)
+        // by overlaying them on top of the consumed map.
       }
 
       // Auto-assign nearest warehouse source for newly placed crafting buildings
@@ -5607,7 +6231,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         const newFloorMap = { ...state.floorMap, [key]: "stone_floor" as const };
         const consumedF = consumeBuildResources(state, tileCosts as Partial<Record<keyof Inventory, number>>);
         debugLog.building(`[BuildMode] Placed stone_floor at (${x},${y})`);
-        return { ...state, floorMap: newFloorMap, inventory: consumedF.inventory, serviceHubs: consumedF.serviceHubs };
+        return { ...state, floorMap: newFloorMap, inventory: consumedF.inventory, warehouseInventories: consumedF.warehouseInventories, serviceHubs: consumedF.serviceHubs };
       } else {
         // grass_block: convert stone_floor back to grass (no object on cell)
         if (!state.floorMap[key]) {
@@ -5620,7 +6244,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         delete newFloorMap[key];
         const consumedF = consumeBuildResources(state, tileCosts as Partial<Record<keyof Inventory, number>>);
         debugLog.building(`[BuildMode] Placed grass_block at (${x},${y}) – stone floor removed`);
-        return { ...state, floorMap: newFloorMap, inventory: consumedF.inventory, serviceHubs: consumedF.serviceHubs };
+        return { ...state, floorMap: newFloorMap, inventory: consumedF.inventory, warehouseInventories: consumedF.warehouseInventories, serviceHubs: consumedF.serviceHubs };
       }
     }
 
@@ -6195,10 +6819,12 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       }
       const hub = state.serviceHubs[action.hubId];
       if (!hub || hub.tier !== 1) return state;
-      if (!hasResources(state.inventory, HUB_UPGRADE_COST as Partial<Record<keyof Inventory, number>>)) {
+      // All-or-nothing transaction against physical stores (warehouses → hubs → global fallback).
+      const consumedHub = consumeFromPhysicalStorage(state, HUB_UPGRADE_COST as Partial<Record<keyof Inventory, number>>);
+      if (!consumedHub.ok) {
         return { ...state, notifications: addErrorNotification(state.notifications, "Nicht genug Ressourcen für das Upgrade!") };
       }
-      const newInv = consumeResources(state.inventory, HUB_UPGRADE_COST as Partial<Record<keyof Inventory, number>>);
+      const newInv = consumedHub.next.inventory;
       // Expand target stock: keep existing values, ensure at least Tier 2 defaults
       const expandedStock: Record<CollectableItemType, number> = {
         wood: Math.max(hub.targetStock.wood, SERVICE_HUB_TARGET_STOCK.wood),
@@ -6233,9 +6859,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return syncDrones({
         ...state,
         inventory: newInv,
-        drones: newDrones,
+        warehouseInventories: consumedHub.next.warehouseInventories,
         serviceHubs: {
-          ...state.serviceHubs,
+          ...consumedHub.next.serviceHubs,
           [action.hubId]: {
             ...hub,
             tier: 2,
@@ -6243,6 +6869,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             droneIds: hubDroneIds,
           },
         },
+        drones: newDrones,
         notifications: addNotification(state.notifications, "hub_upgrade", 1),
       });
     }

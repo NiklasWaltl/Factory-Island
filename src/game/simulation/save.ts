@@ -827,7 +827,20 @@ function sanitizeCraftingQueue(
     if (j.status === "done" || j.status === "cancelled") { cancelled++; continue; }
     // Cancel jobs whose workbench was deleted between save and load
     if (!liveAssetIds.has(j.workbenchId)) { cancelled++; continue; }
-    cleaned.push(j);
+    cleaned.push({
+      ...j,
+      inputBuffer: Array.isArray((j as Partial<CraftingJob>).inputBuffer)
+        ? (j as Partial<CraftingJob>).inputBuffer!.filter(
+            (stack): stack is CraftingJob["ingredients"][number] =>
+              !!stack &&
+              typeof stack === "object" &&
+              typeof stack.itemId === "string" &&
+              typeof stack.count === "number" &&
+              Number.isFinite(stack.count) &&
+              stack.count > 0,
+          )
+        : [],
+    });
   }
   const maxSeq = cleaned.reduce((m, j) => (j.enqueuedAt > m ? j.enqueuedAt : m), 0);
   const nextJobSeq = Math.max(
@@ -1110,6 +1123,52 @@ export function deserializeState(save: SaveGameLatest): GameState {
   partial.drones = Object.fromEntries(
     Object.entries(partial.drones).map(([id, drone]) => [id, snapIdleDroneToDock(drone)]),
   );
+
+  // ---- Phase 1: re-derive globalInventory from physical stores ------
+  // `state.inventory` is no longer the primary source of truth for keys that
+  // have a physical home (wood/stone/iron/copper/ingots). Any such value
+  // coming from an older save would double-count with warehouse/hub stock in
+  // `selectGlobalInventoryView` and diverge from what build/consume paths see.
+  //
+  // Rule (mirrors the debug-fill & consume priority introduced in Phase 1):
+  //   - If at least one warehouse exists → zero every physical key in global
+  //     (warehouses can hold every physical key).
+  //   - Else if at least one hub exists  → zero only hub-eligible keys
+  //     (wood/stone/iron/copper). Ingots stay in global as legacy fallback
+  //     because no hub can hold them.
+  //   - Else → keep globalInventory as-is (pure legacy fallback: no physical
+  //     home exists anywhere in the loaded state).
+  //
+  // Non-physical keys (coins, sapling, tools, building counters) are never
+  // touched — they only ever live in `state.inventory`.
+  {
+    const hasWarehouse = Object.keys(partial.warehouseInventories).length > 0;
+    const hasHub = Object.keys(partial.serviceHubs).length > 0;
+    const PHYSICAL_WAREHOUSE_KEYS = ["wood", "stone", "iron", "copper", "ironIngot", "copperIngot"] as const;
+    const PHYSICAL_HUB_KEYS = ["wood", "stone", "iron", "copper"] as const;
+    const keysToZero: ReadonlyArray<keyof Inventory> = hasWarehouse
+      ? (PHYSICAL_WAREHOUSE_KEYS as unknown as ReadonlyArray<keyof Inventory>)
+      : hasHub
+        ? (PHYSICAL_HUB_KEYS as unknown as ReadonlyArray<keyof Inventory>)
+        : [];
+    if (keysToZero.length > 0) {
+      const nextInv = { ...partial.inventory } as Record<string, number>;
+      let changed = false;
+      for (const key of keysToZero) {
+        if ((nextInv[key as string] ?? 0) !== 0) {
+          nextInv[key as string] = 0;
+          changed = true;
+        }
+      }
+      if (changed) {
+        partial.inventory = nextInv as unknown as Inventory;
+        debugLog.general(
+          `Load: re-derived globalInventory — zeroed physical keys [${keysToZero.join(", ")}] ` +
+            `(warehouse=${hasWarehouse}, hub=${hasHub}).`,
+        );
+      }
+    }
+  }
 
   // Re-derive connectivity (two-phase BFS)
   partial.connectedAssetIds = computeConnectedAssetIds(partial);

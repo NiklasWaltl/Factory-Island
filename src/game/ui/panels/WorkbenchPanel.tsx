@@ -33,11 +33,13 @@ export const WorkbenchPanel: React.FC<WorkbenchPanelProps> = React.memo(({
 
       <div className="fi-shop-list">
         {WORKBENCH_RECIPES.map((recipe) => {
+          const hasPhysicalSource = info.source.kind !== "global";
           const canAfford = Object.entries(recipe.costs).every(
             ([res, amt]) =>
               (sourceInv[res as keyof Inventory] as number ?? 0) >=
               (amt ?? 0)
           );
+          const canQueue = hasPhysicalSource && canAfford;
 
           return (
             <div key={recipe.key} className="fi-shop-item">
@@ -60,16 +62,25 @@ export const WorkbenchPanel: React.FC<WorkbenchPanelProps> = React.memo(({
               </div>
               <button
                 className="fi-btn"
-                disabled={!canAfford}
+                disabled={!canQueue}
                 onClick={() =>
-                  dispatch({ type: "CRAFT_WORKBENCH", recipeKey: recipe.key })
+                  buildingId &&
+                  dispatch({
+                    type: "JOB_ENQUEUE",
+                    recipeId: recipe.key,
+                    workbenchId: buildingId,
+                    priority: "high",
+                    source: "player",
+                  })
                 }
               >
-                Herstellen
+                Craft
               </button>
-              {!canAfford && (
+              {!canQueue && (
                 <div style={{ fontSize: 10, color: "#e8a946", marginTop: 2 }}>
-                  {info.fallbackReason === "zone_no_warehouses"
+                  {!hasPhysicalSource
+                    ? "Werkbank braucht physisches Lager"
+                    : info.fallbackReason === "zone_no_warehouses"
                     ? "Zone hat keine Lagerh\u00e4user"
                     : info.source.kind === "zone"
                       ? "Zu wenig Ressourcen in der Zone"

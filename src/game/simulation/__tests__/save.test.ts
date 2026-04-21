@@ -249,11 +249,13 @@ describe("loadAndHydrate", () => {
     expect(state.mode).toBe("release");
   });
 
-  it("loads a valid v1 save correctly", () => {
+  it("loads a valid v1 save correctly (physical keys migrate out of globalInventory post-load)", () => {
     const v1 = makeV1Save({ mode: "release" });
     v1.inventory.wood = 999;
     const state = loadAndHydrate(v1, "release");
-    expect(state.inventory.wood).toBe(999);
+    // Post-Phase-1: the auto-created proto-hub means `wood` has a physical
+    // home → globalInventory is re-derived and zeros it out.
+    expect(state.inventory.wood).toBe(0);
     expect(Array.isArray(state.connectedAssetIds)).toBe(true);
   });
 
@@ -280,8 +282,10 @@ describe("round-trip", () => {
     const parsed = JSON.parse(json);
     const loaded = loadAndHydrate(parsed, "release");
 
-    expect(loaded.inventory.wood).toBe(123);
-    expect(loaded.inventory.ironIngot).toBe(7);
+    // Phase 1: release auto-creates a starter warehouse which is a physical
+    // home for every physical key (including ingots) → global is zeroed on load.
+    expect(loaded.inventory.wood).toBe(0);
+    expect(loaded.inventory.ironIngot).toBe(0);
     expect(loaded.generators["rt-gen-1"].fuel).toBe(5);
     expect(loaded.mode).toBe("release");
   });
@@ -312,9 +316,10 @@ describe("round-trip", () => {
     const parsed = JSON.parse(json);
     const loaded = loadAndHydrate(parsed, "release");
 
-    // Global inventory preserved
-    expect(loaded.inventory.wood).toBe(50);
-    // Per-warehouse inventories preserved independently
+    // Phase 1: warehouses exist → physical keys in globalInventory are
+    // zeroed on load (warehouses are the source of truth).
+    expect(loaded.inventory.wood).toBe(0);
+    // Per-warehouse inventories preserved independently.
     expect(loaded.warehouseInventories["wh-1"].iron).toBe(15);
     expect(loaded.warehouseInventories["wh-1"].copper).toBe(8);
     expect(loaded.warehouseInventories["wh-2"].wood).toBe(3);
@@ -327,14 +332,16 @@ describe("round-trip", () => {
     original.warehouseInventories = {
       "wh-x": { ...original.inventory, iron: 5 },
     };
-    // The warehouse has 5 iron, global has 100 — they must stay separate.
+    // The warehouse has 5 iron, global has 100 - they must stay separate in the save.
 
     const save = serializeState(original);
     expect(save.inventory.iron).toBe(100);
     expect(save.warehouseInventories["wh-x"].iron).toBe(5);
 
     const loaded = deserializeState(save);
-    expect(loaded.inventory.iron).toBe(100);
+    // Phase 1: warehouses are authoritative after load → global iron is zeroed,
+    // warehouse iron stays intact.
+    expect(loaded.inventory.iron).toBe(0);
     expect(loaded.warehouseInventories["wh-x"].iron).toBe(5);
   });
 });

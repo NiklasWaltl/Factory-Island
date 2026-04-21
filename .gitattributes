@@ -1,1 +1,35 @@
-* text=auto eol=lf
+# Normalize text files by default so Git stores consistent line endings.
+* text=auto
+
+# Keep source and web asset text files in LF across platforms.
+*.ts text=auto eol=lf
+*.tsx text=auto eol=lf
+*.jsx text=auto eol=lf
+*.json text=auto eol=lf
+*.css text=auto eol=lf
+
+# Shell scripts must stay LF for POSIX shells and CI.
+*.sh text eol=lf
+
+# Batch files should keep CRLF for cmd.exe on Windows.
+*.bat text eol=crlf
+
+# Project config files should be treated as normalized text.
+.eslintrc text=auto
+.eslintrc.* text=auto
+.prettierrc text=auto
+.prettierrc.* text=auto
+tsconfig.json text=auto
+tsconfig.*.json text=auto
+
+# VS Code settings and workspace files are regular text.
+.vscode/** text=auto
+*.code-workspace text=auto
+
+# Pixel-art and tileset assets must never be line-normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+**/tilesets/**/*.json binary
+*tileset*.json binary

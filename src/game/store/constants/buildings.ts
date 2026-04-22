@@ -22,6 +22,9 @@ import type {
  */
 export const GENERATOR_MAX_FUEL = 70;
 
+/** Maximum number of items a single conveyor tile can queue. */
+export const CONVEYOR_TILE_CAPACITY = 4;
+
 export const BUILDING_COSTS: Record<
   BuildingType,
   Partial<Record<keyof Inventory, number>>
@@ -74,6 +77,15 @@ export const BUILDING_SIZES: Record<BuildingType, 1 | 2> = {
   service_hub: 2,
 };
 
+/** Maximum number of warehouses a player can place. */
+export const MAX_WAREHOUSES = 2;
+
+/** Maximum number of production zones a player can create. */
+export const MAX_ZONES = 8;
+
+/** Maximum number of items per resource in one warehouse inventory. */
+export const WAREHOUSE_CAPACITY = 20;
+
 /** Building types that can be purchased/placed multiple times */
 export const STACKABLE_BUILDINGS = new Set<BuildingType>(["cable", "power_pole", "auto_miner", "conveyor", "conveyor_corner", "auto_smelter", "generator"]);
 
@@ -82,6 +94,13 @@ export const BUILDINGS_WITH_DEFAULT_SOURCE = new Set<BuildingType>(["workbench",
 
 /** Building types that require stone floor under ALL their cells before they can be placed */
 export const REQUIRES_STONE_FLOOR = new Set<BuildingType>(["generator"]);
+
+/** Buildings eligible for drone-based construction when a service hub exists. */
+export const CONSTRUCTION_SITE_BUILDINGS = new Set<BuildingType>([
+  "workbench", "warehouse", "smithy", "generator", "service_hub",
+  "cable", "power_pole", "battery", "auto_miner",
+  "conveyor", "conveyor_corner", "manual_assembler", "auto_smelter",
+]);
 
 // ---- Building Input Buffers --------------------------------------------------
 //

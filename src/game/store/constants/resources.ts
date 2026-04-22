@@ -10,6 +10,12 @@
 // store/reducer.ts to avoid an ESM initialisation cycle.
 // ============================================================
 
+/** Collectable raw resources used in construction and hub stock policies. */
+export const COLLECTABLE_KEYS = new Set<string>(["wood", "stone", "iron", "copper"]);
+
+/** Drop amount for all 1x1 harvestable resources (tree, stone, iron, copper). */
+export const RESOURCE_1x1_DROP_AMOUNT = 10;
+
 export const RESOURCE_LABELS: Record<string, string> = {
   coins: "Coins",
   wood: "Holz",

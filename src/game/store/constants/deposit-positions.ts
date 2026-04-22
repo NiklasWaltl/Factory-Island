@@ -17,3 +17,10 @@ export const DEPOSIT_POSITIONS: { type: AssetType; x: number; y: number }[] = [
   { type: "iron_deposit", x: GRID_W - 5, y: 2 },
   { type: "copper_deposit", x: 2, y: GRID_H - 5 },
 ];
+
+/** Maps deposit asset type to the resource it produces. */
+export const DEPOSIT_RESOURCE: Record<string, "stone" | "iron" | "copper"> = {
+  stone_deposit: "stone",
+  iron_deposit: "iron",
+  copper_deposit: "copper",
+};

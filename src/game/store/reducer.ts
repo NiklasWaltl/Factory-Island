@@ -7,6 +7,11 @@ import { CELL_PX, GRID_H, GRID_W } from "../constants/grid";
 import {
   BUILDING_COSTS,
   BUILDING_LABELS,
+  CONVEYOR_TILE_CAPACITY,
+  CONSTRUCTION_SITE_BUILDINGS,
+  MAX_ZONES,
+  MAX_WAREHOUSES,
+  WAREHOUSE_CAPACITY,
   BUILDING_SIZES,
   BUILDINGS_WITH_DEFAULT_SOURCE,
   GENERATOR_MAX_FUEL,
@@ -34,6 +39,21 @@ import {
   tickCraftingJobs,
 } from "../crafting/tick";
 import { routeOutput } from "../crafting/output";
+import {
+  decideSmelterWorkflowActions,
+  type SmelterWorkflowAction,
+} from "./decisions/smelter-workflow";
+import { computeEnergyAllocationOrder } from "./energy/energy-priority";
+import { scheduleNextDroneTask } from "./scheduler/drone-scheduler";
+import {
+  decideConstructionPlanningActions,
+} from "./workflows/construction-planning";
+import {
+  decideHubRestockActions,
+} from "./workflows/hub-restock-workflow";
+import {
+  decideConveyorRoutingAction,
+} from "./workflows/logistics-routing";
 import type {
   CraftingAction,
   CraftingInventorySource,
@@ -127,8 +147,6 @@ export function isUnderConstruction(state: Pick<GameState, "constructionSites">,
 // ============================================================
 // CONSTANTS
 // ============================================================
-
-export const CONVEYOR_TILE_CAPACITY = 4;
 export { GRID_W, GRID_H, CELL_PX };
 
 // Building constants & input-buffer configuration live in ./constants/buildings.
@@ -142,7 +160,7 @@ export * from "./constants/assets";
 
 // Resource display tables (labels/emojis) live in ./constants/resources.
 // Imported for internal use and re-exported for backward compatibility.
-import { RESOURCE_LABELS, RESOURCE_EMOJIS } from "./constants/resources";
+import { COLLECTABLE_KEYS, RESOURCE_1x1_DROP_AMOUNT, RESOURCE_LABELS, RESOURCE_EMOJIS } from "./constants/resources";
 export * from "./constants/resources";
 
 // Floor tile constants live in ./constants/floor.
@@ -166,9 +184,20 @@ export * from "./constants/timing";
 // Imported for internal use and re-exported for backward compatibility.
 import {
   AUTO_MINER_PRODUCE_TICKS,
+  DELIVERY_OFFSETS,
+  DRONE_CAPACITY,
   DRONE_COLLECT_TICKS,
+  DRONE_DEMAND_BONUS_MAX,
+  DRONE_DOCK_COLUMNS,
   DRONE_DEPOSIT_TICKS,
+  DRONE_ROLE_BONUS,
+  DRONE_SEPARATION_RADIUS,
+  DRONE_SEPARATION_STRENGTH,
+  DRONE_SPREAD_PENALTY_PER_DRONE,
   DRONE_SPEED_TILES_PER_TICK,
+  DRONE_STICKY_BONUS,
+  DRONE_TASK_BASE_SCORE,
+  DRONE_URGENCY_BONUS_MAX,
 } from "./constants/drone-config";
 export * from "./constants/drone-config";
 
@@ -183,7 +212,12 @@ export * from "./constants/energy-smelter";
 
 // Energy balance constants live in ./constants/energy-balance.
 // Imported for internal use and re-exported for backward compatibility.
-import { ENERGY_DRAIN } from "./constants/energy-balance";
+import {
+  DEFAULT_MACHINE_PRIORITY,
+  ENERGY_DRAIN,
+  POWER_CABLE_CONDUCTOR_TYPES,
+  POWER_POLE_RANGE_TYPES,
+} from "./constants/energy-balance";
 export * from "./constants/energy-balance";
 
 // Generator constants live in ./constants/generator.
@@ -245,6 +279,15 @@ import {
 } from "./constants/hub-max-drones";
 export * from "./constants/hub-max-drones";
 
+// Drone assignment cap constants live in ./constants/drone-assignment-caps.
+// Imported for internal use and re-exported for backward compatibility.
+import {
+  MAX_DRONES_PER_BUILDING_SUPPLY,
+  MAX_DRONES_PER_CONSTRUCTION_TARGET,
+  MAX_DRONES_PER_HUB_RESTOCK_RESOURCE,
+} from "./constants/drone-assignment-caps";
+export * from "./constants/drone-assignment-caps";
+
 // Service hub upgrade cost lives in ./constants/hub-upgrade-cost.
 // Imported for internal use and re-exported for backward compatibility.
 import { HUB_UPGRADE_COST } from "./constants/hub-upgrade-cost";
@@ -253,62 +296,59 @@ export * from "./constants/hub-upgrade-cost";
 // Deposit constants live in ./constants/deposit-positions.
 // Imported for internal use and re-exported for backward compatibility.
 import {
+  DEPOSIT_RESOURCE,
   DEPOSIT_POSITIONS,
   DEPOSIT_TYPES,
 } from "./constants/deposit-positions";
 export * from "./constants/deposit-positions";
 
-export interface MapShopItem {
-  key: string;
-  label: string;
-  emoji: string;
-  costCoins: number;
-  inventoryKey: keyof Inventory;
-}
+// Battery constants live in ./constants/battery.
+// Imported for internal use and re-exported for backward compatibility.
+import { BATTERY_CAPACITY } from "./constants/battery";
+export * from "./constants/battery";
 
-export const MAP_SHOP_ITEMS: MapShopItem[] = [
-  { key: "axe", label: "Axt", emoji: "\u{1FA93}", costCoins: 10, inventoryKey: "axe" },
-];
+// Power pole constants live in ./constants/power-pole.
+// Imported for internal use and re-exported for backward compatibility.
+import { POWER_POLE_RANGE } from "./constants/power-pole";
+export * from "./constants/power-pole";
 
-/** Drop amount for all 1×1 harvestable resources (tree, stone, iron, copper). */
-export const RESOURCE_1x1_DROP_AMOUNT = 10;
+// Auto-delivery constants live in ./constants/auto-delivery.
+// Imported for internal use only (currently no public re-export needed).
+import {
+  AUTO_DELIVERY_BATCH_WINDOW_MS,
+  AUTO_DELIVERY_LOG_MAX,
+} from "./constants/auto-delivery";
+
+// Auto-smelter constants live in ./constants/auto-smelter.
+// Imported for internal use only (currently no public re-export needed).
+import { AUTO_SMELTER_BUFFER_CAPACITY } from "./constants/auto-smelter";
+
+// Boost multiplier constants live in ./constants/boost-multipliers.
+// Imported for internal use and re-exported for backward compatibility.
+import {
+  AUTO_MINER_BOOST_MULTIPLIER,
+  AUTO_SMELTER_BOOST_MULTIPLIER,
+} from "./constants/boost-multipliers";
+export * from "./constants/boost-multipliers";
+
+// Hotbar layout constants live in ./constants/hotbar.
+// Imported for internal use and re-exported for backward compatibility.
+import { EMPTY_HOTBAR_SLOT, HOTBAR_SIZE, HOTBAR_STACK_MAX } from "./constants/hotbar";
+export * from "./constants/hotbar";
+
+// Map shop offer constants/types live in ./constants/shop.
+// Imported for internal use and re-exported for backward compatibility.
+import { MAP_SHOP_ITEMS } from "./constants/shop";
+export * from "./constants/shop";
+
+// Map layout constants live in ./constants/map-layout.
+// Imported for internal use and re-exported for backward compatibility.
+import { MAP_SHOP_POS } from "./constants/map-layout";
+export * from "./constants/map-layout";
+
 if (import.meta.env.DEV) console.log(`[FactoryIsland] Drop-Multiplikator auf ${RESOURCE_1x1_DROP_AMOUNT}x für 1x1-Ressourcen gesetzt.`);
-export const HOTBAR_SIZE = 9;
-export const HOTBAR_STACK_MAX = 5;
-export const WAREHOUSE_CAPACITY = 20;
-export const MAX_WAREHOUSES = 2;
 
 // ---- Energy / Generator ----
-export const DEFAULT_MACHINE_PRIORITY: MachinePriority = 3;
-
-const POWER_CABLE_CONDUCTOR_TYPES = new Set<AssetType>([
-  "cable",
-  "generator",
-  "power_pole",
-]);
-
-const POWER_POLE_RANGE_TYPES = new Set<AssetType>([
-  "power_pole",
-  "battery",
-  "smithy",
-  "auto_miner",
-  "conveyor",
-  "conveyor_corner",
-  "auto_smelter",
-]);
-
-/**
- * Tie-break order for machines with the same user priority.
- * Lower rank is served first so transport stays alive before downstream processing.
- */
-const ENERGY_ALLOCATION_RANK: Partial<Record<AssetType, number>> = {
-  conveyor: 0,
-  conveyor_corner: 0,
-  auto_miner: 1,
-  smithy: 2,
-  auto_smelter: 3,
-};
-
 export function isPowerCableConductorType(type: AssetType): boolean {
   return POWER_CABLE_CONDUCTOR_TYPES.has(type);
 }
@@ -325,10 +365,6 @@ function clampMachinePriority(priority: number | undefined): MachinePriority {
 
 export function isEnergyConsumerType(type: AssetType): boolean {
   return ENERGY_DRAIN[type] != null;
-}
-
-function getEnergyAllocationRank(type: AssetType): number {
-  return ENERGY_ALLOCATION_RANK[type] ?? 4;
 }
 
 export function getConnectedConsumerDrainEntries(
@@ -377,27 +413,8 @@ function withDefaultMachinePriority(type: AssetType): Pick<PlacedAsset, "priorit
 // ---- Auto-Miner / Conveyor ----
 // ---- Crafting job queue ----
 // ---- Starter Drone ----
-/** Max items carried per trip. */
-export const DRONE_CAPACITY = 5;
-/**
- * Chebyshev radius (tiles) within which drones repel each other.
- * Matches DRONE_SPEED_TILES_PER_TICK so a fast drone always sees its
- * nearest neighbour before crossing.
- */
-export const DRONE_SEPARATION_RADIUS = 2;
-/** Maximum tiles of separation nudge applied per tick (< 1 so velocity is never reversed). */
-const DRONE_SEPARATION_STRENGTH = 0.8;
 
 // ---- Service Hub ----
-/** Hard cap to prevent a single construction target from mobilizing the entire drone fleet. */
-export const MAX_DRONES_PER_CONSTRUCTION_TARGET = 4;
-/** Hard cap for concurrent restock trips of the same resource into one hub. */
-export const MAX_DRONES_PER_HUB_RESTOCK_RESOURCE = 4;
-/** Hard cap for concurrent supply trips into the same building input buffer. */
-export const MAX_DRONES_PER_BUILDING_SUPPLY = 4;
-
-/** Number of parking columns laid out on top of the 2x2 hub footprint. */
-const DRONE_DOCK_COLUMNS = 2;
 
 /**
  * Deterministic dock offset for a drone slot relative to hub top-left.
@@ -419,13 +436,6 @@ export function getDroneDockOffset(slotIndex: number): { dx: number; dy: number 
  * Multiple drones delivering to the same site land at slightly different tiles.
  * These are purely cosmetic/spatial — no effect on game logic.
  */
-const DELIVERY_OFFSETS: readonly { dx: number; dy: number }[] = [
-  { dx: 0, dy: 0 },
-  { dx: 0, dy: 1 },
-  { dx: 1, dy: 0 },
-  { dx: 1, dy: 1 },
-];
-
 /**
  * Deterministic delivery slot index for a drone, derived from its droneId.
  * Stable as long as droneId is constant (which it is — see StarterDroneState.droneId).
@@ -610,21 +620,9 @@ export function getParkedDrones(
 // ---- Construction Sites ----
 
 /**
- * Buildings eligible for drone-based construction when a service hub exists.
- * Only includes buildings whose costs are purely CollectableItemType resources
- * and use the generic placement path.
- */
-export const CONSTRUCTION_SITE_BUILDINGS = new Set<BuildingType>([
-  "workbench", "warehouse", "smithy", "generator", "service_hub",
-  "cable", "power_pole", "battery", "auto_miner",
-  "conveyor", "conveyor_corner", "manual_assembler", "auto_smelter",
-]);
-
-/**
  * Check if all cost keys for a building type are CollectableItemType.
  * Used to validate that a construction site can be fully serviced by drones.
  */
-const COLLECTABLE_KEYS = new Set<string>(["wood", "stone", "iron", "copper"]);
 function costIsFullyCollectable(costs: Partial<Record<keyof Inventory, number>>): boolean {
   return Object.keys(costs).every((k) => COLLECTABLE_KEYS.has(k));
 }
@@ -639,65 +637,6 @@ function fullCostAsRemaining(costs: Partial<Record<keyof Inventory, number>>): P
   }
   return remaining;
 }
-
-/**
- * Base priority scores for drone task types.
- * The gap between task types must exceed the maximum Chebyshev distance on the
- * grid (max(GRID_W-1, GRID_H-1) = 79) so that a distant high-priority task
- * always outscores a nearby low-priority task.
- *
- * construction_supply: 1000  →  worst score = 1000 - 79 = 921
- * hub_dispatch:         500  →  fallback supply from hub; always < worst construction_supply (921)
- *                                best score = 500 - 0 = 500 > best workbench_delivery (315)
- * workbench_delivery:   300  →  crafted tools are picked up before passive restock work
- *                                best score = 300 - 0 + 15 = 315 > best hub_restock (165)
- * hub_restock:          100  →  best  score = 100  -  0 = 100
- * Invariant: 921 > 500 > 315 > 165 ✓ — construction wins; crafted tool pickup beats passive restock.
- */
-export const DRONE_TASK_BASE_SCORE: Record<DroneTaskType, number> = {
-  construction_supply: 1000,
-  hub_dispatch: 500,
-  workbench_delivery: 300,
-  building_supply: 200,
-  hub_restock: 100,
-};
-
-/**
- * Score bonus when a task matches the drone's preferred role.
- * 30 points ≈ overrides up to 30 tiles of distance disadvantage within the same task type.
- * Well below the type-gap (900) — construction still beats hub_restock for any role.
- */
-export const DRONE_ROLE_BONUS = 30;
-
-/**
- * Score bonus for a node already reserved by this drone (sticky-selection).
- * Prevents task-hopping when two nodes have nearly equal scores.
- * Low enough (15) that a clearly closer/better node on the same type still wins.
- */
-export const DRONE_STICKY_BONUS = 15;
-
-/**
- * Maximum urgency bonus for hub_restock candidates.
- * Applied proportionally to the resource deficit (target − current inventory).
- * Caps at DRONE_URGENCY_BONUS_MAX to keep the effect bounded.
- */
-export const DRONE_URGENCY_BONUS_MAX = 20;
-
-/**
- * Maximum demand bonus for construction_supply / hub_dispatch candidates.
- * Applied proportionally to the remaining open need on the construction site
- * (capped). Lets a large/needy site outweigh a small one when distances are
- * comparable, without ever flipping the construction-vs-hub_restock priority.
- */
-export const DRONE_DEMAND_BONUS_MAX = 20;
-
-/**
- * Per-already-assigned-drone penalty for construction_supply / hub_dispatch.
- * Encourages spreading additional drones across competing sites instead of
- * piling onto the closest one. Kept small (≤ DRONE_STICKY_BONUS) so it never
- * causes flapping for already-committed drones.
- */
-export const DRONE_SPREAD_PENALTY_PER_DRONE = 5;
 
 /**
  * Scores a single drone task candidate.
@@ -1151,61 +1090,64 @@ export function selectDroneTask(state: GameState, droneOverride?: StarterDroneSt
     const openSlots = getOpenConstructionDroneSlots(state, siteId, drone.droneId);
     if (openSlots <= 0) continue;
     const assignedSoFar = getAssignedConstructionDroneCount(state, siteId, drone.droneId);
-    const spreadPenalty = -DRONE_SPREAD_PENALTY_PER_DRONE * assignedSoFar;
+    const siteNeeds: { itemType: CollectableItemType; remainingNeed: number }[] = [];
+
     for (const [res, amt] of Object.entries(site.remaining)) {
       if ((amt ?? 0) <= 0) continue;
       const itemType = res as CollectableItemType;
-      const remainingNeed = getRemainingConstructionNeed(state, siteId, itemType, drone.droneId);
-      if (remainingNeed <= 0) continue;
       if (!availableTypes.has(itemType)) continue;
-      const demandBonus = Math.min(DRONE_DEMAND_BONUS_MAX, remainingNeed);
-      for (const n of availableNodes) {
-        if (n.itemType !== itemType) continue;
-        const stickyBonus = n.reservedByDroneId === drone.droneId ? DRONE_STICKY_BONUS : 0;
-        candidates.push({
-          taskType: "construction_supply",
-          nodeId: n.id,
-          deliveryTargetId: siteId,
-          score: scoreDroneTask("construction_supply", drone.tileX, drone.tileY, n.tileX, n.tileY, {
-            role: constructionRoleBonus,
-            sticky: stickyBonus,
-            demand: demandBonus,
-            spread: spreadPenalty,
-          }),
-          _roleBonus: constructionRoleBonus,
-          _stickyBonus: stickyBonus,
-          _urgencyBonus: 0,
-          _demandBonus: demandBonus,
-          _spreadPenalty: spreadPenalty,
-        });
-      }
+      const remainingNeed = getRemainingConstructionNeed(state, siteId, itemType, drone.droneId);
+      siteNeeds.push({ itemType, remainingNeed });
+    }
+
+    const constructionActions = decideConstructionPlanningActions({
+      droneId: drone.droneId,
+      droneTileX: drone.tileX,
+      droneTileY: drone.tileY,
+      roleBonus: constructionRoleBonus,
+      siteId,
+      openSlots,
+      assignedConstructionDrones: assignedSoFar,
+      siteNeeds,
+      availableNodes: availableNodes.map((n) => ({
+        nodeId: n.id,
+        itemType: n.itemType,
+        tileX: n.tileX,
+        tileY: n.tileY,
+        reservedByDroneId: n.reservedByDroneId,
+      })),
+    });
+
+    for (const action of constructionActions) {
+      if (action.type !== "queue_site_supply_candidate") continue;
+      candidates.push(action.candidate);
     }
   }
 
   // --- Gather hub_restock candidates ---
   const hubEntry = drone.hubId ? state.serviceHubs[drone.hubId] ?? null : null;
   if (hubEntry && drone.hubId) {
-    for (const n of availableNodes) {
-      const remainingNeed = getRemainingHubRestockNeed(state, drone.hubId, n.itemType, drone.droneId);
-      const openSlots = getOpenHubRestockDroneSlots(state, drone.hubId, n.itemType, drone.droneId);
-      if (remainingNeed <= 0 || openSlots <= 0) continue;
-      const stickyBonus = n.reservedByDroneId === drone.droneId ? DRONE_STICKY_BONUS : 0;
-      const urgencyBonus = Math.min(DRONE_URGENCY_BONUS_MAX, remainingNeed);
-      candidates.push({
-        taskType: "hub_restock",
+    const hubId = drone.hubId;
+    const restockActions = decideHubRestockActions({
+      droneId: drone.droneId,
+      hubId,
+      droneTileX: drone.tileX,
+      droneTileY: drone.tileY,
+      roleBonus: restockRoleBonus,
+      nodes: availableNodes.map((n) => ({
         nodeId: n.id,
-        deliveryTargetId: drone.hubId,
-        score: scoreDroneTask("hub_restock", drone.tileX, drone.tileY, n.tileX, n.tileY, {
-          role: restockRoleBonus,
-          sticky: stickyBonus,
-          urgency: urgencyBonus,
-        }),
-        _roleBonus: restockRoleBonus,
-        _stickyBonus: stickyBonus,
-        _urgencyBonus: urgencyBonus,
-        _demandBonus: 0,
-        _spreadPenalty: 0,
-      });
+        itemType: n.itemType,
+        tileX: n.tileX,
+        tileY: n.tileY,
+        reservedByDroneId: n.reservedByDroneId,
+        remainingNeed: getRemainingHubRestockNeed(state, hubId, n.itemType, drone.droneId),
+        openSlots: getOpenHubRestockDroneSlots(state, hubId, n.itemType, drone.droneId),
+      })),
+    });
+
+    for (const action of restockActions) {
+      if (action.type !== "queue_restock_candidate") continue;
+      candidates.push(action.candidate);
     }
   }
 
@@ -1402,13 +1344,17 @@ export function selectDroneTask(state: GameState, droneOverride?: StarterDroneSt
 
   if (candidates.length === 0) return null;
 
-  // Sort descending by score; ascending nodeId as deterministic tie-break.
-  candidates.sort((a, b) => b.score - a.score || a.nodeId.localeCompare(b.nodeId));
-  const chosen = candidates[0];
-  const bestConstructionCandidate = candidates.find(
-    (candidate) => candidate.taskType === "construction_supply" || candidate.taskType === "hub_dispatch",
+  const chosen = scheduleNextDroneTask(candidates);
+  if (!chosen) return null;
+
+  const bestConstructionCandidate = scheduleNextDroneTask(
+    candidates.filter(
+      (candidate) => candidate.taskType === "construction_supply" || candidate.taskType === "hub_dispatch",
+    ),
   );
-  const bestHubRestockCandidate = candidates.find((candidate) => candidate.taskType === "hub_restock");
+  const bestHubRestockCandidate = scheduleNextDroneTask(
+    candidates.filter((candidate) => candidate.taskType === "hub_restock"),
+  );
 
   if (import.meta.env.DEV) {
     console.debug(
@@ -1446,15 +1392,10 @@ export function selectDroneTask(state: GameState, droneOverride?: StarterDroneSt
   return { taskType: chosen.taskType, nodeId: chosen.nodeId, deliveryTargetId: chosen.deliveryTargetId };
 }
 
-export const AUTO_SMELTER_BUFFER_CAPACITY = 5;
-
 /**
  * Overclocking-Stufe 1: Zwei feste Modi (normal / boosted), nur für auto_miner
  * und auto_smelter. Multiplikator wirkt konsistent auf Strom UND Produktion.
  */
-export const AUTO_MINER_BOOST_MULTIPLIER = 2;
-export const AUTO_SMELTER_BOOST_MULTIPLIER = 2;
-
 export function isBoostSupportedType(type: AssetType): boolean {
   return type === "auto_miner" || type === "auto_smelter";
 }
@@ -1466,21 +1407,6 @@ export function getBoostMultiplier(asset: Pick<PlacedAsset, "type" | "boosted">)
   if (asset.type === "auto_smelter") return AUTO_SMELTER_BOOST_MULTIPLIER;
   return 1;
 }
-
-/** Maps deposit asset type to the resource it produces */
-export const DEPOSIT_RESOURCE: Record<string, "stone" | "iron" | "copper"> = {
-  stone_deposit: "stone",
-  iron_deposit: "iron",
-  copper_deposit: "copper",
-};
-
-// ---- Battery ----
-/** Maximum energy stored in a battery (J) */
-export const BATTERY_CAPACITY = 1000;
-
-// ---- Power Pole ----
-/** Chebyshev range (cells) in which a power_pole connects to neighbouring conductors */
-export const POWER_POLE_RANGE = 3;
 
 function createEmptyInventory(): Inventory {
   return {
@@ -1809,9 +1735,6 @@ export interface ProductionZone {
   id: string;
   name: string;
 }
-
-/** Maximum number of production zones a player can create. */
-export const MAX_ZONES = 8;
 
 /**
  * Resolve a crafting resource source from an optional warehouse ID.
@@ -2264,8 +2187,6 @@ export function getSourceStatusInfo(state: GameState, buildingId: string | null)
     isStale,
   };
 }
-
-export const MAP_SHOP_POS = { x: Math.floor(GRID_W / 2) - 1, y: Math.floor(GRID_H / 2) - 1 };
 
 /**
  * Manhattan distance between two grid positions.
@@ -2960,6 +2881,19 @@ function areAutoSmelterEntriesEqual(a: AutoSmelterEntry, b: AutoSmelterEntry): b
   );
 }
 
+function applySmelterWorkflowActions(
+  smelter: AutoSmelterEntry,
+  actions: readonly SmelterWorkflowAction[],
+): AutoSmelterEntry {
+  let next = smelter;
+  for (const action of actions) {
+    if (action.type === "set_status" && next.status !== action.status) {
+      next = { ...next, status: action.status };
+    }
+  }
+  return next;
+}
+
 function placeAsset(
   assets: Record<string, PlacedAsset>,
   cellMap: Record<string, string>,
@@ -3042,11 +2976,6 @@ function addErrorNotification(
   ];
 }
 
-/** Max entries kept in the auto-delivery log. */
-const AUTO_DELIVERY_LOG_MAX = 50;
-/** Entries with the same source+resource within this window are batched together. */
-const AUTO_DELIVERY_BATCH_WINDOW_MS = 8_000;
-
 /**
  * Appends (or batches into the latest matching entry) one unit delivered to a warehouse.
  * Same sourceId + resource within the batch window → increments amount.
@@ -3086,8 +3015,6 @@ function addAutoDelivery(
     ? [...log.slice(1), entry]
     : [...log, entry];
 }
-
-export const EMPTY_HOTBAR_SLOT: HotbarSlot = { toolKind: "empty", amount: 0, label: "", emoji: "" };
 
 export function createInitialHotbar(): HotbarSlot[] {
   return Array.from({ length: HOTBAR_SIZE }, () => ({ ...EMPTY_HOTBAR_SLOT }));
@@ -5427,18 +5354,16 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // Priority scheduling: lower number gets energy first.
       // For equal priority, keep the logistics backbone stable by serving
       // conveyors first, then miners, then other machines, then smelters.
-      const prioritizedConsumers = connectedConsumers
-        .map((asset, index) => ({
+      const prioritizedConsumers = computeEnergyAllocationOrder(
+        connectedConsumers.map((asset, index) => ({
           asset,
           index,
-          priority: clampMachinePriority(asset.priority),
-          allocationRank: getEnergyAllocationRank(asset.type),
           drain:
             (asset.type === "auto_smelter"
               ? (state.autoSmelters?.[asset.id]?.processing ? AUTO_SMELTER_PROCESSING_DRAIN_PER_PERIOD : AUTO_SMELTER_IDLE_DRAIN_PER_PERIOD)
               : ENERGY_DRAIN[asset.type]) * getBoostMultiplier(asset),
-        }))
-        .sort((a, b) => a.priority - b.priority || a.allocationRank - b.allocationRank || a.index - b.index);
+        })),
+      );
 
       // === Battery is the sole energy storage ===
       const batteryAsset = Object.values(state.assets).find((a) => a.type === "battery");
@@ -6106,6 +6031,16 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         return true;
       };
 
+      const canStoreInWarehouse = (warehouseId: string, resource: ConveyorItem): boolean => {
+        const whInv = (newWarehouseInventoriesL === state.warehouseInventories
+          ? state.warehouseInventories[warehouseId]
+          : newWarehouseInventoriesL[warehouseId]);
+        if (!whInv) return false;
+        const cap = getWarehouseCapacity(state.mode);
+        const resKey = resource as keyof Inventory;
+        return (whInv[resKey] as number) < cap;
+      };
+
       const getLiveLogisticsState = (): GameState => {
         if (newInvL === state.inventory && newWarehouseInventoriesL === state.warehouseInventories) {
           return state;
@@ -6250,28 +6185,50 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         const nextAssetId = state.cellMap[cellKey(nextX, nextY)];
         const nextAsset = nextAssetId ? state.assets[nextAssetId] : null;
 
-        // Straight belts only accept items arriving from behind (same output direction).
-        // Corner belts accept from any direction — they are the intended turn mechanism.
-        const nextBeltCompatible =
-          nextAsset?.type === "conveyor_corner" ||
-          (nextAsset?.type === "conveyor" && (nextAsset.direction ?? "east") === dir);
         // Zone-aware transport: block belt-to-belt if both have explicit, differing zones.
         const convZone = state.buildingZoneIds[convId] ?? null;
         const nextTileZone = nextAssetId ? (state.buildingZoneIds[nextAssetId] ?? null) : null;
         const beltToNextZoneOk = areZonesTransportCompatible(convZone, nextTileZone);
-        if (nextBeltCompatible && !movedThisTick.has(nextAssetId) && beltToNextZoneOk) {
-          const nextConv = newConveyorsL === state.conveyors ? state.conveyors[nextAssetId] : newConveyorsL[nextAssetId];
-          const nextQueue = nextConv?.queue ?? [];
-          if (nextQueue.length < CONVEYOR_TILE_CAPACITY) {
-            newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-            newConveyorsL[nextAssetId] = { queue: [...nextQueue, currentItem] };
-            newConveyorsL[convId] = { queue: activeQueue.slice(1) };
-            movedThisTick.add(nextAssetId);
-            changed = true;
-          }
-        } else if (nextAsset?.type === "warehouse" && isValidWarehouseInput(convAsset.x, convAsset.y, dir, nextAsset)) {
-          const adjWhZone = state.buildingZoneIds[nextAsset.id] ?? null;
-          if (areZonesTransportCompatible(convZone, adjWhZone) && tryStoreInWarehouse(nextAsset.id, currentItem)) {
+        const nextConv =
+          nextAssetId && (nextAsset?.type === "conveyor" || nextAsset?.type === "conveyor_corner")
+            ? (newConveyorsL === state.conveyors ? state.conveyors[nextAssetId] : newConveyorsL[nextAssetId])
+            : null;
+        const nextQueue = nextConv?.queue ?? [];
+        const nextWarehouseInputValid =
+          nextAsset?.type === "warehouse" &&
+          isValidWarehouseInput(convAsset.x, convAsset.y, dir, nextAsset);
+        const nextWarehouseZoneCompatible =
+          nextAsset?.type === "warehouse"
+            ? areZonesTransportCompatible(convZone, state.buildingZoneIds[nextAsset.id] ?? null)
+            : false;
+        const nextWarehouseHasCapacity =
+          nextAsset?.type === "warehouse"
+            ? canStoreInWarehouse(nextAsset.id, currentItem)
+            : false;
+
+        const routingAction = decideConveyorRoutingAction({
+          conveyorDirection: dir,
+          nextAssetType: nextAsset?.type ?? null,
+          nextAssetDirection: nextAsset?.direction ?? null,
+          nextConveyorMovedThisTick: nextAssetId ? movedThisTick.has(nextAssetId) : false,
+          nextConveyorHasCapacity: nextQueue.length < CONVEYOR_TILE_CAPACITY,
+          beltToNextZoneCompatible: beltToNextZoneOk,
+          nextWarehouseInputValid,
+          nextWarehouseZoneCompatible,
+          nextWarehouseHasCapacity,
+        });
+
+        if (routingAction.type === "route_to_next_conveyor" && nextAssetId) {
+          newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
+          newConveyorsL[nextAssetId] = { queue: [...nextQueue, currentItem] };
+          newConveyorsL[convId] = { queue: activeQueue.slice(1) };
+          movedThisTick.add(nextAssetId);
+          changed = true;
+        } else if (
+          routingAction.type === "route_to_adjacent_warehouse" &&
+          nextAsset?.type === "warehouse"
+        ) {
+          if (tryStoreInWarehouse(nextAsset.id, currentItem)) {
             newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "conveyor", convId, currentItem, nextAsset.id);
             newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
             newConveyorsL[convId] = { queue: activeQueue.slice(1) };
@@ -6343,8 +6300,13 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         // Unterstrom = kompletter Stopp: jede Unterversorgung (ratio < 1) stoppt die Verarbeitung vollständig.
         // Laufender progressMs bleibt erhalten und wird pausiert, bis wieder volle Versorgung anliegt.
         if (powerRatio < 1) {
+          const noPowerActions = decideSmelterWorkflowActions({
+            powerRatio,
+            smelter: smelterState,
+          });
+          const noPowerSmelter = applySmelterWorkflowActions(smelterState, noPowerActions);
           newAutoSmeltersL = newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;
-          newAutoSmeltersL[smelterId] = { ...smelterState, status: "NO_POWER" };
+          newAutoSmeltersL[smelterId] = noPowerSmelter;
           changed = true;
           continue;
         }
@@ -6477,39 +6439,21 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           changed = true;
         }
 
-        if (nextSmelter.pendingOutput.length > 0) {
-          const pendingRecipe = getSmeltingRecipe(nextSmelter.pendingOutput[0]);
-          if (!pendingRecipe) {
-            nextSmelter.status = "MISCONFIGURED";
-          } else {
-            const pendingOutputKey = pendingRecipe.outputItem as keyof Inventory;
-            // Check output route: conveyor takes priority over source inventory.
-            const statusIo = getAutoSmelterIoCells(smelterAsset);
-            const statusOutX = statusIo.output.x;
-            const statusOutY = statusIo.output.y;
-            let hasOutputConveyor = false;
-            let outputConveyorHasSpace = false;
-            if (statusOutX >= 0 && statusOutX < GRID_W && statusOutY >= 0 && statusOutY < GRID_H) {
-              const statusOutId = state.cellMap[cellKey(statusOutX, statusOutY)];
-              const statusOutAsset = statusOutId ? state.assets[statusOutId] : null;
-              if (statusOutAsset?.type === "conveyor" || statusOutAsset?.type === "conveyor_corner") {
-                hasOutputConveyor = true;
-                const statusConv = newConveyorsL === state.conveyors ? state.conveyors[statusOutId] : newConveyorsL[statusOutId];
-                outputConveyorHasSpace = (statusConv?.queue?.length ?? 0) < CONVEYOR_TILE_CAPACITY;
-              }
-            }
-            const outputCanProceed = hasOutputConveyor
-              ? outputConveyorHasSpace
-              : (sourceInv[pendingOutputKey] as number) + pendingRecipe.outputAmount <= sourceCapacity;
-            nextSmelter.status = outputCanProceed ? "IDLE" : "OUTPUT_BLOCKED";
-          }
-        } else if (nextSmelter.processing) {
-          nextSmelter.status = "PROCESSING";
-        } else if (nextSmelter.inputBuffer.length > 0) {
-          nextSmelter.status = "IDLE";
-        } else {
-          nextSmelter.status = "IDLE";
-        }
+        const statusIo = getAutoSmelterIoCells(smelterAsset);
+        const workflowActions = decideSmelterWorkflowActions({
+          powerRatio,
+          smelter: nextSmelter,
+          outputRoute: {
+            outputX: statusIo.output.x,
+            outputY: statusIo.output.y,
+            cellMap: state.cellMap,
+            assets: state.assets,
+            conveyors: newConveyorsL === state.conveyors ? state.conveyors : newConveyorsL,
+            sourceInventory: sourceInv,
+            sourceCapacity,
+          },
+        });
+        nextSmelter = applySmelterWorkflowActions(nextSmelter, workflowActions);
 
         if (!areAutoSmelterEntriesEqual(nextSmelter, smelterState)) {
           newAutoSmeltersL = newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;

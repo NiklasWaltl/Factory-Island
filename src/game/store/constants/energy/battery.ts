@@ -2,7 +2,7 @@
 // Battery constants
 // ------------------------------------------------------------
 // Pure battery configuration values.
-// MUST NOT runtime-import from ../reducer to avoid ESM cycles.
+// MUST NOT runtime-import from ../../reducer to avoid ESM cycles.
 // ============================================================
 
 /** Maximum energy stored in a battery (J). */

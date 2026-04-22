@@ -2,7 +2,7 @@
 // Service Hub range constants
 // ------------------------------------------------------------
 // Pure numeric range values by hub tier.
-// MUST NOT runtime-import from ../reducer to avoid ESM cycles.
+// MUST NOT runtime-import from ../../reducer to avoid ESM cycles.
 // ============================================================
 
 /** Drone collection range in Chebyshev tiles for Tier 1 (Proto-Hub). */

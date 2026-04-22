@@ -379,6 +379,21 @@ describe("Belt-to-warehouse delivery (belt sitting on input tile)", () => {
     expect(after.conveyors.cv1.queue).toContain("iron");
     expect((after.warehouseInventories.whA.iron as number)).toBe(0);
   });
+
+  // Characterization test: documents that the warehouse-input-tile delivery
+  // emits exactly one AutoDelivery log entry with sourceType "conveyor".
+  // Pairs with the equivalent tests for auto_miner and auto_smelter fallbacks.
+  it("same zone: emits AutoDelivery log entry with sourceType conveyor", () => {
+    const state = makeDirectDeliveryState(true);
+    const after = runTick(state);
+
+    expect(after.autoDeliveryLog.length).toBeGreaterThan(0);
+    const last = after.autoDeliveryLog[after.autoDeliveryLog.length - 1];
+    expect(last.sourceType).toBe("conveyor");
+    expect(last.sourceId).toBe("cv1");
+    expect(last.resource).toBe("iron");
+    expect(last.warehouseId).toBe("whA");
+  });
 });
 
 // ---- Belt capacity block (existing behavior untouched) ------------------

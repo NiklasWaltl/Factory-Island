@@ -1103,11 +1103,17 @@ export function deserializeState(save: SaveGameLatest): GameState {
       for (const [id, entry] of Object.entries(raw)) {
         if (save.assets[id]?.type === "service_hub") {
           const tier: HubTier = (entry as any).tier === 1 ? 1 : 2;
+          const rawPending = (entry as any).pendingUpgrade;
+          const pendingUpgrade =
+            rawPending && typeof rawPending === "object" && tier === 1
+              ? { ...rawPending }
+              : undefined;
           cleaned[id] = {
             inventory: { ...createEmptyHubInventory(), ...entry.inventory },
             targetStock: entry.targetStock ?? (tier === 1 ? createDefaultProtoHubTargetStock() : createDefaultHubTargetStock()),
             tier,
             droneIds: Array.isArray((entry as any).droneIds) ? (entry as any).droneIds : [],
+            ...(pendingUpgrade ? { pendingUpgrade } : {}),
           };
         }
       }

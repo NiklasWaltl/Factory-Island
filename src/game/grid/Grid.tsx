@@ -30,6 +30,8 @@ interface GridProps {
   dispatch: React.Dispatch<GameAction>;
 }
 
+const SKIP_CONFIRM_TYPES = new Set(["cable", "conveyor", "conveyor_corner"]);
+
 export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [cam, setCam] = useState({ x: 0, y: 0 });
@@ -40,6 +42,7 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
   // Direction for auto_miner / conveyor placement (cycles with R key)
   const [buildDirection, setBuildDirection] = useState<Direction>("east");
   const warnedUnmigratedTypesRef = useRef<Set<string>>(new Set());
+  const [pendingRemoveAssetId, setPendingRemoveAssetId] = useState<string | null>(null);
 
   const assetW = useCallback((asset: { size: 1 | 2; width?: 1 | 2 }) => asset.width ?? asset.size, []);
   const assetH = useCallback((asset: { size: 1 | 2; height?: 1 | 2 }) => asset.height ?? asset.size, []);
@@ -171,7 +174,12 @@ export const Grid: React.FC<GridProps> = ({ state, dispatch }) => {
       if (gx >= 0 && gx < GRID_W && gy >= 0 && gy < GRID_H) {
         const assetId = state.cellMap[cellKey(gx, gy)];
         if (assetId) {
-          dispatch({ type: "BUILD_REMOVE_ASSET", assetId });
+          const asset = state.assets[assetId];
+          if (asset && SKIP_CONFIRM_TYPES.has(asset.type)) {
+            dispatch({ type: "BUILD_REMOVE_ASSET", assetId });
+          } else if (asset) {
+            setPendingRemoveAssetId(assetId);
+          }
         }
       }
     },

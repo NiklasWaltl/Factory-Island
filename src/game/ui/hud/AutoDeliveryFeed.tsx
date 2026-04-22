@@ -6,13 +6,15 @@ interface Props {
 }
 
 const SOURCE_EMOJI: Record<AutoDeliveryEntry["sourceType"], string> = {
-  auto_miner: "⛏️",
-  conveyor:   "🏭",
+  auto_miner:   "⛏️",
+  conveyor:     "🏭",
+  auto_smelter: "🔥",
 };
 
 const SOURCE_LABEL: Record<AutoDeliveryEntry["sourceType"], string> = {
-  auto_miner: "Auto-Miner",
-  conveyor:   "Förderband",
+  auto_miner:   "Auto-Miner",
+  conveyor:     "Förderband",
+  auto_smelter: "Auto-Smelter",
 };
 
 function relativeTime(timestamp: number): string {

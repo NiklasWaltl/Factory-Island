@@ -7,7 +7,7 @@
 import {
   DEFAULT_MACHINE_PRIORITY,
   ENERGY_ALLOCATION_RANK,
-} from "../constants/energy-balance";
+} from "../constants/energy/energy-balance";
 import type {
   AssetType,
   MachinePriority,

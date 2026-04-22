@@ -229,7 +229,7 @@ export interface GameNotification {
 export interface AutoDeliveryEntry {
   id: string;
   /** Type of the device that produced/delivered the item */
-  sourceType: "auto_miner" | "conveyor";
+  sourceType: "auto_miner" | "conveyor" | "auto_smelter";
   /** Asset ID of the source device */
   sourceId: string;
   /** The resource key that was delivered */
@@ -373,6 +373,13 @@ export interface ServiceHubEntry {
   tier: HubTier;
   /** IDs of drones assigned to this hub, capped by getMaxDrones(tier). */
   droneIds: string[];
+  /**
+   * Outstanding resources that drones must still deliver to this hub before
+   * a pending tier upgrade can complete. Undefined = no upgrade in flight.
+   * Upgrades never consume directly from warehouses; they accumulate in
+   * hub.inventory via hub_restock and are deducted on completion.
+   */
+  pendingUpgrade?: Partial<Record<CollectableItemType, number>>;
 }
 
 export interface GameState {

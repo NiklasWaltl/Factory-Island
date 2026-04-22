@@ -328,4 +328,39 @@ describe("Auto Miner source integration", () => {
     // Global inventory untouched
     expect((after.inventory.iron as number)).toBe(0);
   });
+
+  // Characterization test: documents that the Priority-2 source-fallback path
+  // emits exactly one AutoDelivery log entry with sourceType "auto_miner".
+  // Pairs with the equivalent test for the auto-smelter source-fallback.
+  test("Source-Fallback (Zone): emits AutoDelivery log entry with sourceType auto_miner", () => {
+    const state = makeBaseState({
+      assets: {
+        mn1: makeMinerAsset("mn1"),
+        whA: makeWarehouseAsset("whA", 1, 1),
+      },
+      cellMap: {
+        [cellKey(5, 5)]: "mn1",
+        [cellKey(1, 1)]: "whA",
+        [cellKey(2, 1)]: "whA",
+        [cellKey(1, 2)]: "whA",
+        [cellKey(2, 2)]: "whA",
+      },
+      autoMiners: { mn1: makeMinerEntry("iron") },
+      machinePowerRatio: { mn1: 1 },
+      connectedAssetIds: ["mn1"],
+      warehousesPlaced: 1,
+      warehouseInventories: { whA: emptyInv() },
+      productionZones: { zA: { id: "zA", name: "Zone A" } },
+      buildingZoneIds: { mn1: "zA", whA: "zA" },
+    });
+
+    const after = runTicks(state, 1);
+
+    expect(after.autoDeliveryLog.length).toBeGreaterThan(0);
+    const last = after.autoDeliveryLog[after.autoDeliveryLog.length - 1];
+    expect(last.sourceType).toBe("auto_miner");
+    expect(last.sourceId).toBe("mn1");
+    expect(last.resource).toBe("iron");
+    expect(last.warehouseId).toBe("whA");
+  });
 });

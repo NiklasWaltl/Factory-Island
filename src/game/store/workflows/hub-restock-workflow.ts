@@ -12,7 +12,7 @@ import {
 } from "../constants/drone-config";
 import type { CollectableItemType } from "../types";
 
-export interface HubRestockNodeDecisionInput {
+export interface HubRestockNodeInput {
   nodeId: string;
   itemType: CollectableItemType;
   tileX: number;
@@ -34,7 +34,7 @@ export interface HubRestockCandidate {
   _spreadPenalty: number;
 }
 
-export type HubRestockWorkflowAction = {
+export type HubRestockAction = {
   type: "queue_restock_candidate";
   candidate: HubRestockCandidate;
 };
@@ -45,7 +45,7 @@ export interface DecideHubRestockInput {
   droneTileX: number;
   droneTileY: number;
   roleBonus: number;
-  nodes: readonly HubRestockNodeDecisionInput[];
+  nodes: readonly HubRestockNodeInput[];
 }
 
 function chebyshevDistance(
@@ -59,8 +59,8 @@ function chebyshevDistance(
 
 export function decideHubRestockActions(
   input: DecideHubRestockInput,
-): HubRestockWorkflowAction[] {
-  const actions: HubRestockWorkflowAction[] = [];
+): HubRestockAction[] {
+  const actions: HubRestockAction[] = [];
 
   for (const node of input.nodes) {
     if (node.remainingNeed <= 0 || node.openSlots <= 0) continue;

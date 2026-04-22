@@ -79,16 +79,10 @@ export const AutoSmelterPanel: React.FC<AutoSmelterPanelProps> = React.memo(({ s
   let blockReason: string | null = null;
   if (smelter.status === "NO_POWER") {
     blockReason = "Keine volle Stromversorgung";
-  } else if (sourceInfo.fallbackReason === "zone_no_warehouses") {
-    blockReason = "Zone aktiv, aber keine Lagerhäuser (Fallback aktiv)";
   } else if (smelter.status === "OUTPUT_BLOCKED" || (smelter.pendingOutput.length > 0 && !hasOutputCapacity)) {
     blockReason = "Output-Ziel hat keinen Platz";
-  } else if (!smelter.processing && smelter.inputBuffer.length === 0 && !hasInputBatch) {
-    blockReason = sourceInfo.source.kind === "zone"
-      ? "Zone hat nicht genug Input"
-      : sourceInfo.source.kind === "warehouse"
-        ? "Lagerhaus hat nicht genug Input"
-        : "Globaler Vorrat hat nicht genug Input";
+  } else if (!smelter.processing && smelter.inputBuffer.length < requiredInput) {
+    blockReason = "Wartet auf Input vom Förderband";
   }
 
   return (
@@ -152,8 +146,8 @@ export const AutoSmelterPanel: React.FC<AutoSmelterPanelProps> = React.memo(({ s
           <strong>{recipeDisplay}</strong>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <span>Input (akt. Quelle)</span>
-          <strong>{requiredInput > 0 ? `${availableInput} / braucht ${requiredInput}` : "-"}</strong>
+          <span>Input (Förderband-Buffer)</span>
+          <strong>{requiredInput > 0 ? `${smelter.inputBuffer.length} / braucht ${requiredInput}` : "-"}</strong>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <span>Output-Ziel</span>

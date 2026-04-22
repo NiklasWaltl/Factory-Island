@@ -9,7 +9,7 @@
 // store/reducer.ts to avoid an ESM initialization cycle.
 // ============================================================
 
-import type { AssetType, MachinePriority } from "../types";
+import type { AssetType, MachinePriority } from "../../types";
 
 /** Default machine priority used when a consumer has no explicit user-set priority. */
 export const DEFAULT_MACHINE_PRIORITY: MachinePriority = 3;

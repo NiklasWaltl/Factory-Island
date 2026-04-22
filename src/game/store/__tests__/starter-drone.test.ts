@@ -452,6 +452,23 @@ describe("DRONE_TICK – hub assignment", () => {
   it("upgraded hub gives all parked drones unique dock positions", () => {
     let state = { ...base, inventory: { ...base.inventory, wood: 100, stone: 100, iron: 100 } };
     const hubId = state.starterDrone.hubId!;
+    // Pre-stock the hub inventory with the upgrade cost so UPGRADE_HUB fast-paths
+    // to Tier 2 (simulating that drones have already delivered the materials).
+    state = {
+      ...state,
+      serviceHubs: {
+        ...state.serviceHubs,
+        [hubId]: {
+          ...state.serviceHubs[hubId],
+          inventory: {
+            ...state.serviceHubs[hubId].inventory,
+            wood: 100,
+            stone: 100,
+            iron: 100,
+          },
+        },
+      },
+    };
     state = gameReducer(state, { type: "UPGRADE_HUB", hubId });
 
     const parked = getParkedDrones(state, hubId);
@@ -1585,6 +1602,22 @@ describe("Hub parking derivation", () => {
     let state = createInitialState("release");
     const hubId = state.starterDrone.hubId!;
     state = { ...state, inventory: { ...state.inventory, wood: 100, stone: 100, iron: 100 } };
+    // Pre-stock the hub so UPGRADE_HUB fast-paths past the drone-delivery phase.
+    state = {
+      ...state,
+      serviceHubs: {
+        ...state.serviceHubs,
+        [hubId]: {
+          ...state.serviceHubs[hubId],
+          inventory: {
+            ...state.serviceHubs[hubId].inventory,
+            wood: 100,
+            stone: 100,
+            iron: 100,
+          },
+        },
+      },
+    };
     state = gameReducer(state, { type: "UPGRADE_HUB", hubId });
 
     expect(getParkedDrones(state, hubId)).toHaveLength(4);

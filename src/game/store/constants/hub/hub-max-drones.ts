@@ -2,7 +2,7 @@
 // Service Hub max-drone constants
 // ------------------------------------------------------------
 // Pure numeric per-tier drone capacity limits.
-// MUST NOT runtime-import from ../reducer to avoid ESM cycles.
+// MUST NOT runtime-import from ../../reducer to avoid ESM cycles.
 // ============================================================
 
 /** Maximum number of drones per hub for each tier. */

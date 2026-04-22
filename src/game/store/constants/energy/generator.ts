@@ -2,7 +2,7 @@
 // Generator constants
 // ------------------------------------------------------------
 // Pure numeric configuration for the wood-burning generator.
-// MUST NOT runtime-import from ../reducer to avoid ESM cycles.
+// MUST NOT runtime-import from ../../reducer to avoid ESM cycles.
 // ============================================================
 
 /** Tick interval for the generator fuel consumption (ms) */

@@ -123,8 +123,8 @@ describe("DEBUG_MOCK_RESOURCES – fills physical storage", () => {
   });
 });
 
-describe("UPGRADE_HUB – consumes from physical storage", () => {
-  it("pulls hub upgrade cost from a warehouse, not only from state.inventory", () => {
+describe("UPGRADE_HUB – drone-delivery flow (no instant warehouse drain)", () => {
+  it("passes the physical-storage affordance check without deducting from the warehouse", () => {
     const cost = HUB_UPGRADE_COST as Partial<Record<keyof Inventory, number>>;
     let s = createInitialState("release");
     // Stash the entire upgrade cost into a warehouse; keep global empty.
@@ -149,16 +149,53 @@ describe("UPGRADE_HUB – consumes from physical storage", () => {
 
     const after = gameReducer(s, { type: "UPGRADE_HUB", hubId });
 
-    // Tier should have advanced – proves the cost check passed using physical stores.
+    // Hub stays Tier 1 until drones have physically delivered the resources.
+    expect(after.serviceHubs[hubId].tier).toBe(1);
+    // Pending upgrade is recorded, matching the cost.
+    const pending = after.serviceHubs[hubId].pendingUpgrade;
+    expect(pending).toBeDefined();
+    for (const [key, amt] of Object.entries(cost)) {
+      if ((amt ?? 0) <= 0) continue;
+      expect((pending as Record<string, number>)[key]).toBe(amt);
+    }
+    // Warehouse stock must remain untouched — no instant drain.
+    expect(after.warehouseInventories["wh-A"]).toEqual(whBefore);
+  });
+
+  it("fast-paths to Tier 2 when the hub already holds the full upgrade cost", () => {
+    const cost = HUB_UPGRADE_COST as Partial<Record<keyof Inventory, number>>;
+    let s = createInitialState("release");
+    s = { ...s, inventory: emptyInv() };
+    s = withWarehouse(s, "wh-A", cost); // affordance gate still requires stock somewhere
+    const hubId = "hub-2";
+    s = {
+      ...s,
+      assets: { ...s.assets, [hubId]: { id: hubId, type: "service_hub", x: 10, y: 10, size: 2 } },
+      serviceHubs: {
+        ...s.serviceHubs,
+        [hubId]: {
+          inventory: {
+            wood: cost.wood ?? 0,
+            stone: cost.stone ?? 0,
+            iron: cost.iron ?? 0,
+            copper: cost.copper ?? 0,
+          },
+          targetStock: { wood: 0, stone: 0, iron: 0, copper: 0 },
+          tier: 1,
+          droneIds: [],
+        },
+      },
+    };
+
+    const after = gameReducer(s, { type: "UPGRADE_HUB", hubId });
+
     expect(after.serviceHubs[hubId].tier).toBe(2);
-    // At least one cost entry must have decreased in the warehouse.
-    const someDeducted = Object.entries(cost).some(
-      ([key, amt]) =>
-        ((amt ?? 0) > 0) &&
-        ((whBefore as unknown as Record<string, number>)[key] ?? 0) >
-          ((after.warehouseInventories["wh-A"] as unknown as Record<string, number>)[key] ?? 0),
-    );
-    expect(someDeducted).toBe(true);
+    expect(after.serviceHubs[hubId].pendingUpgrade).toBeUndefined();
+    // Hub inventory pays the cost — not the warehouse.
+    for (const [key, amt] of Object.entries(cost)) {
+      if ((amt ?? 0) <= 0) continue;
+      expect((after.serviceHubs[hubId].inventory as unknown as Record<string, number>)[key]).toBe(0);
+    }
   });
 });
 

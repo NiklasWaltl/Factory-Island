@@ -527,6 +527,112 @@ describe("Keep-in-Stock", () => {
     );
   });
 
+  it("does not treat queued-only output as guaranteed pending stock", () => {
+    withWorkbenchRecipes(
+      [
+        {
+          key: "keep_stock_queue_only",
+          label: "Keep Stock Queue Only",
+          emoji: "Q",
+          inputItem: "wood",
+          outputItem: "gear",
+          processingTime: 0,
+          outputAmount: 1,
+          costs: { wood: 2 },
+        },
+      ],
+      () => {
+        let state = buildState({ wood: 10, gear: 0 });
+        state = gameReducer(state, {
+          type: "JOB_ENQUEUE",
+          recipeId: "keep_stock_queue_only",
+          workbenchId: WB,
+          source: "player",
+          priority: "high",
+        });
+        state = gameReducer(state, {
+          type: "SET_KEEP_STOCK_TARGET",
+          workbenchId: WB,
+          recipeId: "keep_stock_queue_only",
+          amount: 1,
+          enabled: true,
+        });
+
+        const next = gameReducer(state, { type: "JOB_TICK" });
+        const recipeJobs = next.crafting.jobs.filter((job) => job.recipeId === "keep_stock_queue_only");
+
+        expect(recipeJobs).toHaveLength(2);
+        expect(recipeJobs.filter((job) => job.source === "automation")).toHaveLength(1);
+      },
+    );
+  });
+
+  it("still treats reserved/crafting/delivering output as guaranteed pending stock", () => {
+    withWorkbenchRecipes(
+      [
+        {
+          key: "keep_stock_active_pending",
+          label: "Keep Stock Active Pending",
+          emoji: "P",
+          inputItem: "wood",
+          outputItem: "gear",
+          processingTime: 0,
+          outputAmount: 1,
+          costs: { wood: 2 },
+        },
+      ],
+      () => {
+        const statuses = ["reserved", "crafting", "delivering"] as const;
+
+        for (const status of statuses) {
+          const start = buildState({ wood: 10, gear: 0 });
+          let state: GameState = {
+            ...start,
+            crafting: {
+              ...start.crafting,
+              jobs: [
+                {
+                  id: `pending-${status}`,
+                  recipeId: "keep_stock_active_pending",
+                  workbenchId: WB,
+                  inventorySource: { kind: "warehouse", warehouseId: WH },
+                  status,
+                  priority: "normal",
+                  source: "player",
+                  enqueuedAt: 1,
+                  startedAt: null,
+                  finishesAt: null,
+                  progress: 0,
+                  ingredients: [{ itemId: "wood", count: 2 }],
+                  output: { itemId: "gear", count: 1 },
+                  processingTime: 0,
+                  reservationOwnerId: `pending-${status}`,
+                },
+              ],
+              nextJobSeq: 2,
+            },
+          };
+
+          state = gameReducer(state, {
+            type: "SET_KEEP_STOCK_TARGET",
+            workbenchId: WB,
+            recipeId: "keep_stock_active_pending",
+            amount: 1,
+            enabled: true,
+          });
+
+          const next = gameReducer(state, { type: "JOB_TICK" });
+          const recipeJobs = next.crafting.jobs.filter(
+            (job) => job.recipeId === "keep_stock_active_pending",
+          );
+
+          expect(recipeJobs).toHaveLength(1);
+          expect(recipeJobs.filter((job) => job.source === "automation")).toHaveLength(0);
+        }
+      },
+    );
+  });
+
   it("skips unsupported recipe config without enqueueing jobs", () => {
     const state = gameReducer(
       gameReducer(buildState({ wood: 10 }), {

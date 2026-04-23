@@ -5127,8 +5127,8 @@ function areCraftingSourcesEqual(left: CraftingInventorySource, right: CraftingI
   return false;
 }
 
-function isNonTerminalCraftingJob(status: CraftingJob["status"]): boolean {
-  return status !== "done" && status !== "cancelled";
+function isGuaranteedPendingCraftingJob(status: CraftingJob["status"]): boolean {
+  return status === "reserved" || status === "crafting" || status === "delivering";
 }
 
 function getProjectedPendingOutput(
@@ -5138,7 +5138,7 @@ function getProjectedPendingOutput(
 ): number {
   let total = 0;
   for (const job of jobs) {
-    if (!isNonTerminalCraftingJob(job.status)) continue;
+    if (!isGuaranteedPendingCraftingJob(job.status)) continue;
     if (job.output.itemId !== outputItem) continue;
     if (!areCraftingSourcesEqual(job.inventorySource, source)) continue;
     total += job.output.count;

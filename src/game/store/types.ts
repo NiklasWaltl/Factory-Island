@@ -14,6 +14,15 @@
 // declared there because it lives next to the runtime helpers that own
 // MAX_ZONES / resolveCraftingSource. Erased at runtime → no cycle.
 import type { ProductionZone } from "./reducer";
+import type {
+  RecipeAutomationPolicyEntry,
+  RecipeAutomationPolicyMap,
+} from "../crafting/policies";
+
+export type {
+  RecipeAutomationPolicyEntry,
+  RecipeAutomationPolicyMap,
+};
 
 export type GameMode = "release" | "debug";
 
@@ -507,4 +516,9 @@ export interface GameState {
    * Kept optional so older tests/manual state literals remain valid.
    */
   keepStockByWorkbench?: KeepStockByWorkbench;
+  /**
+   * Optional per-recipe automation policy overrides.
+   * Missing entry means default behavior (auto-craft + keep-in-stock allowed).
+   */
+  recipeAutomationPolicies?: RecipeAutomationPolicyMap;
 }

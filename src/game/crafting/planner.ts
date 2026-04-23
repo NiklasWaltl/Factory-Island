@@ -12,6 +12,7 @@ import type { Inventory, PlacedAsset, ServiceHubEntry } from "../store/reducer";
 import { pickCraftingPhysicalSourceForIngredient } from "./tick";
 import { pickOutputWarehouseId } from "./output";
 import type { CraftingInventorySource, CraftingJob, RecipeId } from "./types";
+import type { RecipePolicyDecision } from "./policies";
 
 const DEFAULT_MAX_DEPTH = 12;
 
@@ -35,6 +36,7 @@ export type AutoCraftPlanErrorKind =
   | "UNKNOWN_RECIPE"
   | "NO_PHYSICAL_SOURCE"
   | "NO_OUTPUT_DESTINATION"
+  | "POLICY_BLOCKED"
   | "MISSING_MANUAL"
   | "MISSING_UNKNOWN"
   | "MISSING_CRAFTABLE_OFF_WORKBENCH"
@@ -71,6 +73,7 @@ export interface BuildAutoCraftPlanInput {
   readonly network: NetworkSlice;
   readonly assets: Readonly<Record<string, PlacedAsset>>;
   readonly existingJobs?: readonly CraftingJob[];
+  readonly canUseRecipe?: (recipeId: RecipeId) => RecipePolicyDecision;
   readonly maxDepth?: number;
 }
 
@@ -80,6 +83,7 @@ interface PlannerState {
   readonly producerAssetId?: string;
   readonly network: NetworkSlice;
   readonly maxDepth: number;
+  readonly canUseRecipe?: (recipeId: RecipeId) => RecipePolicyDecision;
   readonly stepsInOrder: RecipeId[];
   readonly stepCounts: Map<RecipeId, number>;
   readonly recursionPath: RecipeId[];
@@ -363,6 +367,17 @@ function planRecipeRecursive(
     });
   }
 
+  const policyDecision = planner.canUseRecipe?.(recipe.key);
+  if (policyDecision && !policyDecision.allowed) {
+    return createError(
+      "POLICY_BLOCKED",
+      policyDecision.reason ?? `Rezept ${recipe.label} ist per Policy fuer Automation gesperrt.`,
+      {
+        recipeId,
+      },
+    );
+  }
+
   planner.recursionPath.push(recipeId);
 
   for (const [ingredientKey, rawCost] of Object.entries(recipe.costs)) {
@@ -508,6 +523,7 @@ export function buildAutoCraftPlan(input: BuildAutoCraftPlanInput): AutoCraftPla
     producerAssetId: input.producerAssetId,
     network: input.network,
     maxDepth: Math.max(1, Math.floor(input.maxDepth ?? DEFAULT_MAX_DEPTH)),
+    canUseRecipe: input.canUseRecipe,
     stepsInOrder: [],
     stepCounts: new Map<RecipeId, number>(),
     recursionPath: [],

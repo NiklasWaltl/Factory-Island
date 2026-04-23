@@ -62,12 +62,17 @@ import type { NetworkSlice, Reservation } from "../inventory/reservationTypes";
 import { createEmptyNetworkSlice } from "../inventory/reservationTypes";
 import type { CraftingQueueState, CraftingJob, JobStatus, JobPriority, JobSource } from "../crafting/types";
 import { createEmptyCraftingQueue } from "../crafting/types";
+import {
+  isRecipeAutomationPolicyEntryDefault,
+  normalizeRecipeAutomationPolicyEntry,
+  type RecipeAutomationPolicyMap,
+} from "../crafting/policies";
 import { debugLog } from "../debug/debugLogger";
 
 // ---- Version constants -----------------------------------------------
 
 /** Current save format version.  Bump when GameState shape changes. */
-export const CURRENT_SAVE_VERSION = 15;
+export const CURRENT_SAVE_VERSION = 16;
 
 // ---- globalInventory rebuild helper ---------------------------------
 
@@ -324,9 +329,16 @@ export interface SaveGameV15 extends Omit<SaveGameV14, "version"> {
   keepStockByWorkbench: KeepStockByWorkbench;
 }
 
+// ---- Save schema (V16 – persist per-recipe automation policies) -------
+
+export interface SaveGameV16 extends Omit<SaveGameV15, "version"> {
+  version: 16;
+  recipeAutomationPolicies: RecipeAutomationPolicyMap;
+}
+
 // ---- Latest alias (always points at the newest version) ---------------
 
-export type SaveGameLatest = SaveGameV15;
+export type SaveGameLatest = SaveGameV16;
 
 // ---- Legacy (pre-version) format  ------------------------------------
 
@@ -735,6 +747,14 @@ function migrateV14ToV15(save: SaveGameV14): SaveGameV15 {
   };
 }
 
+function migrateV15ToV16(save: SaveGameV15): SaveGameV16 {
+  return {
+    ...save,
+    version: 16,
+    recipeAutomationPolicies: {},
+  };
+}
+
 const MIGRATIONS: MigrationStep[] = [
   { from: 0, to: 1, migrate: migrateV0ToV1 },
   { from: 1, to: 2, migrate: migrateV1ToV2 },
@@ -751,6 +771,7 @@ const MIGRATIONS: MigrationStep[] = [
   { from: 12, to: 13, migrate: migrateV12ToV13 },
   { from: 13, to: 14, migrate: migrateV13ToV14 },
   { from: 14, to: 15, migrate: migrateV14ToV15 },
+  { from: 15, to: 16, migrate: migrateV15ToV16 },
 ];
 
 // ---- Central migration entry-point -----------------------------------
@@ -849,6 +870,7 @@ export function serializeState(state: GameState): SaveGameLatest {
     network: state.network,
     crafting: state.crafting,
     keepStockByWorkbench: state.keepStockByWorkbench ?? {},
+    recipeAutomationPolicies: state.recipeAutomationPolicies ?? {},
   };
 }
 
@@ -992,6 +1014,22 @@ function sanitizeKeepStockByWorkbench(
     if (Object.keys(cleanRecipes).length > 0) {
       cleaned[workbenchId] = cleanRecipes;
     }
+  }
+
+  return cleaned;
+}
+
+function sanitizeRecipeAutomationPolicies(
+  raw: RecipeAutomationPolicyMap | undefined | null,
+): RecipeAutomationPolicyMap {
+  if (!raw || typeof raw !== "object") return {};
+
+  const cleaned: RecipeAutomationPolicyMap = {};
+  for (const [recipeId, value] of Object.entries(raw)) {
+    if (!value || typeof value !== "object") continue;
+    const normalized = normalizeRecipeAutomationPolicyEntry(value);
+    if (isRecipeAutomationPolicyEntryDefault(normalized)) continue;
+    cleaned[recipeId] = normalized;
   }
 
   return cleaned;
@@ -1193,6 +1231,9 @@ export function deserializeState(save: SaveGameLatest): GameState {
     keepStockByWorkbench: sanitizeKeepStockByWorkbench(
       save.keepStockByWorkbench,
       save.assets,
+    ),
+    recipeAutomationPolicies: sanitizeRecipeAutomationPolicies(
+      save.recipeAutomationPolicies,
     ),
 
     // Derived / transient fields → defaults

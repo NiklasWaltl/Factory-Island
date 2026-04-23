@@ -2,7 +2,6 @@
 import {
   RESOURCE_LABELS,
   RESOURCE_EMOJIS,
-  KEEP_STOCK_MAX_TARGET,
   getSourceStatusInfo,
   getCraftingSourceInventory,
   type GameState,
@@ -11,11 +10,7 @@ import {
 } from "../../store/reducer";
 import { WORKBENCH_RECIPES } from "../../simulation/recipes";
 import { getJobsForWorkbench, sortByPriorityFifo } from "../../crafting/queue";
-import {
-  buildWorkbenchAutoCraftPlan,
-  type AutoCraftPlanResult,
-} from "../../crafting/planner";
-import type { CraftingInventorySource, CraftingJob, JobStatus } from "../../crafting/types";
+import type { CraftingJob, JobStatus } from "../../crafting/types";
 import { ZoneSourceSelector } from "./ZoneSourceSelector";
 import {
   computeIngredientLines,
@@ -78,49 +73,6 @@ function isReorderable(status: JobStatus): boolean {
 
 function isCancellable(status: JobStatus): boolean {
   return status !== "delivering" && status !== "done" && status !== "cancelled";
-}
-
-function toInventorySourceForPlan(
-  info: ReturnType<typeof getSourceStatusInfo>,
-): CraftingInventorySource | null {
-  if (info.source.kind === "global") return null;
-  if (info.source.kind === "warehouse") {
-    return { kind: "warehouse", warehouseId: info.source.warehouseId };
-  }
-  return {
-    kind: "zone",
-    zoneId: info.source.zoneId,
-    warehouseIds: info.zoneWarehouseIds,
-  };
-}
-
-function isSameInventorySource(left: CraftingInventorySource, right: CraftingInventorySource): boolean {
-  if (left.kind !== right.kind) return false;
-  if (left.kind === "global" && right.kind === "global") return true;
-  if (left.kind === "warehouse" && right.kind === "warehouse") {
-    return left.warehouseId === right.warehouseId;
-  }
-  if (left.kind === "zone" && right.kind === "zone") {
-    if (left.zoneId !== right.zoneId) return false;
-    if (left.warehouseIds.length !== right.warehouseIds.length) return false;
-    const leftIds = [...left.warehouseIds].sort();
-    const rightIds = [...right.warehouseIds].sort();
-    for (let i = 0; i < leftIds.length; i++) {
-      if (leftIds[i] !== rightIds[i]) return false;
-    }
-    return true;
-  }
-  return false;
-}
-
-function isNonTerminalStatus(status: JobStatus): boolean {
-  return status !== "done" && status !== "cancelled";
-}
-
-function planPreviewKey(info: ReturnType<typeof getSourceStatusInfo>): string {
-  if (info.source.kind === "global") return "global";
-  if (info.source.kind === "warehouse") return `warehouse:${info.source.warehouseId}`;
-  return `zone:${info.source.zoneId}:${info.zoneWarehouseIds.join(",")}`;
 }
 
 const JOB_QUEUE_BTN_STYLE: React.CSSProperties = {
@@ -202,37 +154,6 @@ export const WorkbenchPanel: React.FC<WorkbenchPanelProps> = React.memo(({
   const buildingId = state.selectedCraftingBuildingId;
   const info = getSourceStatusInfo(state, buildingId);
   const sourceInv: Inventory = getCraftingSourceInventory(state, info.source);
-  const [planPreviews, setPlanPreviews] = React.useState<Record<string, AutoCraftPlanResult>>({});
-  // R2: lock per-recipe confirm button while a dispatch is in flight, so
-  // a double-click cannot enqueue the same plan twice against stale state.
-  const [pendingDispatch, setPendingDispatch] = React.useState<Record<string, boolean>>({});
-  const pendingDispatchRef = React.useRef<Record<string, boolean>>({});
-
-  const inventorySourceForPlan = React.useMemo(
-    () => toInventorySourceForPlan(info),
-    [info],
-  );
-
-  const pendingOutputByItem = React.useMemo(() => {
-    const outputByItem: Record<string, number> = {};
-    if (!inventorySourceForPlan) return outputByItem;
-    for (const job of state.crafting.jobs) {
-      if (!isNonTerminalStatus(job.status)) continue;
-      if (!isSameInventorySource(job.inventorySource, inventorySourceForPlan)) continue;
-      outputByItem[job.output.itemId] = (outputByItem[job.output.itemId] ?? 0) + job.output.count;
-    }
-    return outputByItem;
-  }, [inventorySourceForPlan, state.crafting.jobs]);
-
-  const keepStockByWorkbench = state.keepStockByWorkbench ?? {};
-
-  const previewResetKey = React.useMemo(() => planPreviewKey(info), [info]);
-
-  React.useEffect(() => {
-    setPlanPreviews({});
-    setPendingDispatch({});
-    pendingDispatchRef.current = {};
-  }, [buildingId, previewResetKey]);
 
   const wbJobs = buildingId ? getJobsForWorkbench(state.crafting, buildingId) : [];
   const sortedJobs = sortByPriorityFifo(wbJobs).filter(
@@ -240,73 +161,13 @@ export const WorkbenchPanel: React.FC<WorkbenchPanelProps> = React.memo(({
   );
   const reorderableSorted = sortedJobs.filter((j) => isReorderable(j.status));
 
-  const requestPlanPreview = (recipeId: string): void => {
-    if (!inventorySourceForPlan || !buildingId) return;
-    const plan = buildWorkbenchAutoCraftPlan({
-      recipeId,
-      amount: 1,
-      producerAssetId: buildingId,
-      source: inventorySourceForPlan,
-      warehouseInventories: state.warehouseInventories,
-      serviceHubs: state.serviceHubs,
-      network: state.network,
-      assets: state.assets,
-      existingJobs: state.crafting.jobs,
-    });
-    setPlanPreviews((prev) => ({
-      ...prev,
-      [recipeId]: plan,
-    }));
-  };
-
-  const confirmPlanEnqueue = (recipeId: string): void => {
-    if (!buildingId) return;
-    if (pendingDispatchRef.current[recipeId]) return;
-    pendingDispatchRef.current = {
-      ...pendingDispatchRef.current,
-      [recipeId]: true,
-    };
-    const preview = planPreviews[recipeId];
-    const expectedStepCount =
-      preview && preview.ok
-        ? preview.steps.reduce((sum, step) => sum + step.count, 0)
-        : undefined;
-    setPendingDispatch((prev) => ({ ...prev, [recipeId]: true }));
-    dispatch({
-      type: "CRAFT_REQUEST_WITH_PREREQUISITES",
-      recipeId,
-      workbenchId: buildingId,
-      source: "player",
-      priority: "high",
-      amount: 1,
-      expectedStepCount,
-    });
-    setPlanPreviews((prev) => {
-      if (!prev[recipeId]) return prev;
-      const next = { ...prev };
-      delete next[recipeId];
-      return next;
-    });
-    // Release the per-recipe lock on the next macrotask. By then React has
-    // already flushed the dispatch, so a second click sees a fresh state and
-    // builds its own preview before being able to confirm again.
-    setTimeout(() => {
-      pendingDispatchRef.current = {
-        ...pendingDispatchRef.current,
-      };
-      delete pendingDispatchRef.current[recipeId];
-      setPendingDispatch((prev) => {
-        if (!prev[recipeId]) return prev;
-        const next = { ...prev };
-        delete next[recipeId];
-        return next;
-      });
-    }, 0);
-  };
-
   return (
     <div className="fi-panel fi-workbench" onClick={(e) => e.stopPropagation()}>
       <h2>🔨 Werkbank</h2>
+      <p style={{ fontSize: 11, color: "#9aa8d0", margin: "0 0 8px 0" }}>
+        Manuelle Werkzeug-Station. Fertige Werkzeuge landen im verbundenen
+        Lagerhaus und werden per Hotbar entnommen.
+      </p>
 
       {/* ---- Source / Zone selector ---- */}
       <ZoneSourceSelector state={state} buildingId={buildingId} dispatch={dispatch} />
@@ -341,18 +202,6 @@ export const WorkbenchPanel: React.FC<WorkbenchPanelProps> = React.memo(({
           const lines = computeIngredientLines(state, recipe, info.source, sourceInv);
           const availability = summarizeAvailability(lines);
           const canQueue = hasPhysicalSource && availability.canCraft;
-          const hasCraftableMissing = lines.some(
-            (line) => line.status === "missing" && line.missingHint === "craftable",
-          );
-          const canAutoCraftPrereqs = hasPhysicalSource && hasCraftableMissing && !!inventorySourceForPlan;
-          const preview = planPreviews[recipe.key] ?? null;
-          const keepStockEntry = buildingId ? keepStockByWorkbench[buildingId]?.[recipe.key] : undefined;
-          const keepStockAmount = keepStockEntry?.amount ?? 0;
-          const keepStockEnabled = !!keepStockEntry?.enabled && keepStockAmount > 0;
-          const storedOutput = (sourceInv as unknown as Record<string, number>)[recipe.outputItem] ?? 0;
-          const pendingOutput = pendingOutputByItem[recipe.outputItem] ?? 0;
-          const projectedOutput = storedOutput + pendingOutput;
-          const keepStockGap = Math.max(0, keepStockAmount - projectedOutput);
 
           let blockReason: string | null = null;
           if (!hasPhysicalSource) {
@@ -420,122 +269,6 @@ export const WorkbenchPanel: React.FC<WorkbenchPanelProps> = React.memo(({
               >
                 Craft
               </button>
-              {hasCraftableMissing && (
-                <button
-                  className="fi-btn"
-                  disabled={!canAutoCraftPrereqs}
-                  onClick={() => requestPlanPreview(recipe.key)}
-                  style={{ marginTop: 4 }}
-                >
-                  Auto-Craft Vorprodukte
-                </button>
-              )}
-              {preview && preview.ok && (
-                <div
-                  style={{
-                    marginTop: 6,
-                    border: "1px solid rgba(124,179,245,0.35)",
-                    borderRadius: 4,
-                    padding: 6,
-                    fontSize: 11,
-                    color: "#b8d5ff",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 3,
-                  }}
-                >
-                  <strong style={{ color: "#d8e8ff" }}>Planvorschau</strong>
-                  {preview.steps.map((step) => (
-                    <span key={`${recipe.key}:${step.recipeId}`}>{step.count}x {step.label}</span>
-                  ))}
-                  <span style={{ fontSize: 10, color: "#8aa3c2" }}>
-                    Plan wird gegen aktuellen Lagerstand neu berechnet.
-                  </span>
-                  <button
-                    className="fi-btn"
-                    disabled={!!pendingDispatch[recipe.key]}
-                    onClick={() => confirmPlanEnqueue(recipe.key)}
-                    style={{ marginTop: 4 }}
-                  >
-                    {pendingDispatch[recipe.key] ? "Wird eingereiht…" : "Plan in Queue legen"}
-                  </button>
-                </div>
-              )}
-              {preview && !preview.ok && (
-                <div style={{ fontSize: 10, color: "#e8a946", marginTop: 4 }}>
-                  {preview.error.message}
-                </div>
-              )}
-              {buildingId && (
-                <div
-                  style={{
-                    marginTop: 6,
-                    paddingTop: 6,
-                    borderTop: "1px solid rgba(255,255,255,0.08)",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 4,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <label style={{ fontSize: 11, color: "#9fb5cc", display: "flex", alignItems: "center", gap: 4 }}>
-                      <input
-                        type="checkbox"
-                        checked={keepStockEnabled}
-                        onChange={(event) => {
-                          const nextEnabled = event.currentTarget.checked;
-                          const fallbackAmount = keepStockAmount > 0 ? keepStockAmount : 1;
-                          dispatch({
-                            type: "SET_KEEP_STOCK_TARGET",
-                            workbenchId: buildingId,
-                            recipeId: recipe.key,
-                            amount: nextEnabled ? fallbackAmount : keepStockAmount,
-                            enabled: nextEnabled,
-                          });
-                        }}
-                      />
-                      Zielbestand
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={KEEP_STOCK_MAX_TARGET}
-                      step={1}
-                      value={keepStockAmount}
-                      onChange={(event) => {
-                        const parsed = Number.parseInt(event.currentTarget.value, 10);
-                        const nextAmount = Number.isFinite(parsed)
-                          ? Math.max(0, Math.min(KEEP_STOCK_MAX_TARGET, parsed))
-                          : 0;
-                        dispatch({
-                          type: "SET_KEEP_STOCK_TARGET",
-                          workbenchId: buildingId,
-                          recipeId: recipe.key,
-                          amount: nextAmount,
-                          enabled: keepStockEnabled && nextAmount > 0,
-                        });
-                      }}
-                      style={{ width: 60, fontSize: 11 }}
-                    />
-                  </div>
-                  {keepStockEnabled && (
-                    <div
-                      style={{
-                        fontSize: 10,
-                        color: hasPhysicalSource
-                          ? (keepStockGap > 0 ? "#e8a946" : "#7fd28a")
-                          : "#e8a946",
-                      }}
-                    >
-                      {hasPhysicalSource
-                        ? (keepStockGap > 0
-                          ? `Auffüllen aktiv: ${projectedOutput}/${keepStockAmount} (Fehlen: ${keepStockGap})`
-                          : `Zielbestand erreicht: ${projectedOutput}/${keepStockAmount}`)
-                        : "Keep-in-Stock benötigt eine physische Quelle."}
-                    </div>
-                  )}
-                </div>
-              )}
               {!canQueue && blockReason && (
                 <div style={{ fontSize: 10, color: "#e8a946", marginTop: 2 }}>
                   {blockReason}

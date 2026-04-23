@@ -2,6 +2,7 @@ import {
   cellKey,
   createInitialState,
   gameReducer,
+  KEEP_STOCK_OPEN_JOB_CAP,
   type GameState,
   type Inventory,
   type PlacedAsset,
@@ -239,6 +240,56 @@ describe("CRAFT_REQUEST_WITH_PREREQUISITES", () => {
       },
     );
   });
+
+  it("blocks auto-craft planning when auto-craft policy is disabled for recipe", () => {
+    let state = buildState({ wood: 20, wood_pickaxe: 0 });
+    state = gameReducer(state, {
+      type: "SET_RECIPE_AUTOMATION_POLICY",
+      recipeId: "wood_pickaxe",
+      patch: { autoCraftAllowed: false },
+    });
+
+    const next = gameReducer(state, {
+      type: "CRAFT_REQUEST_WITH_PREREQUISITES",
+      recipeId: "wood_pickaxe",
+      workbenchId: WB,
+      source: "player",
+      priority: "high",
+    });
+
+    expect(next.crafting.jobs).toHaveLength(0);
+    expect(next.notifications.at(-1)?.displayName).toContain("auto-craft disabled");
+  });
+
+  it("manual-only recipe still allows direct manual JOB_ENQUEUE", () => {
+    let state = buildState({ wood: 20, wood_pickaxe: 0 });
+    state = gameReducer(state, {
+      type: "SET_RECIPE_AUTOMATION_POLICY",
+      recipeId: "wood_pickaxe",
+      patch: { manualOnly: true },
+    });
+
+    const blockedAutoPlan = gameReducer(state, {
+      type: "CRAFT_REQUEST_WITH_PREREQUISITES",
+      recipeId: "wood_pickaxe",
+      workbenchId: WB,
+      source: "player",
+      priority: "high",
+    });
+    expect(blockedAutoPlan.crafting.jobs).toHaveLength(0);
+    expect(blockedAutoPlan.notifications.at(-1)?.displayName).toContain("manual only");
+
+    const manualEnqueue = gameReducer(state, {
+      type: "JOB_ENQUEUE",
+      recipeId: "wood_pickaxe",
+      workbenchId: WB,
+      source: "player",
+      priority: "high",
+    });
+    expect(manualEnqueue.crafting.jobs).toHaveLength(1);
+    expect(manualEnqueue.crafting.jobs[0].recipeId).toBe("wood_pickaxe");
+    expect(manualEnqueue.crafting.jobs[0].source).toBe("player");
+  });
 });
 
 describe("Schritt 8 Fixes - reducer", () => {
@@ -449,16 +500,13 @@ describe("Keep-in-Stock", () => {
           type: "SET_KEEP_STOCK_TARGET",
           workbenchId: WB,
           recipeId: "keep_stock_gear",
-          amount: 2,
+          amount: 1,
           enabled: true,
         });
 
         const next = gameReducer(state, { type: "JOB_TICK" });
 
-        expect(next.crafting.jobs.map((job) => job.recipeId)).toEqual([
-          "keep_stock_gear",
-          "keep_stock_gear",
-        ]);
+        expect(next.crafting.jobs.map((job) => job.recipeId)).toEqual(["keep_stock_gear"]);
         expect(next.crafting.jobs.every((job) => job.source === "automation")).toBe(true);
       },
     );
@@ -494,6 +542,25 @@ describe("Keep-in-Stock", () => {
     );
   });
 
+  it("does not enqueue keep-stock refill when policy disables keep-in-stock", () => {
+    let state = buildState({ wood: 20, wood_pickaxe: 0 });
+    state = gameReducer(state, {
+      type: "SET_KEEP_STOCK_TARGET",
+      workbenchId: WB,
+      recipeId: "wood_pickaxe",
+      amount: 2,
+      enabled: true,
+    });
+    state = gameReducer(state, {
+      type: "SET_RECIPE_AUTOMATION_POLICY",
+      recipeId: "wood_pickaxe",
+      patch: { keepInStockAllowed: false },
+    });
+
+    const next = gameReducer(state, { type: "JOB_TICK" });
+    expect(next.crafting.jobs).toHaveLength(0);
+  });
+
   it("suppresses duplicate refill while pending output already exists", () => {
     withWorkbenchRecipes(
       [
@@ -527,13 +594,13 @@ describe("Keep-in-Stock", () => {
     );
   });
 
-  it("does not treat queued-only output as guaranteed pending stock", () => {
+  it("skips keep-stock enqueue while higher-priority player jobs are pending", () => {
     withWorkbenchRecipes(
       [
         {
-          key: "keep_stock_queue_only",
-          label: "Keep Stock Queue Only",
-          emoji: "Q",
+          key: "keep_stock_blocked",
+          label: "Keep Stock Blocked",
+          emoji: "B",
           inputItem: "wood",
           outputItem: "gear",
           processingTime: 0,
@@ -545,7 +612,7 @@ describe("Keep-in-Stock", () => {
         let state = buildState({ wood: 10, gear: 0 });
         state = gameReducer(state, {
           type: "JOB_ENQUEUE",
-          recipeId: "keep_stock_queue_only",
+          recipeId: "keep_stock_blocked",
           workbenchId: WB,
           source: "player",
           priority: "high",
@@ -553,16 +620,16 @@ describe("Keep-in-Stock", () => {
         state = gameReducer(state, {
           type: "SET_KEEP_STOCK_TARGET",
           workbenchId: WB,
-          recipeId: "keep_stock_queue_only",
+          recipeId: "keep_stock_blocked",
           amount: 1,
           enabled: true,
         });
 
         const next = gameReducer(state, { type: "JOB_TICK" });
-        const recipeJobs = next.crafting.jobs.filter((job) => job.recipeId === "keep_stock_queue_only");
+        const recipeJobs = next.crafting.jobs.filter((job) => job.recipeId === "keep_stock_blocked");
 
-        expect(recipeJobs).toHaveLength(2);
-        expect(recipeJobs.filter((job) => job.source === "automation")).toHaveLength(1);
+        expect(recipeJobs.filter((job) => job.source === "automation")).toHaveLength(0);
+        expect(recipeJobs.filter((job) => job.source === "player")).toHaveLength(1);
       },
     );
   });
@@ -598,7 +665,7 @@ describe("Keep-in-Stock", () => {
                   inventorySource: { kind: "warehouse", warehouseId: WH },
                   status,
                   priority: "normal",
-                  source: "player",
+                  source: "automation",
                   enqueuedAt: 1,
                   startedAt: null,
                   finishesAt: null,
@@ -627,8 +694,47 @@ describe("Keep-in-Stock", () => {
           );
 
           expect(recipeJobs).toHaveLength(1);
-          expect(recipeJobs.filter((job) => job.source === "automation")).toHaveLength(0);
+          expect(recipeJobs.filter((job) => job.source === "automation")).toHaveLength(1);
         }
+      },
+    );
+  });
+
+  it("does not enqueue duplicate refill for the same output item when one is already active", () => {
+    withWorkbenchRecipes(
+      [
+        {
+          key: "keep_stock_same_item",
+          label: "Keep Stock Same Item",
+          emoji: "I",
+          inputItem: "wood",
+          outputItem: "gear",
+          processingTime: 0,
+          outputAmount: 1,
+          costs: { wood: 2 },
+        },
+      ],
+      () => {
+        let state = buildState({ wood: 10, gear: 0 });
+        state = gameReducer(state, {
+          type: "JOB_ENQUEUE",
+          recipeId: "keep_stock_same_item",
+          workbenchId: WB,
+          source: "automation",
+          priority: "normal",
+        });
+        state = gameReducer(state, {
+          type: "SET_KEEP_STOCK_TARGET",
+          workbenchId: WB,
+          recipeId: "keep_stock_same_item",
+          amount: 2,
+          enabled: true,
+        });
+
+        const next = gameReducer(state, { type: "JOB_TICK" });
+        const recipeJobs = next.crafting.jobs.filter((job) => job.recipeId === "keep_stock_same_item");
+
+        expect(recipeJobs.filter((job) => job.source === "automation")).toHaveLength(1);
       },
     );
   });
@@ -726,6 +832,74 @@ describe("Keep-in-Stock", () => {
           "keep_stock_det_a",
           "keep_stock_det_b",
         ]);
+      },
+    );
+  });
+
+  it("respects the global keep-stock open-job cap", () => {
+    withWorkbenchRecipes(
+      [
+        {
+          key: "keep_stock_cap_a",
+          label: "Keep Stock Cap A",
+          emoji: "A",
+          inputItem: "wood",
+          outputItem: "gear",
+          processingTime: 0,
+          outputAmount: 1,
+          costs: { wood: 1 },
+        },
+        {
+          key: "keep_stock_cap_b",
+          label: "Keep Stock Cap B",
+          emoji: "B",
+          inputItem: "wood",
+          outputItem: "axe",
+          processingTime: 0,
+          outputAmount: 1,
+          costs: { wood: 1 },
+        },
+        {
+          key: "keep_stock_cap_c",
+          label: "Keep Stock Cap C",
+          emoji: "C",
+          inputItem: "wood",
+          outputItem: "wood_pickaxe",
+          processingTime: 0,
+          outputAmount: 1,
+          costs: { wood: 1 },
+        },
+      ],
+      () => {
+        let state = buildState({ wood: 20, gear: 0, axe: 0, wood_pickaxe: 0 });
+        state = gameReducer(state, {
+          type: "SET_KEEP_STOCK_TARGET",
+          workbenchId: WB,
+          recipeId: "keep_stock_cap_a",
+          amount: 1,
+          enabled: true,
+        });
+        state = gameReducer(state, {
+          type: "SET_KEEP_STOCK_TARGET",
+          workbenchId: WB,
+          recipeId: "keep_stock_cap_b",
+          amount: 1,
+          enabled: true,
+        });
+        state = gameReducer(state, {
+          type: "SET_KEEP_STOCK_TARGET",
+          workbenchId: WB,
+          recipeId: "keep_stock_cap_c",
+          amount: 1,
+          enabled: true,
+        });
+
+        const next = gameReducer(state, { type: "JOB_TICK" });
+        const openKeepStockJobs = next.crafting.jobs.filter(
+          (job) => job.source === "automation" && job.status !== "done" && job.status !== "cancelled",
+        );
+
+        expect(openKeepStockJobs).toHaveLength(KEEP_STOCK_OPEN_JOB_CAP);
       },
     );
   });

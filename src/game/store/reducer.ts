@@ -33,6 +33,20 @@ import {
   setJobPriority as craftingSetJobPriority,
 } from "../crafting/queue";
 import { buildWorkbenchAutoCraftPlan } from "../crafting/planner";
+import { applyKeepStockRefills } from "../crafting/workflows/keepStockWorkflow";
+import {
+  applyPlanningTriggers,
+  applyExecutionTick,
+  type ExecutionTickDeps,
+  type PlanningTriggerDeps,
+} from "../crafting/tickPhases";
+import {
+  applyRecipeAutomationPolicyPatch,
+  areRecipeAutomationPolicyEntriesEqual,
+  checkRecipeAutomationPolicy,
+  isRecipeAutomationPolicyEntryDefault,
+  type RecipeAutomationPolicyPatch,
+} from "../crafting/policies";
 import {
   getGlobalHubWarehouseId,
   hubInventoryToInventoryView,
@@ -88,6 +102,8 @@ import type {
   ServiceHubEntry,
   KeepStockTargetEntry,
   KeepStockByWorkbench,
+  RecipeAutomationPolicyEntry,
+  RecipeAutomationPolicyMap,
   GameState,
 } from "./types";
 
@@ -128,6 +144,8 @@ export type {
   ServiceHubEntry,
   KeepStockTargetEntry,
   KeepStockByWorkbench,
+  RecipeAutomationPolicyEntry,
+  RecipeAutomationPolicyMap,
   GameState,
 };
 
@@ -290,6 +308,24 @@ export const HOTBAR_STACK_MAX = 5;
 export const WAREHOUSE_CAPACITY = 20;
 export const MAX_WAREHOUSES = 2;
 export const KEEP_STOCK_MAX_TARGET = 999;
+export const KEEP_STOCK_OPEN_JOB_CAP = 2;
+
+// JOB_TICK phase wiring — see crafting/tickPhases.ts for the
+// architecture rule (planning vs execution split). Declared here
+// because the planning deps depend on reducer-internal helpers
+// (resolveBuildingSource etc.). Kept module-scoped so the JOB_TICK
+// case stays a 2-line dispatcher.
+const PLANNING_TRIGGER_DEPS: PlanningTriggerDeps = {
+  KEEP_STOCK_OPEN_JOB_CAP,
+  KEEP_STOCK_MAX_TARGET,
+  resolveBuildingSource,
+  toCraftingJobInventorySource,
+  getCraftingSourceInventory,
+  isUnderConstruction,
+};
+const EXECUTION_TICK_DEPS: ExecutionTickDeps = {
+  isUnderConstruction,
+};
 
 // ---- Energy / Generator ----
 export const DEFAULT_MACHINE_PRIORITY: MachinePriority = 3;
@@ -2153,7 +2189,7 @@ export function applyCraftingSourceInventory(
   return { warehouseInventories: { ...state.warehouseInventories, [source.warehouseId]: newInv } };
 }
 
-function toCraftingJobInventorySource(
+export function toCraftingJobInventorySource(
   state: GameState,
   source: CraftingSource,
 ): CraftingInventorySource {
@@ -3988,6 +4024,7 @@ export function createInitialState(mode: GameMode): GameState {
     network: createEmptyNetworkSlice(),
     crafting: createEmptyCraftingQueue(),
     keepStockByWorkbench: {},
+    recipeAutomationPolicies: {},
   };
   // Ensure drones record is pre-populated with the starter drone
   initial.drones = { starter: initial.starterDrone };
@@ -4054,6 +4091,8 @@ export type GameAction =
   | { type: "SET_BUILDING_SOURCE"; buildingId: string; warehouseId: string | null }
   // Per-workbench keep-in-stock targets for workbench recipes
   | { type: "SET_KEEP_STOCK_TARGET"; workbenchId: string; recipeId: string; amount: number; enabled: boolean }
+  // Per-recipe automation policy overrides
+  | { type: "SET_RECIPE_AUTOMATION_POLICY"; recipeId: string; patch: RecipeAutomationPolicyPatch }
   // Production zones
   | { type: "CREATE_ZONE"; name?: string }
   | { type: "DELETE_ZONE"; zoneId: string }
@@ -5108,173 +5147,16 @@ function getKeepStockByWorkbench(state: Pick<GameState, "keepStockByWorkbench">)
   return state.keepStockByWorkbench ?? {};
 }
 
-function areCraftingSourcesEqual(left: CraftingInventorySource, right: CraftingInventorySource): boolean {
-  if (left.kind !== right.kind) return false;
-  if (left.kind === "global" && right.kind === "global") return true;
-  if (left.kind === "warehouse" && right.kind === "warehouse") {
-    return left.warehouseId === right.warehouseId;
-  }
-  if (left.kind === "zone" && right.kind === "zone") {
-    if (left.zoneId !== right.zoneId) return false;
-    if (left.warehouseIds.length !== right.warehouseIds.length) return false;
-    const leftIds = [...left.warehouseIds].sort();
-    const rightIds = [...right.warehouseIds].sort();
-    for (let i = 0; i < leftIds.length; i++) {
-      if (leftIds[i] !== rightIds[i]) return false;
-    }
-    return true;
-  }
-  return false;
+function getRecipeAutomationPolicies(
+  state: Pick<GameState, "recipeAutomationPolicies">,
+): RecipeAutomationPolicyMap {
+  return state.recipeAutomationPolicies ?? {};
 }
 
-function isGuaranteedPendingCraftingJob(status: CraftingJob["status"]): boolean {
-  return status === "reserved" || status === "crafting" || status === "delivering";
-}
-
-function getProjectedPendingOutput(
-  jobs: readonly CraftingJob[],
-  source: CraftingInventorySource,
-  outputItem: string,
-): number {
-  let total = 0;
-  for (const job of jobs) {
-    if (!isGuaranteedPendingCraftingJob(job.status)) continue;
-    if (job.output.itemId !== outputItem) continue;
-    if (!areCraftingSourcesEqual(job.inventorySource, source)) continue;
-    total += job.output.count;
-  }
-  return total;
-}
-
-function enqueueKeepStockRefills(state: GameState): GameState {
-  const byWorkbench = getKeepStockByWorkbench(state);
-  const configuredTargets: Array<{ workbenchId: string; recipeId: string; target: KeepStockTargetEntry }> = [];
-
-  for (const [workbenchId, recipes] of Object.entries(byWorkbench)) {
-    for (const [recipeId, target] of Object.entries(recipes ?? {})) {
-      configuredTargets.push({ workbenchId, recipeId, target });
-    }
-  }
-
-  if (configuredTargets.length === 0) return state;
-
-  configuredTargets.sort((a, b) => {
-    if (a.workbenchId === b.workbenchId) return a.recipeId.localeCompare(b.recipeId);
-    return a.workbenchId.localeCompare(b.workbenchId);
-  });
-
-  let nextState = state;
-
-  for (const cfg of configuredTargets) {
-    const targetAmount = Math.max(0, Math.min(KEEP_STOCK_MAX_TARGET, Math.floor(cfg.target.amount ?? 0)));
-    const enabled = !!cfg.target.enabled && targetAmount > 0;
-    if (!enabled) continue;
-
-    const workbenchAsset = nextState.assets[cfg.workbenchId];
-    if (!workbenchAsset || workbenchAsset.type !== "workbench") continue;
-    if (isUnderConstruction(nextState, cfg.workbenchId)) continue;
-
-    const recipe = getWorkbenchRecipe(cfg.recipeId);
-    if (!recipe) {
-      if (import.meta.env.DEV) {
-        debugLog.general(
-          `[KeepStock] Skip unsupported recipe ${cfg.recipeId} (workbench ${cfg.workbenchId}).`,
-        );
-      }
-      continue;
-    }
-
-    const source = resolveBuildingSource(nextState, cfg.workbenchId);
-    if (source.kind === "global") {
-      if (import.meta.env.DEV) {
-        debugLog.general(
-          `[KeepStock] Skip ${cfg.recipeId} on ${cfg.workbenchId}: no physical source.`,
-        );
-      }
-      continue;
-    }
-
-    const inventorySource = toCraftingJobInventorySource(nextState, source);
-    const sourceInv = getCraftingSourceInventory(nextState, source) as unknown as Record<string, number>;
-    const storedCount = sourceInv[recipe.outputItem] ?? 0;
-    const pendingCount = getProjectedPendingOutput(
-      nextState.crafting.jobs,
-      inventorySource,
-      recipe.outputItem,
-    );
-    const projectedCount = storedCount + pendingCount;
-
-    if (projectedCount >= targetAmount) continue;
-
-    const missingOutput = targetAmount - projectedCount;
-    const craftsNeeded = Math.ceil(missingOutput / Math.max(1, recipe.outputAmount));
-    if (craftsNeeded <= 0) continue;
-
-    const plan = buildWorkbenchAutoCraftPlan({
-      recipeId: cfg.recipeId,
-      amount: craftsNeeded,
-      producerAssetId: cfg.workbenchId,
-      source: inventorySource,
-      warehouseInventories: nextState.warehouseInventories,
-      serviceHubs: nextState.serviceHubs,
-      network: nextState.network,
-      assets: nextState.assets,
-      existingJobs: nextState.crafting.jobs,
-    });
-
-    if (!plan.ok) {
-      if (import.meta.env.DEV) {
-        debugLog.general(
-          `[KeepStock] Plan failed for ${cfg.recipeId} on ${cfg.workbenchId}: ${plan.error.message}`,
-        );
-      }
-      continue;
-    }
-
-    let queue = nextState.crafting;
-    let enqueueFailed = false;
-    for (const step of plan.steps) {
-      for (let i = 0; i < step.count; i++) {
-        const enqueueResult = craftingEnqueueJob(queue, {
-          recipeId: step.recipeId,
-          workbenchId: cfg.workbenchId,
-          source: "automation",
-          priority: "normal",
-          inventorySource,
-          assets: nextState.assets,
-        });
-        queue = enqueueResult.queue;
-        if (!enqueueResult.ok) {
-          if (import.meta.env.DEV) {
-            debugLog.general(
-              `[KeepStock] Enqueue failed for ${step.recipeId} on ${cfg.workbenchId}: ${enqueueResult.error.message}`,
-            );
-          }
-          enqueueFailed = true;
-          break;
-        }
-      }
-      if (enqueueFailed) break;
-    }
-
-    if (queue === nextState.crafting) continue;
-
-    if (import.meta.env.DEV) {
-      debugLog.general(
-        `[KeepStock] Enqueued refill for ${cfg.recipeId} on ${cfg.workbenchId}: ${plan.steps
-          .map((step) => `${step.count}x ${step.recipeId}`)
-          .join(", ")}`,
-      );
-    }
-
-    nextState = {
-      ...nextState,
-      crafting: queue,
-    };
-  }
-
-  return nextState;
-}
+// Crafting-Job-Status-, Source-Vergleichs- und Cap-Helfer leben in
+// ../crafting/jobStatus und werden oben importiert.
+// Die Keep-in-stock-Refill-Orchestrierung liegt in
+// ../crafting/workflows/keepStockWorkflow (applyKeepStockRefills).
 
 export function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
@@ -5328,6 +5210,19 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         };
       }
 
+      const recipePolicies = getRecipeAutomationPolicies(state);
+      const autoCraftDecision = checkRecipeAutomationPolicy(
+        recipePolicies,
+        action.recipeId,
+        "craftRequest",
+      );
+      if (!autoCraftDecision.allowed) {
+        return {
+          ...state,
+          notifications: addErrorNotification(state.notifications, autoCraftDecision.reason!),
+        };
+      }
+
       const resolvedSource = resolveBuildingSource(state, action.workbenchId);
       if (resolvedSource.kind === "global") {
         return {
@@ -5360,6 +5255,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         network: state.network,
         assets: state.assets,
         existingJobs: state.crafting.jobs,
+        canUseRecipe: (recipeId) =>
+          checkRecipeAutomationPolicy(recipePolicies, recipeId, "plannerAutoCraft"),
       });
 
       if (!plan.ok) {
@@ -5449,6 +5346,26 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           notifications: addErrorNotification(state.notifications, `Werkbank [${workbenchAsset.id}] ist noch im Bau.`),
         };
       }
+
+      if (action.source === "automation") {
+        const decision = checkRecipeAutomationPolicy(
+          getRecipeAutomationPolicies(state),
+          action.recipeId,
+          "jobEnqueueAutomation",
+        );
+        if (!decision.allowed) {
+          if (import.meta.env.DEV) {
+            debugLog.general(
+              `Enqueue rejected by policy: ${decision.rawReason} (recipe ${action.recipeId}, workbench ${action.workbenchId})`,
+            );
+          }
+          return {
+            ...state,
+            notifications: addErrorNotification(state.notifications, decision.reason!),
+          };
+        }
+      }
+
       const resolvedSource = resolveBuildingSource(state, action.workbenchId);
       if (resolvedSource.kind === "global") {
         if (import.meta.env.DEV) {
@@ -5517,43 +5434,14 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case "JOB_TICK": {
-      const stateWithKeepStock = enqueueKeepStockRefills(state);
-      const readyWorkbenchIds = new Set(
-        Object.values(stateWithKeepStock.assets)
-          .filter(
-            (asset) =>
-              asset.type === "workbench" &&
-              !isUnderConstruction(stateWithKeepStock, asset.id),
-          )
-          .map((asset) => asset.id),
-      );
-      const out = tickCraftingJobs({
-        warehouseInventories: stateWithKeepStock.warehouseInventories,
-        globalInventory: stateWithKeepStock.inventory,
-        serviceHubs: stateWithKeepStock.serviceHubs,
-        network: stateWithKeepStock.network,
-        crafting: stateWithKeepStock.crafting,
-        assets: stateWithKeepStock.assets,
-        readyWorkbenchIds,
-        now: Date.now(),
-      });
-      if (
-        out.warehouseInventories === stateWithKeepStock.warehouseInventories &&
-        out.globalInventory === stateWithKeepStock.inventory &&
-        out.serviceHubs === stateWithKeepStock.serviceHubs &&
-        out.network === stateWithKeepStock.network &&
-        out.crafting === stateWithKeepStock.crafting
-      ) {
-        return stateWithKeepStock;
-      }
-      return {
-        ...stateWithKeepStock,
-        warehouseInventories: out.warehouseInventories as Record<string, Inventory>,
-        inventory: out.globalInventory,
-        serviceHubs: out.serviceHubs as Record<string, ServiceHubEntry>,
-        network: out.network,
-        crafting: out.crafting,
-      };
+      // Architecture rule: JOB_TICK is split into two clearly named
+      // phases (see crafting/tickPhases.ts).
+      //   1. Planning — ONLY layer allowed to enqueue automation jobs
+      //      (currently keep-in-stock refills).
+      //   2. Execution — progresses existing jobs; never enqueues new
+      //      demand.
+      const planned = applyPlanningTriggers(state, PLANNING_TRIGGER_DEPS);
+      return applyExecutionTick(planned, EXECUTION_TICK_DEPS);
     }
 
     case "CLICK_CELL": {
@@ -6541,6 +6429,20 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         return { ...partialSmelter, connectedAssetIds: computeConnectedAssetIds(partialSmelter) };
       }
 
+      // Workbench is a single manual tool station — exactly one per save,
+      // even in DEV. The product rule explicitly forbids a workbench network.
+      if (bType === "workbench") {
+        const hasWorkbench = Object.values(state.assets).some((a) => a.type === "workbench");
+        if (hasWorkbench) {
+          return {
+            ...state,
+            notifications: addErrorNotification(
+              state.notifications,
+              "Es kann nur eine Werkbank gebaut werden.",
+            ),
+          };
+        }
+      }
       // Non-stackable uniqueness check
       const _nonStackableLimit = import.meta.env.DEV ? 100 : 1;
       if (!STACKABLE_BUILDINGS.has(bType) && bType !== "warehouse") {
@@ -7485,6 +7387,33 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             ...recipeTargets,
             [action.recipeId]: nextTarget,
           },
+        },
+      };
+    }
+
+    case "SET_RECIPE_AUTOMATION_POLICY": {
+      const byRecipe = getRecipeAutomationPolicies(state);
+      const currentEntry = byRecipe[action.recipeId];
+      const nextEntry = applyRecipeAutomationPolicyPatch(currentEntry, action.patch);
+
+      if (areRecipeAutomationPolicyEntriesEqual(currentEntry, nextEntry)) {
+        return state;
+      }
+
+      if (isRecipeAutomationPolicyEntryDefault(nextEntry)) {
+        if (!currentEntry) return state;
+        const { [action.recipeId]: _removed, ...remaining } = byRecipe;
+        return {
+          ...state,
+          recipeAutomationPolicies: remaining,
+        };
+      }
+
+      return {
+        ...state,
+        recipeAutomationPolicies: {
+          ...byRecipe,
+          [action.recipeId]: nextEntry,
         },
       };
     }

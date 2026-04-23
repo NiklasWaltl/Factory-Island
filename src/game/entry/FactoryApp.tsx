@@ -32,6 +32,7 @@ import { ServiceHubPanel } from "../ui/panels/ServiceHubPanel";
 import { BuildMenu } from "../ui/menus/BuildMenu";
 import { Notifications } from "../ui/hud/Notifications";
 import { AutoDeliveryFeed } from "../ui/hud/AutoDeliveryFeed";
+import { ProductionStatusFeed } from "../ui/hud/ProductionStatusFeed";
 import { ResourceBar } from "../ui/hud/ResourceBar";
 import "../ui/styles/factory-game.css";
 
@@ -300,6 +301,7 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
       <ResourceBar state={state} />
       <Notifications notifications={state.notifications} />
       <AutoDeliveryFeed log={state.autoDeliveryLog} />
+      <ProductionStatusFeed state={state} />
 
       {state.openPanel === "map_shop" && (
         <MapShopPanel state={state} dispatch={dispatch} />

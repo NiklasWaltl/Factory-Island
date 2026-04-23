@@ -64,6 +64,20 @@ describe("serializeState", () => {
     });
   });
 
+  it("persists recipe automation policy overrides", () => {
+    const state = createInitialState("release");
+    state.recipeAutomationPolicies = {
+      wood_pickaxe: { manualOnly: true },
+      axe: { autoCraftAllowed: false },
+    };
+
+    const save = serializeState(state);
+    expect(save.recipeAutomationPolicies).toEqual({
+      wood_pickaxe: { manualOnly: true },
+      axe: { autoCraftAllowed: false },
+    });
+  });
+
   it("excludes derived/transient fields", () => {
     const state = createInitialState("release");
     state.connectedAssetIds = ["a", "b"];
@@ -121,6 +135,19 @@ describe("deserializeState", () => {
       "wb-valid": {
         wood_pickaxe: { enabled: true, amount: 2 },
       },
+    });
+  });
+
+  it("restores recipe automation policies and drops default/no-op entries", () => {
+    const state = createInitialState("release");
+    state.recipeAutomationPolicies = {
+      wood_pickaxe: { keepInStockAllowed: false },
+      axe: { autoCraftAllowed: true },
+    };
+
+    const loaded = deserializeState(serializeState(state));
+    expect(loaded.recipeAutomationPolicies).toEqual({
+      wood_pickaxe: { keepInStockAllowed: false },
     });
   });
 });
@@ -237,13 +264,29 @@ describe("migrateSave – missing fields get defaults", () => {
 
   it("migrates v14 saves by seeding empty keep-stock config", () => {
     const latest = serializeState(createInitialState("release"));
-    const { keepStockByWorkbench: _dropKeepStock, ...legacyShape } = latest as any;
+    const {
+      keepStockByWorkbench: _dropKeepStock,
+      recipeAutomationPolicies: _dropPolicies,
+      ...legacyShape
+    } = latest as any;
     const v14 = { ...legacyShape, version: 14 };
 
     const result = migrateSave(v14);
     expect(result).not.toBeNull();
     expect(result!.version).toBe(CURRENT_SAVE_VERSION);
     expect(result!.keepStockByWorkbench).toEqual({});
+    expect(result!.recipeAutomationPolicies).toEqual({});
+  });
+
+  it("migrates v15 saves by seeding empty automation policies", () => {
+    const latest = serializeState(createInitialState("release"));
+    const { recipeAutomationPolicies: _dropPolicies, ...legacyShape } = latest as any;
+    const v15 = { ...legacyShape, version: 15 };
+
+    const result = migrateSave(v15);
+    expect(result).not.toBeNull();
+    expect(result!.version).toBe(CURRENT_SAVE_VERSION);
+    expect(result!.recipeAutomationPolicies).toEqual({});
   });
 });
 

@@ -188,6 +188,54 @@ describe("buildWorkbenchAutoCraftPlan", () => {
     );
   });
 
+  it("aborts with POLICY_BLOCKED when a required recipe is policy-disabled", () => {
+    withWorkbenchRecipes(
+      [
+        {
+          key: "auto_plan_policy_gear",
+          label: "Auto Plan Policy Gear",
+          emoji: "G",
+          inputItem: "wood",
+          outputItem: "gear",
+          processingTime: 0,
+          outputAmount: 1,
+          costs: { wood: 2 },
+        },
+        {
+          key: "auto_plan_policy_axe",
+          label: "Auto Plan Policy Axe",
+          emoji: "A",
+          inputItem: "gear",
+          outputItem: "axe",
+          processingTime: 0,
+          outputAmount: 1,
+          costs: { gear: 1 },
+        },
+      ],
+      () => {
+        const state = baseState({ wood: 2, gear: 0, axe: 0 });
+        const result = buildWorkbenchAutoCraftPlan({
+          recipeId: "auto_plan_policy_axe",
+          source: warehouseSource(),
+          warehouseInventories: state.warehouseInventories,
+          serviceHubs: state.serviceHubs,
+          network: state.network,
+          assets: state.assets,
+          existingJobs: state.crafting.jobs,
+          canUseRecipe: (recipeId) =>
+            recipeId === "auto_plan_policy_gear"
+              ? { allowed: false, reason: "manual only" }
+              : { allowed: true },
+        });
+
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.error.kind).toBe("POLICY_BLOCKED");
+        expect(result.error.message).toContain("manual only");
+      },
+    );
+  });
+
   it("aborts with manual-missing when raw resources are missing", () => {
     withWorkbenchRecipes(
       [

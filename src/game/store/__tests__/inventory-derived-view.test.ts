@@ -7,8 +7,8 @@
 //      + serviceHubs (collectables only).
 //   2. The DEBUG_MOCK_RESOURCES action increases the *physical*
 //      warehouse stock, not just state.inventory.
-//   3. Hub upgrade now consumes from physical stores instead of
-//      bypassing them via state.inventory.
+//   3. Hub upgrade creates delivery demand and does not instantly
+//      deduct/complete on click.
 //   4. Save/Load round-trips do not break the view.
 
 import {
@@ -162,11 +162,10 @@ describe("UPGRADE_HUB – drone-delivery flow (no instant warehouse drain)", () 
     expect(after.warehouseInventories["wh-A"]).toEqual(whBefore);
   });
 
-  it("fast-paths to Tier 2 when the hub already holds the full upgrade cost", () => {
+  it("does not fast-path: even with full hub stock it creates upgrade demand and waits for delivery flow", () => {
     const cost = HUB_UPGRADE_COST as Partial<Record<keyof Inventory, number>>;
     let s = createInitialState("release");
     s = { ...s, inventory: emptyInv() };
-    s = withWarehouse(s, "wh-A", cost); // affordance gate still requires stock somewhere
     const hubId = "hub-2";
     s = {
       ...s,
@@ -187,15 +186,63 @@ describe("UPGRADE_HUB – drone-delivery flow (no instant warehouse drain)", () 
       },
     };
 
+    const hubBefore = { ...s.serviceHubs[hubId].inventory };
+
     const after = gameReducer(s, { type: "UPGRADE_HUB", hubId });
 
-    expect(after.serviceHubs[hubId].tier).toBe(2);
-    expect(after.serviceHubs[hubId].pendingUpgrade).toBeUndefined();
-    // Hub inventory pays the cost — not the warehouse.
+    // No instant completion and no instant stock deduction.
+    expect(after.serviceHubs[hubId].tier).toBe(1);
+    expect(after.serviceHubs[hubId].inventory).toEqual(hubBefore);
+    expect(after.serviceHubs[hubId].pendingUpgrade).toBeDefined();
+    expect(after.constructionSites[hubId]).toBeDefined();
+
+    // Construction demand mirrors the upgrade costs.
     for (const [key, amt] of Object.entries(cost)) {
       if ((amt ?? 0) <= 0) continue;
-      expect((after.serviceHubs[hubId].inventory as unknown as Record<string, number>)[key]).toBe(0);
+      expect((after.constructionSites[hubId].remaining as Record<string, number>)[key]).toBe(amt);
     }
+  });
+
+  it("completes Tier-2 upgrade only after drone deliveries satisfy construction demand", () => {
+    const cost = HUB_UPGRADE_COST as Partial<Record<keyof Inventory, number>>;
+    let s = createInitialState("release");
+    const hubId = s.starterDrone.hubId!;
+
+    s = {
+      ...s,
+      serviceHubs: {
+        ...s.serviceHubs,
+        [hubId]: {
+          ...s.serviceHubs[hubId],
+          // Provide upgrade materials in the hub so the drone can dispatch from
+          // a valid physical source to the upgrade construction demand.
+          inventory: {
+            wood: cost.wood ?? 0,
+            stone: cost.stone ?? 0,
+            iron: cost.iron ?? 0,
+            copper: cost.copper ?? 0,
+          },
+          targetStock: { wood: 0, stone: 0, iron: 0, copper: 0 },
+        },
+      },
+    };
+
+    let current = gameReducer(s, { type: "UPGRADE_HUB", hubId });
+
+    // Click does not complete immediately.
+    expect(current.serviceHubs[hubId].tier).toBe(1);
+    expect(current.constructionSites[hubId]).toBeDefined();
+
+    let ticks = 0;
+    while (current.serviceHubs[hubId].tier !== 2 && ticks < 500) {
+      current = gameReducer(current, { type: "DRONE_TICK" });
+      ticks += 1;
+    }
+
+    expect(current.serviceHubs[hubId].tier).toBe(2);
+    expect(current.serviceHubs[hubId].pendingUpgrade).toBeUndefined();
+    expect(current.constructionSites[hubId]).toBeUndefined();
+    expect(ticks).toBeGreaterThan(0);
   });
 });
 

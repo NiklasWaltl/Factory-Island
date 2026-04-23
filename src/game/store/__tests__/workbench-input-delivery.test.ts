@@ -9,16 +9,20 @@ import {
 
 const WB = "wb-1";
 const WH = "wh-1";
+const WH_NEAR = "wh-z";
+const HUB = "hub-1";
 
 function buildState(opts?: {
   warehouseWood?: number;
   globalWood?: number;
+  hubWood?: number;
   mapWarehouse?: boolean;
 }): GameState {
-  const { warehouseWood = 0, globalWood = 0, mapWarehouse = true } = opts ?? {};
+  const { warehouseWood = 0, globalWood = 0, hubWood = 0, mapWarehouse = true } = opts ?? {};
   const base = createInitialState("release");
   const workbench: PlacedAsset = { id: WB, type: "workbench", x: 10, y: 10, size: 1 };
   const warehouse: PlacedAsset = { id: WH, type: "warehouse", x: 4, y: 4, size: 2 };
+  const hub: PlacedAsset = { id: HUB, type: "service_hub", x: 1, y: 1, size: 2 };
   const starterDrone = {
     ...base.starterDrone,
     status: "idle" as const,
@@ -43,6 +47,7 @@ function buildState(opts?: {
     assets: {
       [WB]: workbench,
       [WH]: warehouse,
+      ...(hubWood > 0 ? { [HUB]: hub } : {}),
     },
     cellMap: {
       [cellKey(10, 10)]: WB,
@@ -50,6 +55,14 @@ function buildState(opts?: {
       [cellKey(5, 4)]: WH,
       [cellKey(4, 5)]: WH,
       [cellKey(5, 5)]: WH,
+      ...(hubWood > 0
+        ? {
+            [cellKey(1, 1)]: HUB,
+            [cellKey(2, 1)]: HUB,
+            [cellKey(1, 2)]: HUB,
+            [cellKey(2, 2)]: HUB,
+          }
+        : {}),
     },
     inventory: {
       ...base.inventory,
@@ -62,11 +75,66 @@ function buildState(opts?: {
     productionZones: {},
     buildingZoneIds: {},
     collectionNodes: {},
-    serviceHubs: {},
+    serviceHubs: hubWood > 0
+      ? {
+          [HUB]: {
+            inventory: { wood: hubWood, stone: 0, iron: 0, copper: 0 },
+            targetStock: { wood: 0, stone: 0, iron: 0, copper: 0 },
+            tier: 1,
+            droneIds: [],
+          },
+        }
+      : {},
     constructionSites: {},
     starterDrone,
     drones: {
       starter: starterDrone,
+    },
+  };
+}
+
+function withLocalZoneWarehouses(
+  state: GameState,
+  opts?: { farWood?: number; nearWood?: number },
+): GameState {
+  const farWood = opts?.farWood ?? 5;
+  const nearWood = opts?.nearWood ?? 5;
+  const nearWarehouse: PlacedAsset = { id: WH_NEAR, type: "warehouse", x: 11, y: 10, size: 2 };
+  const farInventory: Inventory = {
+    ...(state.warehouseInventories[WH] ?? ({ ...state.inventory } as Inventory)),
+    wood: farWood,
+  };
+  const nearInventory: Inventory = {
+    ...state.inventory,
+    wood: nearWood,
+  };
+
+  return {
+    ...state,
+    assets: {
+      ...state.assets,
+      [WH_NEAR]: nearWarehouse,
+    },
+    cellMap: {
+      ...state.cellMap,
+      [cellKey(11, 10)]: WH_NEAR,
+      [cellKey(12, 10)]: WH_NEAR,
+      [cellKey(11, 11)]: WH_NEAR,
+      [cellKey(12, 11)]: WH_NEAR,
+    },
+    warehouseInventories: {
+      ...state.warehouseInventories,
+      [WH]: farInventory,
+      [WH_NEAR]: nearInventory,
+    },
+    buildingSourceWarehouseIds: {},
+    productionZones: {
+      z1: { id: "z1", name: "Zone 1" },
+    },
+    buildingZoneIds: {
+      [WB]: "z1",
+      [WH]: "z1",
+      [WH_NEAR]: "z1",
     },
   };
 }
@@ -180,5 +248,106 @@ describe("workbench input delivery", () => {
 
     expect(state.crafting.jobs).toEqual([]);
     expect(state.notifications.at(-1)?.kind).toBe("error");
+  });
+
+  it("reserves and delivers from hub fallback when warehouse is empty", () => {
+    let state = buildState({ warehouseWood: 0, hubWood: 5 });
+    state = enqueue(state);
+    state = jobTick(state);
+
+    expect(getJob(state).status).toBe("reserved");
+    expect(state.network.reservations).toHaveLength(1);
+
+    state = droneTickUntil(
+      state,
+      (current) => {
+        const job = getJob(current);
+        return (
+          (job.inputBuffer?.find((stack) => stack.itemId === "wood")?.count ?? 0) === 5 &&
+          current.starterDrone.status === "idle"
+        );
+      },
+    );
+
+    expect(getJob(state).inputBuffer).toEqual([{ itemId: "wood", count: 5 }]);
+    expect(state.warehouseInventories[WH].wood).toBe(0);
+    expect(state.serviceHubs[HUB].inventory.wood).toBe(0);
+  });
+
+  it("uses hub fallback as full source when warehouse has only a partial amount (no split pickup)", () => {
+    let state = buildState({ warehouseWood: 2, hubWood: 10 });
+    state = enqueue(state);
+    state = jobTick(state);
+
+    expect(getJob(state).status).toBe("reserved");
+
+    state = droneTickUntil(
+      state,
+      (current) => {
+        const job = getJob(current);
+        return (
+          (job.inputBuffer?.find((stack) => stack.itemId === "wood")?.count ?? 0) === 5 &&
+          current.starterDrone.status === "idle"
+        );
+      },
+    );
+
+    expect(getJob(state).inputBuffer).toEqual([{ itemId: "wood", count: 5 }]);
+    // No split-pickup in MVP: warehouse remains untouched because it cannot fulfill 5 alone.
+    expect(state.warehouseInventories[WH].wood).toBe(2);
+    expect(state.serviceHubs[HUB].inventory.wood).toBe(5);
+  });
+
+  it("prefers nearest zone warehouse for workbench input pickup", () => {
+    let state = buildState({ warehouseWood: 5, mapWarehouse: false });
+    state = withLocalZoneWarehouses(state, { farWood: 5, nearWood: 5 });
+    state = enqueue(state);
+    state = jobTick(state);
+
+    expect(getJob(state).status).toBe("reserved");
+
+    state = droneTickUntil(
+      state,
+      (current) => {
+        const job = getJob(current);
+        return (
+          (job.inputBuffer?.find((stack) => stack.itemId === "wood")?.count ?? 0) === 5 &&
+          current.starterDrone.status === "idle"
+        );
+      },
+    );
+
+    expect(state.warehouseInventories[WH].wood).toBe(5);
+    expect(state.warehouseInventories[WH_NEAR].wood).toBe(0);
+  });
+
+  it("routes finished workbench output back to the nearest zone warehouse", () => {
+    let state = buildState({ warehouseWood: 5, mapWarehouse: false });
+    state = withLocalZoneWarehouses(state, { farWood: 5, nearWood: 5 });
+    state = enqueue(state);
+    state = jobTick(state);
+
+    state = droneTickUntil(
+      state,
+      (current) => {
+        const job = getJob(current);
+        return (
+          (job.inputBuffer?.find((stack) => stack.itemId === "wood")?.count ?? 0) === 5 &&
+          current.starterDrone.status === "idle"
+        );
+      },
+    );
+
+    state = jobTick(state);
+    expect(getJob(state).status).toBe("delivering");
+
+    state = droneTickUntil(
+      state,
+      (current) => getJob(current).status === "done" && current.starterDrone.status === "idle",
+      120,
+    );
+
+    expect(state.warehouseInventories[WH_NEAR].wood_pickaxe).toBe(1);
+    expect(state.warehouseInventories[WH].wood_pickaxe).toBe(0);
   });
 });

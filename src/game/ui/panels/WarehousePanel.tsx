@@ -78,21 +78,32 @@ export const WarehousePanel: React.FC<WarehousePanelProps> = React.memo(({ state
         })}
       </div>
 
-      {/* ---- Werkzeuge & Ausrüstung: read-only ---- */}
-      <h3 className="fi-panel-section-title" style={{ marginTop: 14 }}>Werkzeuge &amp; Ausrüstung</h3>
+      {/* ---- Werkzeuge & Saatgut (hotbar-eligible) ---- */}
+      <h3 className="fi-panel-section-title" style={{ marginTop: 14 }}>🎒 Werkzeuge &amp; Saatgut (Hotbar)</h3>
+      <p className="fi-warehouse-hint">Nur diese Items dürfen in die Hotbar.</p>
       <div className="fi-warehouse-equip-list">
         {EQUIPPABLE_ITEMS.map(({ key, kind }) => {
           const amount = selectedWarehouseInv[key] as number;
           const inHotbar = state.hotbarSlots
             .filter((s) => s.toolKind === kind)
             .reduce((sum, s) => sum + s.amount, 0);
+          const canEquip = amount > 0;
           return (
             <div key={key} className="fi-warehouse-equip-row">
               <span className="fi-warehouse-emoji">{RESOURCE_EMOJIS[key] ?? "?"}</span>
               <span className="fi-warehouse-name" style={{ flex: 1 }}>{RESOURCE_LABELS[key] ?? key}</span>
-              <span className="fi-warehouse-amount" style={{ minWidth: 60, textAlign: "right" }}>
+              <span className="fi-warehouse-amount" style={{ minWidth: 90, textAlign: "right" }}>
                 Lager: {amount} | Hotbar: {inHotbar}
               </span>
+              <button
+                className="fi-btn fi-btn-sm"
+                style={{ marginLeft: 6 }}
+                disabled={!canEquip}
+                title={canEquip ? "In die Hotbar legen" : "Nicht im Lager"}
+                onClick={() => dispatch({ type: "EQUIP_FROM_WAREHOUSE", itemKind: kind, amount: 1 })}
+              >
+                → Hotbar
+              </button>
             </div>
           );
         })}

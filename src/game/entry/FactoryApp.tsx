@@ -272,13 +272,19 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
     (job) => job.status !== "done" && job.status !== "cancelled",
   );
 
+  const hasActiveKeepStockTargets = Object.values(state.keepStockByWorkbench ?? {}).some(
+    (recipes) => Object.values(recipes).some((target) => !!target.enabled && target.amount > 0),
+  );
+
+  const shouldRunCraftingTick = hasPendingCraftingJobs || hasActiveKeepStockTargets;
+
   useEffect(() => {
-    if (!hasPendingCraftingJobs) return;
+    if (!shouldRunCraftingTick) return;
     const id = setInterval(() => {
       dispatch({ type: "JOB_TICK" });
     }, CRAFTING_TICK_MS);
     return () => clearInterval(id);
-  }, [hasPendingCraftingJobs]);
+  }, [shouldRunCraftingTick]);
 
   // Drone tick: task selection, movement, pickup, deposit
   useEffect(() => {

@@ -38,6 +38,8 @@ import type {
   ConstructionSite,
   DroneTaskType,
   DroneRole,
+  KeepStockTargetEntry,
+  KeepStockByWorkbench,
 } from "../store/reducer";
 import {
   computeConnectedAssetIds,
@@ -53,6 +55,7 @@ import {
   GRID_H,
   cellKey,
   GENERATOR_MAX_FUEL,
+  KEEP_STOCK_MAX_TARGET,
 } from "../store/reducer";
 import type { HubTier } from "../store/reducer";
 import type { NetworkSlice, Reservation } from "../inventory/reservationTypes";
@@ -64,7 +67,7 @@ import { debugLog } from "../debug/debugLogger";
 // ---- Version constants -----------------------------------------------
 
 /** Current save format version.  Bump when GameState shape changes. */
-export const CURRENT_SAVE_VERSION = 14;
+export const CURRENT_SAVE_VERSION = 15;
 
 // ---- globalInventory rebuild helper ---------------------------------
 
@@ -314,9 +317,16 @@ export interface SaveGameV14 extends Omit<SaveGameV13, "version"> {
   crafting: CraftingQueueState;
 }
 
+// ---- Save schema (V15 – persist workbench keep-in-stock targets) --------
+
+export interface SaveGameV15 extends Omit<SaveGameV14, "version"> {
+  version: 15;
+  keepStockByWorkbench: KeepStockByWorkbench;
+}
+
 // ---- Latest alias (always points at the newest version) ---------------
 
-export type SaveGameLatest = SaveGameV14;
+export type SaveGameLatest = SaveGameV15;
 
 // ---- Legacy (pre-version) format  ------------------------------------
 
@@ -717,6 +727,14 @@ function migrateV13ToV14(save: SaveGameV13): SaveGameV14 {
   };
 }
 
+function migrateV14ToV15(save: SaveGameV14): SaveGameV15 {
+  return {
+    ...save,
+    version: 15,
+    keepStockByWorkbench: {},
+  };
+}
+
 const MIGRATIONS: MigrationStep[] = [
   { from: 0, to: 1, migrate: migrateV0ToV1 },
   { from: 1, to: 2, migrate: migrateV1ToV2 },
@@ -732,6 +750,7 @@ const MIGRATIONS: MigrationStep[] = [
   { from: 11, to: 12, migrate: migrateV11ToV12 },
   { from: 12, to: 13, migrate: migrateV12ToV13 },
   { from: 13, to: 14, migrate: migrateV13ToV14 },
+  { from: 14, to: 15, migrate: migrateV14ToV15 },
 ];
 
 // ---- Central migration entry-point -----------------------------------
@@ -829,6 +848,7 @@ export function serializeState(state: GameState): SaveGameLatest {
     drones: state.drones,
     network: state.network,
     crafting: state.crafting,
+    keepStockByWorkbench: state.keepStockByWorkbench ?? {},
   };
 }
 
@@ -944,6 +964,37 @@ function sanitizeCraftingQueue(
     queue: { jobs: cleaned, nextJobSeq, lastError: null },
     cancelled,
   };
+}
+
+function sanitizeKeepStockByWorkbench(
+  raw: KeepStockByWorkbench | undefined | null,
+  assets: Readonly<Record<string, PlacedAsset>>,
+): KeepStockByWorkbench {
+  if (!raw || typeof raw !== "object") return {};
+
+  const cleaned: KeepStockByWorkbench = {};
+  for (const [workbenchId, recipes] of Object.entries(raw)) {
+    if (assets[workbenchId]?.type !== "workbench") continue;
+    if (!recipes || typeof recipes !== "object") continue;
+
+    const cleanRecipes: Record<string, KeepStockTargetEntry> = {};
+    for (const [recipeId, value] of Object.entries(recipes as Record<string, unknown>)) {
+      if (!value || typeof value !== "object") continue;
+      const entry = value as Partial<KeepStockTargetEntry>;
+      const amount = Number.isFinite(entry.amount)
+        ? Math.max(0, Math.min(KEEP_STOCK_MAX_TARGET, Math.floor(entry.amount as number)))
+        : 0;
+      const enabled = !!entry.enabled && amount > 0;
+      if (!enabled && amount === 0) continue;
+      cleanRecipes[recipeId] = { enabled, amount };
+    }
+
+    if (Object.keys(cleanRecipes).length > 0) {
+      cleaned[workbenchId] = cleanRecipes;
+    }
+  }
+
+  return cleaned;
 }
 
 // ---- Deserialisation (SaveGameLatest → GameState) --------------------
@@ -1138,6 +1189,10 @@ export function deserializeState(save: SaveGameLatest): GameState {
       save.buildingZoneIds ?? {},
       new Set(Object.keys(save.assets)),
       new Set(Object.keys(save.productionZones ?? {})),
+    ),
+    keepStockByWorkbench: sanitizeKeepStockByWorkbench(
+      save.keepStockByWorkbench,
+      save.assets,
     ),
 
     // Derived / transient fields → defaults

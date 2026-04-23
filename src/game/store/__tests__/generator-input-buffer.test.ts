@@ -39,8 +39,17 @@ function makeGeneratorAsset(id: string, x: number, y: number): PlacedAsset {
   return { id, type: "generator", x, y, size: 2 };
 }
 
-/** Place a generator instance at (x,y) with empty local fuel buffer. */
-function placeGenerator(state: GameState, id: string, x: number, y: number, fuel = 0): GameState {
+/** Place a generator instance at (x,y) with empty local fuel buffer.
+ *  `requestedRefill` controls whether drones may auto-deliver — defaults to 0
+ *  (manual-refill semantics, no drone deliveries unless the player asks). */
+function placeGenerator(
+  state: GameState,
+  id: string,
+  x: number,
+  y: number,
+  fuel = 0,
+  requestedRefill = 0,
+): GameState {
   const asset = makeGeneratorAsset(id, x, y);
   const newCellMap = { ...state.cellMap };
   for (let dy = 0; dy < 2; dy++) {
@@ -48,7 +57,7 @@ function placeGenerator(state: GameState, id: string, x: number, y: number, fuel
       newCellMap[`${x + dx},${y + dy}`] = id;
     }
   }
-  const gen: GeneratorState = { fuel, progress: 0, running: false };
+  const gen: GeneratorState = { fuel, progress: 0, running: false, requestedRefill };
   return {
     ...state,
     assets: { ...state.assets, [id]: asset },
@@ -108,12 +117,19 @@ describe("Generator input buffer — registry", () => {
 });
 
 describe("Generator local fuel — initial state and bounds", () => {
-  it("starts with an empty local fuel buffer when first placed", () => {
+  it("starts with an empty local fuel buffer and zero drone demand when first placed", () => {
     const base = createInitialState("release");
     const state = placeGenerator(base, "gen-1", 5, 5, 0);
     expect(state.generators["gen-1"].fuel).toBe(0);
     expect(getBuildingInputCurrent(state, "gen-1")).toBe(0);
-    expect(getRemainingBuildingInputDemand(state, "gen-1", "wood")).toBe(GENERATOR_MAX_FUEL);
+    // Manual-refill semantics: drones do NOT deliver until the player issues a request.
+    expect(getRemainingBuildingInputDemand(state, "gen-1", "wood")).toBe(0);
+  });
+
+  it("reports the requested refill amount as drone demand once the player asks for fuel", () => {
+    const base = createInitialState("release");
+    const state = placeGenerator(base, "gen-1", 5, 5, 0, 12);
+    expect(getRemainingBuildingInputDemand(state, "gen-1", "wood")).toBe(12);
   });
 
   it("reports zero remaining demand for a non-wood resource (wood-only)", () => {
@@ -144,7 +160,7 @@ describe("Drone task selection — building_supply candidates", () => {
 
   it("picks building_supply with hub source when the hub has wood and the generator is empty", () => {
     let state = createInitialState("release");
-    state = placeGenerator(state, "gen-1", 5, 5, 0);
+    state = placeGenerator(state, "gen-1", 5, 5, 0, GENERATOR_MAX_FUEL);
     const hubId = state.starterDrone.hubId!;
     state = withHubInventory(state, hubId, { wood: 5 });
     state = withDrone(state, { tileX: HUB_POS.x, tileY: HUB_POS.y });
@@ -157,7 +173,7 @@ describe("Drone task selection — building_supply candidates", () => {
 
   it("picks building_supply with drop source when drops are closer / hub is empty", () => {
     let state = createInitialState("release");
-    state = placeGenerator(state, "gen-1", 5, 5, 0);
+    state = placeGenerator(state, "gen-1", 5, 5, 0, GENERATOR_MAX_FUEL);
     const hubId = state.starterDrone.hubId!;
     state = withHubInventory(state, hubId, { wood: 0 });
     // Wood drop near the generator
@@ -209,7 +225,7 @@ describe("Drone task selection — building_supply candidates", () => {
 describe("Full delivery round-trip — hub source", () => {
   it("drone moves wood from hub inventory into the generator's local buffer", () => {
     let state = createInitialState("release");
-    state = placeGenerator(state, "gen-1", 8, 5, 0);
+    state = placeGenerator(state, "gen-1", 8, 5, 0, GENERATOR_MAX_FUEL);
     const hubId = state.starterDrone.hubId!;
     state = withHubInventory(state, hubId, { wood: 6 });
     state = withDrone(state, { tileX: HUB_POS.x, tileY: HUB_POS.y, status: "idle" });
@@ -225,7 +241,7 @@ describe("Full delivery round-trip — hub source", () => {
 
   it("never overfills past GENERATOR_MAX_FUEL even with abundant hub stock", () => {
     let state = createInitialState("release");
-    state = placeGenerator(state, "gen-1", 8, 5, GENERATOR_MAX_FUEL - 2);
+    state = placeGenerator(state, "gen-1", 8, 5, GENERATOR_MAX_FUEL - 2, GENERATOR_MAX_FUEL);
     const hubId = state.starterDrone.hubId!;
     state = withHubInventory(state, hubId, { wood: 50 });
     state = withDrone(state, { tileX: HUB_POS.x, tileY: HUB_POS.y, status: "idle" });
@@ -241,7 +257,7 @@ describe("Full delivery round-trip — hub source", () => {
 describe("Full delivery round-trip — drop source", () => {
   it("drone collects wood drop and deposits it into the generator's local buffer", () => {
     let state = createInitialState("release");
-    state = placeGenerator(state, "gen-1", 8, 5, 0);
+    state = placeGenerator(state, "gen-1", 8, 5, 0, GENERATOR_MAX_FUEL);
     const hubId = state.starterDrone.hubId!;
     state = withHubInventory(state, hubId, { wood: 0, stone: 0 });
     state = { ...state, collectionNodes: addToCollectionNodeAt(state.collectionNodes, "wood", 7, 5, 3) };

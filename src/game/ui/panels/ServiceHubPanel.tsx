@@ -48,12 +48,7 @@ export const ServiceHubPanel: React.FC<ServiceHubPanelProps> = ({ state, dispatc
   const range = getHubRange(tier);
   const activeResources = new Set(getActiveResources(tier));
   const maxDrones = getMaxDrones(tier);
-  const pendingUpgrade = hubEntry?.pendingUpgrade;
-  const isUpgradePending = !!pendingUpgrade && tier === 1;
-  const canUpgrade =
-    tier === 1 &&
-    !isUpgradePending &&
-    hasResourcesInPhysicalStorage(state, HUB_UPGRADE_COST as Partial<Record<keyof Inventory, number>>);
+  const canUpgrade = tier === 1 && !hubEntry?.pendingUpgrade && hasResourcesInPhysicalStorage(state, HUB_UPGRADE_COST as Partial<Record<keyof Inventory, number>>);
 
   // Node-Aufschlüsselung nach Typ
   const nodesByType: Record<CollectableItemType, { count: number; amount: number }> = {
@@ -105,30 +100,13 @@ export const ServiceHubPanel: React.FC<ServiceHubPanelProps> = ({ state, dispatc
                 style={{ padding: "4px 10px", cursor: canUpgrade ? "pointer" : "not-allowed", opacity: canUpgrade ? 1 : 0.5 }}
                 disabled={!canUpgrade}
                 onClick={() => dispatch({ type: "UPGRADE_HUB", hubId })}
-                title={
-                  isUpgradePending
-                    ? "Upgrade läuft — Drohnen liefern die Ressourcen"
-                    : canUpgrade
-                      ? "Upgrade auf Service-Hub (Stufe 2)"
-                      : "Nicht genug Ressourcen"
-                }
+                title={canUpgrade ? "Upgrade auf Service-Hub (Stufe 2)" : "Nicht genug Ressourcen"}
               >
                 ⬆ Upgrade → Service-Hub
               </button>
               <div style={{ marginTop: 3, fontSize: 11, color: "#888" }}>
                 Kosten: {UPGRADE_COST_LABEL}
               </div>
-              {isUpgradePending && hubEntry && pendingUpgrade && (
-                <div style={{ marginTop: 4, fontSize: 11, color: "#4da6ff" }}>
-                  🚁 Drohnen liefern:
-                  {" "}
-                  {RESOURCE_ORDER.filter((r) => (pendingUpgrade[r] ?? 0) > 0).map((r) => {
-                    const needed = pendingUpgrade[r] ?? 0;
-                    const have = Math.min(needed, hubEntry.inventory[r] ?? 0);
-                    return `${RESOURCE_LABELS[r]} ${have}/${needed}`;
-                  }).join(", ")}
-                </div>
-              )}
             </div>
           )}
           {tier === 2 && hubDrones.length < maxDrones && (

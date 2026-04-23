@@ -206,6 +206,13 @@ export interface GeneratorState {
   progress: number;
   /** Whether the generator is actively burning */
   running: boolean;
+  /**
+   * Wood the player has explicitly requested but that has not yet been delivered.
+   * Drones only refill the generator while this counter is positive (no auto-refill).
+   * Decremented as wood is deposited; reset implicitly when the generator is rebuilt.
+   * Optional for save backward compatibility (treated as 0 when absent).
+   */
+  requestedRefill?: number;
 }
 
 // ---- Energy Network ----
@@ -374,13 +381,26 @@ export interface ServiceHubEntry {
   /** IDs of drones assigned to this hub, capped by getMaxDrones(tier). */
   droneIds: string[];
   /**
-   * Outstanding resources that drones must still deliver to this hub before
-   * a pending tier upgrade can complete. Undefined = no upgrade in flight.
-   * Upgrades never consume directly from warehouses; they accumulate in
-   * hub.inventory via hub_restock and are deducted on completion.
+   * Marker for an in-flight Tier-2 upgrade.
+   * Undefined = no upgrade in progress.
+   *
+   * Runtime fulfillment uses the shared construction-site delivery flow:
+   * resources are picked up from valid physical sources and delivered by
+   * drones; the tier flip happens after that demand is fully delivered.
    */
   pendingUpgrade?: Partial<Record<CollectableItemType, number>>;
 }
+
+/** Keep-in-stock target for one workbench recipe. */
+export interface KeepStockTargetEntry {
+  /** Whether automatic refill is active for this recipe. */
+  enabled: boolean;
+  /** Desired minimum stock for the recipe output item. */
+  amount: number;
+}
+
+/** Keep-in-stock config map: workbenchId -> recipeId -> target entry. */
+export type KeepStockByWorkbench = Record<string, Record<string, KeepStockTargetEntry>>;
 
 export interface GameState {
   mode: GameMode;
@@ -482,4 +502,9 @@ export interface GameState {
    * machine; reservations live in `network`.
    */
   crafting: import("../crafting/types").CraftingQueueState;
+  /**
+   * Optional keep-in-stock targets for workbench recipes.
+   * Kept optional so older tests/manual state literals remain valid.
+   */
+  keepStockByWorkbench?: KeepStockByWorkbench;
 }

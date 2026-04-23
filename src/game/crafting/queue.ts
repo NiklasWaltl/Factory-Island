@@ -201,8 +201,140 @@ export function cancelJob(
 }
 
 // ---------------------------------------------------------------------------
-// State-machine guard (used by the tick scheduler)
+// Reorder / re-prioritise (waiting jobs only)
 // ---------------------------------------------------------------------------
+
+/**
+ * Status set considered "waiting" and therefore safe to reorder/reprioritise.
+ * Active (`crafting`/`delivering`) and terminal (`done`/`cancelled`) jobs are
+ * never moved.
+ */
+const REORDERABLE: ReadonlySet<JobStatus> = new Set<JobStatus>(["queued", "reserved"]);
+
+export type MoveDirection = "up" | "down" | "top";
+
+export type MoveResult =
+  | { readonly ok: true; readonly queue: CraftingQueueState }
+  | { readonly ok: false; readonly queue: CraftingQueueState; readonly error: CraftingError };
+
+export type SetPriorityResult = MoveResult;
+
+function notReorderableError(jobId: JobId, reason: string): CraftingError {
+  return {
+    kind: "INVALID_TRANSITION",
+    message: `Job "${jobId}" cannot be reordered: ${reason}`,
+    jobId,
+  };
+}
+
+/**
+ * Move a waiting job within its workbench's waiting list.
+ *
+ * Implementation: jobs are sorted globally by `(priority, enqueuedAt)`.
+ * To swap two adjacent waiting jobs of the same workbench, we swap BOTH
+ * `priority` and `enqueuedAt` between them — that guarantees their sort
+ * positions trade places no matter what other queue contents look like.
+ *
+ * "top" promotes the job to `high` priority and gives it a sentinel
+ * `enqueuedAt = (min waiting enqueuedAt) - 1`, so it sorts strictly before
+ * every other waiting job in the queue. The monotonic `nextJobSeq` is
+ * untouched.
+ *
+ * Reservations are keyed by job id (`reservationOwnerId`) and therefore
+ * remain valid across any reorder.
+ */
+export function moveJob(
+  queue: CraftingQueueState,
+  jobId: JobId,
+  direction: MoveDirection,
+): MoveResult {
+  const idx = queue.jobs.findIndex((j) => j.id === jobId);
+  if (idx < 0) {
+    const err: CraftingError = { kind: "UNKNOWN_JOB", message: `Job "${jobId}" does not exist.`, jobId };
+    return { ok: false, queue: { ...queue, lastError: err }, error: err };
+  }
+  const job = queue.jobs[idx];
+  if (!REORDERABLE.has(job.status)) {
+    const err = notReorderableError(jobId, `status is ${job.status}`);
+    return { ok: false, queue: { ...queue, lastError: err }, error: err };
+  }
+
+  if (direction === "top") {
+    const waiting = queue.jobs.filter((j) => REORDERABLE.has(j.status));
+    const minSeq = waiting.reduce((m, j) => Math.min(m, j.enqueuedAt), job.enqueuedAt);
+    const promoted: CraftingJob = { ...job, priority: "high", enqueuedAt: minSeq - 1 };
+    return {
+      ok: true,
+      queue: {
+        ...queue,
+        jobs: queue.jobs.map((j, i) => (i === idx ? promoted : j)),
+        lastError: null,
+      },
+    };
+  }
+
+  // Find the adjacent waiting neighbour for this workbench in sorted order.
+  const sortedWaitingForWb = sortByPriorityFifo(
+    queue.jobs.filter((j) => j.workbenchId === job.workbenchId && REORDERABLE.has(j.status)),
+  );
+  const sortedIdx = sortedWaitingForWb.findIndex((j) => j.id === jobId);
+  const neighbourSortedIdx = direction === "up" ? sortedIdx - 1 : sortedIdx + 1;
+  if (neighbourSortedIdx < 0 || neighbourSortedIdx >= sortedWaitingForWb.length) {
+    // Already at the requested edge; treat as no-op success (clear lastError).
+    return { ok: true, queue: { ...queue, lastError: null } };
+  }
+  const neighbour = sortedWaitingForWb[neighbourSortedIdx];
+  const neighbourIdx = queue.jobs.findIndex((j) => j.id === neighbour.id);
+
+  const swappedJob: CraftingJob = { ...job, priority: neighbour.priority, enqueuedAt: neighbour.enqueuedAt };
+  const swappedNeighbour: CraftingJob = { ...neighbour, priority: job.priority, enqueuedAt: job.enqueuedAt };
+
+  return {
+    ok: true,
+    queue: {
+      ...queue,
+      jobs: queue.jobs.map((j, i) => {
+        if (i === idx) return swappedJob;
+        if (i === neighbourIdx) return swappedNeighbour;
+        return j;
+      }),
+      lastError: null,
+    },
+  };
+}
+
+/**
+ * Change the priority of a waiting job. Active and terminal jobs are
+ * rejected to keep scheduler invariants intact.
+ */
+export function setJobPriority(
+  queue: CraftingQueueState,
+  jobId: JobId,
+  priority: JobPriority,
+): SetPriorityResult {
+  const idx = queue.jobs.findIndex((j) => j.id === jobId);
+  if (idx < 0) {
+    const err: CraftingError = { kind: "UNKNOWN_JOB", message: `Job "${jobId}" does not exist.`, jobId };
+    return { ok: false, queue: { ...queue, lastError: err }, error: err };
+  }
+  const job = queue.jobs[idx];
+  if (!REORDERABLE.has(job.status)) {
+    const err = notReorderableError(jobId, `status is ${job.status}`);
+    return { ok: false, queue: { ...queue, lastError: err }, error: err };
+  }
+  if (job.priority === priority) {
+    return { ok: true, queue: { ...queue, lastError: null } };
+  }
+  const updated: CraftingJob = { ...job, priority };
+  return {
+    ok: true,
+    queue: {
+      ...queue,
+      jobs: queue.jobs.map((j, i) => (i === idx ? updated : j)),
+      lastError: null,
+    },
+  };
+}
 
 const ALLOWED: Readonly<Record<JobStatus, ReadonlySet<JobStatus>>> = {
   queued: new Set<JobStatus>(["reserved", "cancelled"]),

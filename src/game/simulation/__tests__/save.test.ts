@@ -47,6 +47,23 @@ describe("serializeState", () => {
     expect(save.mode).toBe("release");
   });
 
+  it("persists keep-in-stock targets", () => {
+    const state = createInitialState("release");
+    state.assets["wb-save"] = { id: "wb-save", type: "workbench", x: 1, y: 1, size: 1 };
+    state.keepStockByWorkbench = {
+      "wb-save": {
+        wood_pickaxe: { enabled: true, amount: 3 },
+      },
+    };
+
+    const save = serializeState(state);
+    expect(save.keepStockByWorkbench).toEqual({
+      "wb-save": {
+        wood_pickaxe: { enabled: true, amount: 3 },
+      },
+    });
+  });
+
   it("excludes derived/transient fields", () => {
     const state = createInitialState("release");
     state.connectedAssetIds = ["a", "b"];
@@ -85,6 +102,26 @@ describe("deserializeState", () => {
     const loaded = deserializeState(save);
     // Debug state has generators + cables → should have connectivity
     expect(loaded.connectedAssetIds.length).toBeGreaterThan(0);
+  });
+
+  it("restores keep-stock targets and drops stale workbench entries", () => {
+    const state = createInitialState("release");
+    state.assets["wb-valid"] = { id: "wb-valid", type: "workbench", x: 5, y: 5, size: 1 };
+    state.keepStockByWorkbench = {
+      "wb-valid": {
+        wood_pickaxe: { enabled: true, amount: 2 },
+      },
+      "wb-missing": {
+        wood_pickaxe: { enabled: true, amount: 2 },
+      },
+    };
+
+    const loaded = deserializeState(serializeState(state));
+    expect(loaded.keepStockByWorkbench).toEqual({
+      "wb-valid": {
+        wood_pickaxe: { enabled: true, amount: 2 },
+      },
+    });
   });
 });
 
@@ -196,6 +233,17 @@ describe("migrateSave – missing fields get defaults", () => {
     expect(typeof result!.generators).toBe("object");
     expect(result!.battery).toBeDefined();
     expect(typeof result!.battery.stored).toBe("number");
+  });
+
+  it("migrates v14 saves by seeding empty keep-stock config", () => {
+    const latest = serializeState(createInitialState("release"));
+    const { keepStockByWorkbench: _dropKeepStock, ...legacyShape } = latest as any;
+    const v14 = { ...legacyShape, version: 14 };
+
+    const result = migrateSave(v14);
+    expect(result).not.toBeNull();
+    expect(result!.version).toBe(CURRENT_SAVE_VERSION);
+    expect(result!.keepStockByWorkbench).toEqual({});
   });
 });
 

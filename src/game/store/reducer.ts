@@ -7,11 +7,6 @@ import { CELL_PX, GRID_H, GRID_W } from "../constants/grid";
 import {
   BUILDING_COSTS,
   BUILDING_LABELS,
-  CONVEYOR_TILE_CAPACITY,
-  CONSTRUCTION_SITE_BUILDINGS,
-  MAX_ZONES,
-  MAX_WAREHOUSES,
-  WAREHOUSE_CAPACITY,
   BUILDING_SIZES,
   BUILDINGS_WITH_DEFAULT_SOURCE,
   GENERATOR_MAX_FUEL,
@@ -21,6 +16,7 @@ import {
 } from "./constants/buildings";
 import {
   getManualAssemblerRecipe,
+  getWorkbenchRecipe,
   getSmeltingRecipe,
   SMELTING_RECIPES,
 } from "../simulation/recipes";
@@ -33,45 +29,19 @@ import {
   cancelJob as craftingCancelJob,
   enqueueJob as craftingEnqueueJob,
   createEmptyCraftingQueue,
+  moveJob as craftingMoveJob,
+  setJobPriority as craftingSetJobPriority,
 } from "../crafting/queue";
+import { buildWorkbenchAutoCraftPlan } from "../crafting/planner";
 import {
+  getGlobalHubWarehouseId,
+  hubInventoryToInventoryView,
+  inventoryViewToHubInventory,
+  pickCraftingPhysicalSourceForIngredient,
   releaseJobReservations,
   tickCraftingJobs,
 } from "../crafting/tick";
-import { routeOutput } from "../crafting/output";
-import {
-  decideSmelterWorkflowActions,
-  type SmelterWorkflowAction,
-} from "./decisions/smelter-workflow";
-import { computeEnergyAllocationOrder } from "./energy/energy-priority";
-import { scheduleNextDroneTask } from "./scheduler/drone-scheduler";
-import {
-  decideConstructionPlanningActions,
-} from "./workflows/construction-planning";
-import {
-  decideConstructionDispatchPlanningActions,
-} from "./workflows/construction-dispatch-planning";
-import {
-  decideHubRestockActions,
-} from "./workflows/hub-restock-workflow";
-import {
-  decideConveyorRoutingAction,
-  type LogisticsRoutingAction,
-} from "./workflows/logistics-routing";
-import {
-  decideConveyorWarehouseInputRoutingAction,
-  type LogisticsWarehouseInputRoutingAction,
-} from "./workflows/logistics-warehouse-input-routing";
-import {
-  decideHubDispatchExecutionAction,
-} from "./workflows/hub-dispatch-execution";
-import {
-  getActiveResources,
-  getHubRange,
-  getHubTierLabel,
-  getMaxDrones,
-  getMaxTargetStockForTier,
-} from "./hub-tier-selectors";
+import { resolveOutputDestination, routeOutput } from "../crafting/output";
 import type {
   CraftingAction,
   CraftingInventorySource,
@@ -116,6 +86,8 @@ import type {
   ServiceHubInventory,
   HubTier,
   ServiceHubEntry,
+  KeepStockTargetEntry,
+  KeepStockByWorkbench,
   GameState,
 } from "./types";
 
@@ -154,15 +126,9 @@ export type {
   ServiceHubInventory,
   HubTier,
   ServiceHubEntry,
+  KeepStockTargetEntry,
+  KeepStockByWorkbench,
   GameState,
-};
-
-export {
-  getActiveResources,
-  getHubRange,
-  getHubTierLabel,
-  getMaxDrones,
-  getMaxTargetStockForTier,
 };
 
 /** Returns true if the building with the given asset ID is still under construction. */
@@ -173,6 +139,8 @@ export function isUnderConstruction(state: Pick<GameState, "constructionSites">,
 // ============================================================
 // CONSTANTS
 // ============================================================
+
+export const CONVEYOR_TILE_CAPACITY = 4;
 export { GRID_W, GRID_H, CELL_PX };
 
 // Building constants & input-buffer configuration live in ./constants/buildings.
@@ -186,7 +154,7 @@ export * from "./constants/assets";
 
 // Resource display tables (labels/emojis) live in ./constants/resources.
 // Imported for internal use and re-exported for backward compatibility.
-import { COLLECTABLE_KEYS, RESOURCE_1x1_DROP_AMOUNT, RESOURCE_LABELS, RESOURCE_EMOJIS } from "./constants/resources";
+import { RESOURCE_LABELS, RESOURCE_EMOJIS } from "./constants/resources";
 export * from "./constants/resources";
 
 // Floor tile constants live in ./constants/floor.
@@ -210,20 +178,9 @@ export * from "./constants/timing";
 // Imported for internal use and re-exported for backward compatibility.
 import {
   AUTO_MINER_PRODUCE_TICKS,
-  DELIVERY_OFFSETS,
-  DRONE_CAPACITY,
   DRONE_COLLECT_TICKS,
-  DRONE_DEMAND_BONUS_MAX,
-  DRONE_DOCK_COLUMNS,
   DRONE_DEPOSIT_TICKS,
-  DRONE_ROLE_BONUS,
-  DRONE_SEPARATION_RADIUS,
-  DRONE_SEPARATION_STRENGTH,
-  DRONE_SPREAD_PENALTY_PER_DRONE,
   DRONE_SPEED_TILES_PER_TICK,
-  DRONE_STICKY_BONUS,
-  DRONE_TASK_BASE_SCORE,
-  DRONE_URGENCY_BONUS_MAX,
 } from "./constants/drone-config";
 export * from "./constants/drone-config";
 
@@ -238,12 +195,7 @@ export * from "./constants/energy/energy-smelter";
 
 // Energy balance constants live in ./constants/energy-balance.
 // Imported for internal use and re-exported for backward compatibility.
-import {
-  DEFAULT_MACHINE_PRIORITY,
-  ENERGY_DRAIN,
-  POWER_CABLE_CONDUCTOR_TYPES,
-  POWER_POLE_RANGE_TYPES,
-} from "./constants/energy/energy-balance";
+import { ENERGY_DRAIN } from "./constants/energy/energy-balance";
 export * from "./constants/energy/energy-balance";
 
 // Generator constants live in ./constants/generator.
@@ -265,7 +217,7 @@ import {
 } from "./constants/workbench-timing";
 export * from "./constants/workbench-timing";
 
-// Service hub target-stock defaults live in ./constants/hub/hub-target-stock.
+// Service hub target-stock defaults live in ./constants/hub-target-stock.
 // Imported for internal use and re-exported for backward compatibility.
 import {
   PROTO_HUB_TARGET_STOCK,
@@ -273,32 +225,39 @@ import {
 } from "./constants/hub/hub-target-stock";
 export * from "./constants/hub/hub-target-stock";
 
-// Service hub target-stock clamp constants live in ./constants/hub/hub-target-stock-max.
-// Imported for internal use and re-exported for backward compatibility.
-export * from "./constants/hub/hub-target-stock-max";
-
-// Service hub range constants live in ./constants/hub/hub-range.
-// Imported for internal use and re-exported for backward compatibility.
-export * from "./constants/hub/hub-range";
-
-// Service hub active-resource constants live in ./constants/hub/hub-active-resources.
-// Imported for internal use and re-exported for backward compatibility.
-export * from "./constants/hub/hub-active-resources";
-
-// Service hub max-drone constants live in ./constants/hub/hub-max-drones.
-// Imported for internal use and re-exported for backward compatibility.
-export * from "./constants/hub/hub-max-drones";
-
-// Drone assignment cap constants live in ./constants/drone-assignment-caps.
+// Service hub target-stock clamp constants live in ./constants/hub-target-stock-max.
 // Imported for internal use and re-exported for backward compatibility.
 import {
-  MAX_DRONES_PER_BUILDING_SUPPLY,
-  MAX_DRONES_PER_CONSTRUCTION_TARGET,
-  MAX_DRONES_PER_HUB_RESTOCK_RESOURCE,
-} from "./constants/drone-assignment-caps";
-export * from "./constants/drone-assignment-caps";
+  MAX_HUB_TARGET_STOCK,
+  PROTO_HUB_MAX_TARGET_STOCK,
+} from "./constants/hub/hub-target-stock-max";
+export * from "./constants/hub/hub-target-stock-max";
 
-// Service hub upgrade cost lives in ./constants/hub/hub-upgrade-cost.
+// Service hub range constants live in ./constants/hub-range.
+// Imported for internal use and re-exported for backward compatibility.
+import {
+  HUB_RANGE_TIER1,
+  HUB_RANGE_TIER2,
+} from "./constants/hub/hub-range";
+export * from "./constants/hub/hub-range";
+
+// Service hub active-resource constants live in ./constants/hub-active-resources.
+// Imported for internal use and re-exported for backward compatibility.
+import {
+  TIER1_ACTIVE_RESOURCES,
+  TIER2_ACTIVE_RESOURCES,
+} from "./constants/hub/hub-active-resources";
+export * from "./constants/hub/hub-active-resources";
+
+// Service hub max-drone constants live in ./constants/hub-max-drones.
+// Imported for internal use and re-exported for backward compatibility.
+import {
+  HUB_MAX_DRONES_TIER1,
+  HUB_MAX_DRONES_TIER2,
+} from "./constants/hub/hub-max-drones";
+export * from "./constants/hub/hub-max-drones";
+
+// Service hub upgrade cost lives in ./constants/hub-upgrade-cost.
 // Imported for internal use and re-exported for backward compatibility.
 import { HUB_UPGRADE_COST } from "./constants/hub/hub-upgrade-cost";
 export * from "./constants/hub/hub-upgrade-cost";
@@ -306,59 +265,63 @@ export * from "./constants/hub/hub-upgrade-cost";
 // Deposit constants live in ./constants/deposit-positions.
 // Imported for internal use and re-exported for backward compatibility.
 import {
-  DEPOSIT_RESOURCE,
   DEPOSIT_POSITIONS,
   DEPOSIT_TYPES,
 } from "./constants/deposit-positions";
 export * from "./constants/deposit-positions";
 
-// Battery constants live in ./constants/battery.
-// Imported for internal use and re-exported for backward compatibility.
-import { BATTERY_CAPACITY } from "./constants/energy/battery";
-export * from "./constants/energy/battery";
+export interface MapShopItem {
+  key: string;
+  label: string;
+  emoji: string;
+  costCoins: number;
+  inventoryKey: keyof Inventory;
+}
 
-// Power pole constants live in ./constants/power-pole.
-// Imported for internal use and re-exported for backward compatibility.
-import { POWER_POLE_RANGE } from "./constants/energy/power-pole";
-export * from "./constants/energy/power-pole";
+export const MAP_SHOP_ITEMS: MapShopItem[] = [
+  { key: "axe", label: "Axt", emoji: "\u{1FA93}", costCoins: 10, inventoryKey: "axe" },
+];
 
-// Auto-delivery constants live in ./constants/auto-delivery.
-// Imported for internal use only (currently no public re-export needed).
-import {
-  AUTO_DELIVERY_BATCH_WINDOW_MS,
-  AUTO_DELIVERY_LOG_MAX,
-} from "./constants/auto-delivery";
-
-// Auto-smelter constants live in ./constants/auto-smelter.
-import { AUTO_SMELTER_BUFFER_CAPACITY } from "./constants/auto-smelter";
-export { AUTO_SMELTER_BUFFER_CAPACITY };
-
-// Boost multiplier constants live in ./constants/boost-multipliers.
-// Imported for internal use and re-exported for backward compatibility.
-import {
-  AUTO_MINER_BOOST_MULTIPLIER,
-  AUTO_SMELTER_BOOST_MULTIPLIER,
-} from "./constants/boost-multipliers";
-export * from "./constants/boost-multipliers";
-
-// Hotbar layout constants live in ./constants/hotbar.
-// Imported for internal use and re-exported for backward compatibility.
-import { EMPTY_HOTBAR_SLOT, HOTBAR_SIZE, HOTBAR_STACK_MAX } from "./constants/hotbar";
-export * from "./constants/hotbar";
-
-// Map shop offer constants/types live in ./constants/shop.
-// Imported for internal use and re-exported for backward compatibility.
-import { MAP_SHOP_ITEMS } from "./constants/shop";
-export * from "./constants/shop";
-
-// Map layout constants live in ./constants/map-layout.
-// Imported for internal use and re-exported for backward compatibility.
-import { MAP_SHOP_POS } from "./constants/map-layout";
-export * from "./constants/map-layout";
-
+/** Drop amount for all 1×1 harvestable resources (tree, stone, iron, copper). */
+export const RESOURCE_1x1_DROP_AMOUNT = 10;
 if (import.meta.env.DEV) console.log(`[FactoryIsland] Drop-Multiplikator auf ${RESOURCE_1x1_DROP_AMOUNT}x für 1x1-Ressourcen gesetzt.`);
+export const HOTBAR_SIZE = 9;
+export const HOTBAR_STACK_MAX = 5;
+export const WAREHOUSE_CAPACITY = 20;
+export const MAX_WAREHOUSES = 2;
+export const KEEP_STOCK_MAX_TARGET = 999;
 
 // ---- Energy / Generator ----
+export const DEFAULT_MACHINE_PRIORITY: MachinePriority = 3;
+
+const POWER_CABLE_CONDUCTOR_TYPES = new Set<AssetType>([
+  "cable",
+  "generator",
+  "power_pole",
+]);
+
+const POWER_POLE_RANGE_TYPES = new Set<AssetType>([
+  "power_pole",
+  "battery",
+  "smithy",
+  "auto_miner",
+  "conveyor",
+  "conveyor_corner",
+  "auto_smelter",
+]);
+
+/**
+ * Tie-break order for machines with the same user priority.
+ * Lower rank is served first so transport stays alive before downstream processing.
+ */
+const ENERGY_ALLOCATION_RANK: Partial<Record<AssetType, number>> = {
+  conveyor: 0,
+  conveyor_corner: 0,
+  auto_miner: 1,
+  smithy: 2,
+  auto_smelter: 3,
+};
+
 export function isPowerCableConductorType(type: AssetType): boolean {
   return POWER_CABLE_CONDUCTOR_TYPES.has(type);
 }
@@ -375,6 +338,10 @@ function clampMachinePriority(priority: number | undefined): MachinePriority {
 
 export function isEnergyConsumerType(type: AssetType): boolean {
   return ENERGY_DRAIN[type] != null;
+}
+
+function getEnergyAllocationRank(type: AssetType): number {
+  return ENERGY_ALLOCATION_RANK[type] ?? 4;
 }
 
 export function getConnectedConsumerDrainEntries(
@@ -423,8 +390,27 @@ function withDefaultMachinePriority(type: AssetType): Pick<PlacedAsset, "priorit
 // ---- Auto-Miner / Conveyor ----
 // ---- Crafting job queue ----
 // ---- Starter Drone ----
+/** Max items carried per trip. */
+export const DRONE_CAPACITY = 5;
+/**
+ * Chebyshev radius (tiles) within which drones repel each other.
+ * Matches DRONE_SPEED_TILES_PER_TICK so a fast drone always sees its
+ * nearest neighbour before crossing.
+ */
+export const DRONE_SEPARATION_RADIUS = 2;
+/** Maximum tiles of separation nudge applied per tick (< 1 so velocity is never reversed). */
+const DRONE_SEPARATION_STRENGTH = 0.8;
 
 // ---- Service Hub ----
+/** Hard cap to prevent a single construction target from mobilizing the entire drone fleet. */
+export const MAX_DRONES_PER_CONSTRUCTION_TARGET = 4;
+/** Hard cap for concurrent restock trips of the same resource into one hub. */
+export const MAX_DRONES_PER_HUB_RESTOCK_RESOURCE = 4;
+/** Hard cap for concurrent supply trips into the same building input buffer. */
+export const MAX_DRONES_PER_BUILDING_SUPPLY = 4;
+
+/** Number of parking columns laid out on top of the 2x2 hub footprint. */
+const DRONE_DOCK_COLUMNS = 2;
 
 /**
  * Deterministic dock offset for a drone slot relative to hub top-left.
@@ -446,6 +432,13 @@ export function getDroneDockOffset(slotIndex: number): { dx: number; dy: number 
  * Multiple drones delivering to the same site land at slightly different tiles.
  * These are purely cosmetic/spatial — no effect on game logic.
  */
+const DELIVERY_OFFSETS: readonly { dx: number; dy: number }[] = [
+  { dx: 0, dy: 0 },
+  { dx: 0, dy: 1 },
+  { dx: 1, dy: 0 },
+  { dx: 1, dy: 1 },
+];
+
 /**
  * Deterministic delivery slot index for a drone, derived from its droneId.
  * Stable as long as droneId is constant (which it is — see StarterDroneState.droneId).
@@ -471,6 +464,26 @@ export function createDefaultHubTargetStock(): Record<CollectableItemType, numbe
 /** Create default target stock for Tier 1 (Proto-Hub). */
 export function createDefaultProtoHubTargetStock(): Record<CollectableItemType, number> {
   return { ...PROTO_HUB_TARGET_STOCK };
+}
+
+export function getHubRange(tier: HubTier): number {
+  return tier === 1 ? HUB_RANGE_TIER1 : HUB_RANGE_TIER2;
+}
+
+export function getActiveResources(tier: HubTier): readonly CollectableItemType[] {
+  return tier === 1 ? TIER1_ACTIVE_RESOURCES : TIER2_ACTIVE_RESOURCES;
+}
+
+export function getMaxDrones(tier: HubTier): number {
+  return tier === 1 ? HUB_MAX_DRONES_TIER1 : HUB_MAX_DRONES_TIER2;
+}
+
+export function getMaxTargetStockForTier(tier: HubTier): number {
+  return tier === 1 ? PROTO_HUB_MAX_TARGET_STOCK : MAX_HUB_TARGET_STOCK;
+}
+
+export function getHubTierLabel(tier: HubTier): string {
+  return tier === 1 ? "Proto-Hub" : "Service-Hub";
 }
 
 /** Get all drones assigned to a specific hub. */
@@ -610,9 +623,21 @@ export function getParkedDrones(
 // ---- Construction Sites ----
 
 /**
+ * Buildings eligible for drone-based construction when a service hub exists.
+ * Only includes buildings whose costs are purely CollectableItemType resources
+ * and use the generic placement path.
+ */
+export const CONSTRUCTION_SITE_BUILDINGS = new Set<BuildingType>([
+  "workbench", "warehouse", "smithy", "generator", "service_hub",
+  "cable", "power_pole", "battery", "auto_miner",
+  "conveyor", "conveyor_corner", "manual_assembler", "auto_smelter",
+]);
+
+/**
  * Check if all cost keys for a building type are CollectableItemType.
  * Used to validate that a construction site can be fully serviced by drones.
  */
+const COLLECTABLE_KEYS = new Set<string>(["wood", "stone", "iron", "copper"]);
 function costIsFullyCollectable(costs: Partial<Record<keyof Inventory, number>>): boolean {
   return Object.keys(costs).every((k) => COLLECTABLE_KEYS.has(k));
 }
@@ -627,6 +652,81 @@ function fullCostAsRemaining(costs: Partial<Record<keyof Inventory, number>>): P
   }
   return remaining;
 }
+
+/**
+ * Base priority scores for drone task types.
+ * The gap between task types must exceed the maximum Chebyshev distance on the
+ * grid (max(GRID_W-1, GRID_H-1) = 79) so that a distant high-priority task
+ * always outscores a nearby low-priority task.
+ *
+ * construction_supply: 1000  →  worst score = 1000 - 79 = 921
+ * hub_dispatch:         500  →  fallback supply from hub; always < worst construction_supply (921)
+ *                                best score = 500 - 0 = 500 > best workbench_delivery (315)
+ * workbench_delivery:   300  →  crafted tools are picked up before passive restock work
+ *                                best score = 300 - 0 + 15 = 315 > best hub_restock (165)
+ * hub_restock:          100  →  best  score = 100  -  0 = 100
+ * Invariant: 921 > 500 > 315 > 165 ✓ — construction wins; crafted tool pickup beats passive restock.
+ */
+export const DRONE_TASK_BASE_SCORE: Record<DroneTaskType, number> = {
+  construction_supply: 1000,
+  hub_dispatch: 500,
+  workbench_delivery: 300,
+  building_supply: 200,
+  hub_restock: 100,
+};
+
+/**
+ * Score bonus when a task matches the drone's preferred role.
+ * 30 points ≈ overrides up to 30 tiles of distance disadvantage within the same task type.
+ * Well below the type-gap (900) — construction still beats hub_restock for any role.
+ */
+export const DRONE_ROLE_BONUS = 30;
+
+/**
+ * Score bonus for a node already reserved by this drone (sticky-selection).
+ * Prevents task-hopping when two nodes have nearly equal scores.
+ * Low enough (15) that a clearly closer/better node on the same type still wins.
+ */
+export const DRONE_STICKY_BONUS = 15;
+
+/**
+ * Maximum urgency bonus for hub_restock candidates.
+ * Applied proportionally to the resource deficit (target − current inventory).
+ * Caps at DRONE_URGENCY_BONUS_MAX to keep the effect bounded.
+ */
+export const DRONE_URGENCY_BONUS_MAX = 20;
+
+/**
+ * Maximum demand bonus for construction_supply / hub_dispatch candidates.
+ * Applied proportionally to the remaining open need on the construction site
+ * (capped). Lets a large/needy site outweigh a small one when distances are
+ * comparable, without ever flipping the construction-vs-hub_restock priority.
+ */
+export const DRONE_DEMAND_BONUS_MAX = 20;
+
+/**
+ * Per-already-assigned-drone penalty for construction_supply / hub_dispatch.
+ * Encourages spreading additional drones across competing sites instead of
+ * piling onto the closest one. Kept small (≤ DRONE_STICKY_BONUS) so it never
+ * causes flapping for already-committed drones.
+ */
+export const DRONE_SPREAD_PENALTY_PER_DRONE = 5;
+
+/**
+ * Logistics priority: nearby warehouses are the PRIMARY pickup source for
+ * construction_supply / building_supply jobs, the drone hub is only a FALLBACK.
+ * Adding this bonus on top of `hub_dispatch` base score for warehouse-sourced
+ * candidates means a warehouse beats the hub at equal distance and still wins
+ * up to ~50 tiles farther. Stays well below the construction_supply (1000) base
+ * so ground drops keep their lead.
+ */
+export const DRONE_WAREHOUSE_PRIORITY_BONUS = 50;
+
+/**
+ * How many of the closest stocking warehouses are considered per (item, target)
+ * pair. Bounded to keep the candidate explosion small in big factories.
+ */
+export const DRONE_NEARBY_WAREHOUSE_LIMIT = 3;
 
 /**
  * Scores a single drone task candidate.
@@ -731,25 +831,29 @@ function isHubUpgradeDeliverySatisfied(hub: ServiceHubEntry | undefined | null):
  *
  * Caller must ensure `isHubUpgradeDeliverySatisfied(hub)` is true.
  */
-function finalizeHubTier2Upgrade(state: GameState, hubId: string): GameState {
+function finalizeHubTier2Upgrade(
+  state: GameState,
+  hubId: string,
+  options?: { deductPendingFromHubInventory?: boolean },
+): GameState {
   const hub = state.serviceHubs[hubId];
   if (!hub || !hub.pendingUpgrade) return state;
-  // Deduct pendingUpgrade amounts from hub inventory.
-  const deductedInv: ServiceHubInventory = { ...hub.inventory };
-  for (const [k, v] of Object.entries(hub.pendingUpgrade)) {
-    const needed = v ?? 0;
-    if (needed <= 0) continue;
-    const key = k as CollectableItemType;
-    deductedInv[key] = Math.max(0, (deductedInv[key] ?? 0) - needed);
+  const shouldDeduct = options?.deductPendingFromHubInventory ?? true;
+  let upgradedInventory: ServiceHubInventory = { ...hub.inventory };
+  if (shouldDeduct) {
+    for (const [k, v] of Object.entries(hub.pendingUpgrade)) {
+      const needed = v ?? 0;
+      if (needed <= 0) continue;
+      const key = k as CollectableItemType;
+      upgradedInventory[key] = Math.max(0, (upgradedInventory[key] ?? 0) - needed);
+    }
   }
-  // Expand target stock: keep existing values, ensure at least Tier 2 defaults
   const expandedStock: Record<CollectableItemType, number> = {
     wood: Math.max(hub.targetStock.wood, SERVICE_HUB_TARGET_STOCK.wood),
     stone: Math.max(hub.targetStock.stone, SERVICE_HUB_TARGET_STOCK.stone),
     iron: Math.max(hub.targetStock.iron, SERVICE_HUB_TARGET_STOCK.iron),
     copper: Math.max(hub.targetStock.copper, SERVICE_HUB_TARGET_STOCK.copper),
   };
-  // Spawn additional drones up to Tier 2 capacity
   const maxDrones = getMaxDrones(2);
   const newDrones = { ...state.drones };
   const hubDroneIds = [...hub.droneIds];
@@ -778,9 +882,14 @@ function finalizeHubTier2Upgrade(state: GameState, hubId: string): GameState {
     tier: 2,
     targetStock: expandedStock,
     droneIds: hubDroneIds,
-    inventory: deductedInv,
+    inventory: upgradedInventory,
     pendingUpgrade: undefined,
   };
+  if (import.meta.env.DEV) {
+    debugLog.building(
+      `[HubUpgrade] Hub ${hubId} finalized to Tier 2 (${shouldDeduct ? "deducted pending from hub inventory" : "construction delivery already consumed source stock"})`,
+    );
+  }
   return syncDrones({
     ...state,
     serviceHubs: { ...state.serviceHubs, [hubId]: upgradedHub },
@@ -789,8 +898,16 @@ function finalizeHubTier2Upgrade(state: GameState, hubId: string): GameState {
   });
 }
 
+function hasHubUpgradeConstructionSite(
+  state: Pick<GameState, "constructionSites">,
+  hubId: string,
+): boolean {
+  const site = state.constructionSites[hubId];
+  return !!site && site.buildingType === "service_hub";
+}
+
 function getRemainingHubRestockNeed(
-  state: Pick<GameState, "drones" | "collectionNodes" | "serviceHubs">,
+  state: Pick<GameState, "drones" | "collectionNodes" | "serviceHubs" | "constructionSites">,
   hubId: string,
   itemType: CollectableItemType,
   excludeDroneId?: string,
@@ -799,17 +916,19 @@ function getRemainingHubRestockNeed(
   if (!hubEntry) return 0;
   const current = hubEntry.inventory[itemType] ?? 0;
   const target = hubEntry.targetStock[itemType] ?? 0;
-  // Pending upgrade stacks additional demand on top of targetStock — drones
-  // need to deliver *both* the baseline stock AND the upgrade cost before
-  // the hub can tier up without dipping below the player's target.
-  const upgradeNeed = hubEntry.pendingUpgrade?.[itemType] ?? 0;
+  // If an upgrade is represented as an active construction site, its demand is
+  // handled by the regular construction_supply/hub_dispatch path. Avoid adding
+  // the same demand a second time via hub_restock.
+  const upgradeNeed = hasHubUpgradeConstructionSite(state, hubId)
+    ? 0
+    : (hubEntry.pendingUpgrade?.[itemType] ?? 0);
   const effectiveTarget = target + upgradeNeed;
   const inbound = getInboundHubRestockAmount(state, hubId, itemType, excludeDroneId);
   return Math.max(0, effectiveTarget - current - inbound);
 }
 
 function getOpenHubRestockDroneSlots(
-  state: Pick<GameState, "drones" | "collectionNodes" | "serviceHubs">,
+  state: Pick<GameState, "drones" | "collectionNodes" | "serviceHubs" | "constructionSites">,
   hubId: string,
   itemType: CollectableItemType,
   excludeDroneId?: string,
@@ -818,7 +937,9 @@ function getOpenHubRestockDroneSlots(
   if (!hubEntry) return 0;
   const current = hubEntry.inventory[itemType] ?? 0;
   const target = hubEntry.targetStock[itemType] ?? 0;
-  const upgradeNeed = hubEntry.pendingUpgrade?.[itemType] ?? 0;
+  const upgradeNeed = hasHubUpgradeConstructionSite(state, hubId)
+    ? 0
+    : (hubEntry.pendingUpgrade?.[itemType] ?? 0);
   const rawNeed = Math.max(0, target + upgradeNeed - current);
   const desiredDrones = Math.min(MAX_DRONES_PER_HUB_RESTOCK_RESOURCE, Math.ceil(rawNeed / DRONE_CAPACITY));
   const assignedDrones = getInboundHubRestockDroneCount(state, hubId, itemType, excludeDroneId);
@@ -858,6 +979,82 @@ function getAvailableHubDispatchSupply(
   return Math.max(0, current - inbound - inboundBuildingFromHub);
 }
 
+// ---------------------------------------------------------------------------
+// Warehouse-as-pickup-source helpers (warehouse > hub priority).
+// Mirror the hub-dispatch model: synthetic targetNodeId "wh:{whId}:{item}",
+// inbound counting throttles per-warehouse availability. We deliberately do
+// NOT subtract crafting reservations here — symmetric to the existing hub
+// path, which also ignores them. If a craft commit later races and finds
+// short stock, the existing reservation system handles it.
+// ---------------------------------------------------------------------------
+
+/** Counts in-flight drone trips heading to a specific warehouse for `itemType`,
+ *  across both hub_dispatch and building_supply task types. */
+function getInboundWarehouseDispatchAmount(
+  state: Pick<GameState, "drones">,
+  warehouseId: string,
+  itemType: CollectableItemType,
+  excludeDroneId?: string,
+): number {
+  let total = 0;
+  const prefix = `wh:${warehouseId}:`;
+  for (const drone of Object.values(state.drones)) {
+    if (drone.droneId === excludeDroneId) continue;
+    if (drone.currentTaskType !== "hub_dispatch" && drone.currentTaskType !== "building_supply") continue;
+    if (!drone.targetNodeId?.startsWith(prefix)) continue;
+    const [, , resource] = drone.targetNodeId.split(":");
+    if (resource !== itemType) continue;
+    total += DRONE_CAPACITY;
+  }
+  return total;
+}
+
+function getAvailableWarehouseDispatchSupply(
+  state: Pick<GameState, "drones" | "warehouseInventories">,
+  warehouseId: string,
+  itemType: CollectableItemType,
+  excludeDroneId?: string,
+): number {
+  const inv = state.warehouseInventories[warehouseId];
+  if (!inv) return 0;
+  const current = (inv as unknown as Record<string, number>)[itemType] ?? 0;
+  if (current <= 0) return 0;
+  const inbound = getInboundWarehouseDispatchAmount(state, warehouseId, itemType, excludeDroneId);
+  return Math.max(0, current - inbound);
+}
+
+interface NearbyWarehouseDispatchCandidate {
+  readonly warehouseId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly available: number;
+  readonly distance: number;
+}
+
+/** Returns the closest (Chebyshev) warehouses with any free dispatch supply
+ *  for `itemType`, sorted ascending by distance, capped to DRONE_NEARBY_WAREHOUSE_LIMIT.
+ *  Skips warehouses that are still under construction. */
+function getNearbyWarehousesForDispatch(
+  state: GameState,
+  fromX: number,
+  fromY: number,
+  itemType: CollectableItemType,
+  excludeDroneId?: string,
+): NearbyWarehouseDispatchCandidate[] {
+  const out: NearbyWarehouseDispatchCandidate[] = [];
+  for (const whId in state.warehouseInventories) {
+    const whAsset = state.assets[whId];
+    if (!whAsset || whAsset.type !== "warehouse") continue;
+    if (isUnderConstruction(state, whId)) continue;
+    const available = getAvailableWarehouseDispatchSupply(state, whId, itemType, excludeDroneId);
+    if (available <= 0) continue;
+    const distance = Math.max(Math.abs(fromX - whAsset.x), Math.abs(fromY - whAsset.y));
+    out.push({ warehouseId: whId, x: whAsset.x, y: whAsset.y, available, distance });
+  }
+  out.sort((a, b) => a.distance - b.distance);
+  return out.slice(0, DRONE_NEARBY_WAREHOUSE_LIMIT);
+}
+
 function getInboundConstructionAmount(
   state: Pick<GameState, "drones" | "collectionNodes">,
   siteId: string,
@@ -869,7 +1066,7 @@ function getInboundConstructionAmount(
     if (drone.droneId === excludeDroneId) continue;
     if (drone.deliveryTargetId !== siteId) continue;
 
-    if (drone.currentTaskType === "hub_dispatch" && drone.targetNodeId?.startsWith("hub:")) {
+    if (drone.currentTaskType === "hub_dispatch" && (drone.targetNodeId?.startsWith("hub:") || drone.targetNodeId?.startsWith("wh:"))) {
       const [, , resource] = drone.targetNodeId.split(":");
       if (resource === itemType) total += DRONE_CAPACITY;
       continue;
@@ -973,7 +1170,7 @@ export function getBuildingInputTargets(
 }
 
 /** Counts in-flight building_supply cargo + reservations + hub-bound trips heading into `assetId`. */
-function getInboundBuildingSupplyAmount(
+export function getInboundBuildingSupplyAmount(
   state: Pick<GameState, "drones" | "collectionNodes">,
   assetId: string,
   itemType: CollectableItemType,
@@ -989,7 +1186,7 @@ function getInboundBuildingSupplyAmount(
       total += drone.cargo.amount;
       continue;
     }
-    if (drone.targetNodeId?.startsWith("hub:")) {
+    if (drone.targetNodeId?.startsWith("hub:") || drone.targetNodeId?.startsWith("wh:")) {
       const [, , resource] = drone.targetNodeId.split(":");
       if (resource === itemType) total += DRONE_CAPACITY;
       continue;
@@ -1023,7 +1220,9 @@ function getInboundHubBuildingSupplyAmount(
   return total;
 }
 
-/** Open delivery demand for a building's input buffer (capacity − current − inbound). */
+/** Open delivery demand for a building's input buffer (capacity − current − inbound).
+ *  Generators are special: they only accept drone deliveries up to the player-issued
+ *  `requestedRefill`. With no outstanding request, demand is 0 and no auto-refill happens. */
 export function getRemainingBuildingInputDemand(
   state: Pick<GameState, "assets" | "generators" | "drones" | "collectionNodes">,
   assetId: string,
@@ -1036,7 +1235,14 @@ export function getRemainingBuildingInputDemand(
   if (!cfg || cfg.resource !== itemType) return 0;
   const current = getBuildingInputCurrent(state, assetId);
   const inbound = getInboundBuildingSupplyAmount(state, assetId, itemType, excludeDroneId);
-  return Math.max(0, cfg.capacity - current - inbound);
+  let raw = Math.max(0, cfg.capacity - current - inbound);
+  // Manual-refill gate for generators: cap by what's still wanted minus what's already on the way.
+  if (asset.type === "generator") {
+    const requested = state.generators[assetId]?.requestedRefill ?? 0;
+    const requestedRemaining = Math.max(0, requested - inbound);
+    raw = Math.min(raw, requestedRemaining);
+  }
+  return raw;
 }
 
 function getAssignedBuildingSupplyDroneCount(
@@ -1064,7 +1270,12 @@ function getOpenBuildingSupplyDroneSlots(
   const cfg = getBuildingInputConfig(asset.type);
   if (!cfg || cfg.resource !== itemType) return 0;
   const current = getBuildingInputCurrent(state, assetId);
-  const rawNeed = Math.max(0, cfg.capacity - current);
+  let rawNeed = Math.max(0, cfg.capacity - current);
+  // Manual-refill gate for generators: cap by outstanding player request.
+  if (asset.type === "generator") {
+    const requested = state.generators[assetId]?.requestedRefill ?? 0;
+    rawNeed = Math.min(rawNeed, requested);
+  }
   const desiredDrones = Math.min(MAX_DRONES_PER_BUILDING_SUPPLY, Math.ceil(rawNeed / DRONE_CAPACITY));
   const assigned = getAssignedBuildingSupplyDroneCount(state, assetId, excludeDroneId);
   return Math.max(0, desiredDrones - assigned);
@@ -1167,64 +1378,61 @@ export function selectDroneTask(state: GameState, droneOverride?: StarterDroneSt
     const openSlots = getOpenConstructionDroneSlots(state, siteId, drone.droneId);
     if (openSlots <= 0) continue;
     const assignedSoFar = getAssignedConstructionDroneCount(state, siteId, drone.droneId);
-    const siteNeeds: { itemType: CollectableItemType; remainingNeed: number }[] = [];
-
+    const spreadPenalty = -DRONE_SPREAD_PENALTY_PER_DRONE * assignedSoFar;
     for (const [res, amt] of Object.entries(site.remaining)) {
       if ((amt ?? 0) <= 0) continue;
       const itemType = res as CollectableItemType;
-      if (!availableTypes.has(itemType)) continue;
       const remainingNeed = getRemainingConstructionNeed(state, siteId, itemType, drone.droneId);
-      siteNeeds.push({ itemType, remainingNeed });
-    }
-
-    const constructionActions = decideConstructionPlanningActions({
-      droneId: drone.droneId,
-      droneTileX: drone.tileX,
-      droneTileY: drone.tileY,
-      roleBonus: constructionRoleBonus,
-      siteId,
-      openSlots,
-      assignedConstructionDrones: assignedSoFar,
-      siteNeeds,
-      availableNodes: availableNodes.map((n) => ({
-        nodeId: n.id,
-        itemType: n.itemType,
-        tileX: n.tileX,
-        tileY: n.tileY,
-        reservedByDroneId: n.reservedByDroneId,
-      })),
-    });
-
-    for (const action of constructionActions) {
-      if (action.type !== "queue_site_supply_candidate") continue;
-      candidates.push(action.candidate);
+      if (remainingNeed <= 0) continue;
+      if (!availableTypes.has(itemType)) continue;
+      const demandBonus = Math.min(DRONE_DEMAND_BONUS_MAX, remainingNeed);
+      for (const n of availableNodes) {
+        if (n.itemType !== itemType) continue;
+        const stickyBonus = n.reservedByDroneId === drone.droneId ? DRONE_STICKY_BONUS : 0;
+        candidates.push({
+          taskType: "construction_supply",
+          nodeId: n.id,
+          deliveryTargetId: siteId,
+          score: scoreDroneTask("construction_supply", drone.tileX, drone.tileY, n.tileX, n.tileY, {
+            role: constructionRoleBonus,
+            sticky: stickyBonus,
+            demand: demandBonus,
+            spread: spreadPenalty,
+          }),
+          _roleBonus: constructionRoleBonus,
+          _stickyBonus: stickyBonus,
+          _urgencyBonus: 0,
+          _demandBonus: demandBonus,
+          _spreadPenalty: spreadPenalty,
+        });
+      }
     }
   }
 
   // --- Gather hub_restock candidates ---
   const hubEntry = drone.hubId ? state.serviceHubs[drone.hubId] ?? null : null;
   if (hubEntry && drone.hubId) {
-    const hubId = drone.hubId;
-    const restockActions = decideHubRestockActions({
-      droneId: drone.droneId,
-      hubId,
-      droneTileX: drone.tileX,
-      droneTileY: drone.tileY,
-      roleBonus: restockRoleBonus,
-      nodes: availableNodes.map((n) => ({
+    for (const n of availableNodes) {
+      const remainingNeed = getRemainingHubRestockNeed(state, drone.hubId, n.itemType, drone.droneId);
+      const openSlots = getOpenHubRestockDroneSlots(state, drone.hubId, n.itemType, drone.droneId);
+      if (remainingNeed <= 0 || openSlots <= 0) continue;
+      const stickyBonus = n.reservedByDroneId === drone.droneId ? DRONE_STICKY_BONUS : 0;
+      const urgencyBonus = Math.min(DRONE_URGENCY_BONUS_MAX, remainingNeed);
+      candidates.push({
+        taskType: "hub_restock",
         nodeId: n.id,
-        itemType: n.itemType,
-        tileX: n.tileX,
-        tileY: n.tileY,
-        reservedByDroneId: n.reservedByDroneId,
-        remainingNeed: getRemainingHubRestockNeed(state, hubId, n.itemType, drone.droneId),
-        openSlots: getOpenHubRestockDroneSlots(state, hubId, n.itemType, drone.droneId),
-      })),
-    });
-
-    for (const action of restockActions) {
-      if (action.type !== "queue_restock_candidate") continue;
-      candidates.push(action.candidate);
+        deliveryTargetId: drone.hubId,
+        score: scoreDroneTask("hub_restock", drone.tileX, drone.tileY, n.tileX, n.tileY, {
+          role: restockRoleBonus,
+          sticky: stickyBonus,
+          urgency: urgencyBonus,
+        }),
+        _roleBonus: restockRoleBonus,
+        _stickyBonus: stickyBonus,
+        _urgencyBonus: urgencyBonus,
+        _demandBonus: 0,
+        _spreadPenalty: 0,
+      });
     }
   }
 
@@ -1239,48 +1447,77 @@ export function selectDroneTask(state: GameState, droneOverride?: StarterDroneSt
         const openSlots = getOpenConstructionDroneSlots(state, siteId, drone.droneId);
         if (openSlots <= 0) continue;
         const assignedSoFar = getAssignedConstructionDroneCount(state, siteId, drone.droneId);
-        const dispatchNeeds: {
-          itemType: CollectableItemType;
-          remainingNeed: number;
-          availableHubSupply: number;
-        }[] = [];
-
+        const spreadPenalty = -DRONE_SPREAD_PENALTY_PER_DRONE * assignedSoFar;
         for (const [res, amt] of Object.entries(site.remaining)) {
           if ((amt ?? 0) <= 0) continue;
           const itemType = res as CollectableItemType;
           const remainingNeed = getRemainingConstructionNeed(state, siteId, itemType, drone.droneId);
-          const availableHubSupply = getAvailableHubDispatchSupply(
-            state,
-            drone.hubId,
-            itemType,
-            drone.droneId,
-          );
-
-          dispatchNeeds.push({
-            itemType,
-            remainingNeed,
-            availableHubSupply,
+          const availableHubSupply = getAvailableHubDispatchSupply(state, drone.droneId ? drone.hubId : "", itemType, drone.droneId);
+          if (remainingNeed <= 0 || availableHubSupply <= 0) continue;
+          const demandBonus = Math.min(DRONE_DEMAND_BONUS_MAX, remainingNeed);
+          // Synthetic nodeId encodes hub+resource so tickOneDrone can decode it.
+          const syntheticNodeId = `hub:${drone.hubId}:${itemType}`;
+          const stickyBonus = drone.targetNodeId === syntheticNodeId ? DRONE_STICKY_BONUS : 0;
+          candidates.push({
+            taskType: "hub_dispatch",
+            nodeId: syntheticNodeId,
+            deliveryTargetId: siteId,
+            score: scoreDroneTask("hub_dispatch", drone.tileX, drone.tileY, hubAsset.x, hubAsset.y, {
+              role: constructionRoleBonus,
+              sticky: stickyBonus,
+              demand: demandBonus,
+              spread: spreadPenalty,
+            }),
+            _roleBonus: constructionRoleBonus,
+            _stickyBonus: stickyBonus,
+            _urgencyBonus: 0,
+            _demandBonus: demandBonus,
+            _spreadPenalty: spreadPenalty,
           });
         }
+      }
+    }
+  }
 
-        const dispatchActions = decideConstructionDispatchPlanningActions({
-          droneTileX: drone.tileX,
-          droneTileY: drone.tileY,
-          roleBonus: constructionRoleBonus,
-          stickyNodeId: drone.targetNodeId ?? null,
-          siteId,
-          hubId: drone.hubId,
-          hubTileX: hubAsset.x,
-          hubTileY: hubAsset.y,
-          openSlots,
-          assignedConstructionDrones: assignedSoFar,
-          needs: dispatchNeeds,
+  // --- Gather warehouse-source candidates for construction (PRIMARY over hub) ---
+  // Same task_type "hub_dispatch" + same delivery target, but the synthetic
+  // nodeId encodes a warehouse source ("wh:{warehouseId}:{resource}"). The
+  // WAREHOUSE_PRIORITY_BONUS is added on top of the hub_dispatch base score so
+  // a warehouse beats the hub at equal distance and stays preferred unless the
+  // hub is dramatically closer.
+  for (const [siteId, site] of Object.entries(state.constructionSites)) {
+    if (!state.assets[siteId]) continue;
+    const openSlots = getOpenConstructionDroneSlots(state, siteId, drone.droneId);
+    if (openSlots <= 0) continue;
+    const assignedSoFar = getAssignedConstructionDroneCount(state, siteId, drone.droneId);
+    const spreadPenalty = -DRONE_SPREAD_PENALTY_PER_DRONE * assignedSoFar;
+    for (const [res, amt] of Object.entries(site.remaining)) {
+      if ((amt ?? 0) <= 0) continue;
+      const itemType = res as CollectableItemType;
+      const remainingNeed = getRemainingConstructionNeed(state, siteId, itemType, drone.droneId);
+      if (remainingNeed <= 0) continue;
+      const demandBonus = Math.min(DRONE_DEMAND_BONUS_MAX, remainingNeed);
+      const nearby = getNearbyWarehousesForDispatch(state, drone.tileX, drone.tileY, itemType, drone.droneId);
+      for (const wh of nearby) {
+        const syntheticNodeId = `wh:${wh.warehouseId}:${itemType}`;
+        const stickyBonus = drone.targetNodeId === syntheticNodeId ? DRONE_STICKY_BONUS : 0;
+        const score = scoreDroneTask("hub_dispatch", drone.tileX, drone.tileY, wh.x, wh.y, {
+          role: constructionRoleBonus,
+          sticky: stickyBonus,
+          demand: demandBonus,
+          spread: spreadPenalty,
+        }) + DRONE_WAREHOUSE_PRIORITY_BONUS;
+        candidates.push({
+          taskType: "hub_dispatch",
+          nodeId: syntheticNodeId,
+          deliveryTargetId: siteId,
+          score,
+          _roleBonus: constructionRoleBonus,
+          _stickyBonus: stickyBonus,
+          _urgencyBonus: 0,
+          _demandBonus: demandBonus,
+          _spreadPenalty: spreadPenalty,
         });
-
-        for (const action of dispatchActions) {
-          if (action.type !== "queue_hub_dispatch_candidate") continue;
-          candidates.push(action.candidate);
-        }
       }
     }
   }
@@ -1359,18 +1596,51 @@ export function selectDroneTask(state: GameState, droneOverride?: StarterDroneSt
     }
   }
 
+  // --- Gather warehouse-source candidates for building_supply (PRIMARY over hub) ---
+  for (const target of getBuildingInputTargets(state)) {
+    if (isUnderConstruction(state, target.assetId)) continue;
+    const remainingDemand = getRemainingBuildingInputDemand(state, target.assetId, target.resource, drone.droneId);
+    if (remainingDemand <= 0) continue;
+    const openSlots = getOpenBuildingSupplyDroneSlots(state, target.assetId, target.resource, drone.droneId);
+    if (openSlots <= 0) continue;
+    const assignedSoFar = getAssignedBuildingSupplyDroneCount(state, target.assetId, drone.droneId);
+    const spreadPenalty = -DRONE_SPREAD_PENALTY_PER_DRONE * assignedSoFar;
+    const demandBonus = Math.min(DRONE_DEMAND_BONUS_MAX, remainingDemand);
+    const nearby = getNearbyWarehousesForDispatch(state, drone.tileX, drone.tileY, target.resource, drone.droneId);
+    for (const wh of nearby) {
+      const syntheticNodeId = `wh:${wh.warehouseId}:${target.resource}`;
+      const stickyBonus = drone.targetNodeId === syntheticNodeId ? DRONE_STICKY_BONUS : 0;
+      const score = scoreDroneTask("building_supply", drone.tileX, drone.tileY, wh.x, wh.y, {
+        sticky: stickyBonus,
+        demand: demandBonus,
+        spread: spreadPenalty,
+      }) + DRONE_WAREHOUSE_PRIORITY_BONUS;
+      candidates.push({
+        taskType: "building_supply",
+        nodeId: syntheticNodeId,
+        deliveryTargetId: target.assetId,
+        score,
+        _roleBonus: 0,
+        _stickyBonus: stickyBonus,
+        _urgencyBonus: 0,
+        _demandBonus: demandBonus,
+        _spreadPenalty: spreadPenalty,
+      });
+    }
+  }
+
   // --- Gather workbench_delivery candidates (crafted output → destination) ---
   for (const job of state.crafting.jobs) {
     if (job.status !== "reserved") continue;
     if (job.inventorySource.kind === "global") continue;
     if (hasCompleteWorkbenchInput(job)) continue;
-    const pickup = resolveWorkbenchInputPickup(job, state.assets);
-    if (!pickup) continue;
     for (const reservation of state.network.reservations) {
       if (reservation.ownerKind !== "crafting_job" || reservation.ownerId !== job.reservationOwnerId) continue;
       if (!isCollectableCraftingItem(reservation.itemId)) continue;
       if (getWorkbenchJobInputAmount(job, reservation.itemId) >= reservation.amount) continue;
       if (getAssignedWorkbenchInputDroneCount(state, reservation.id, drone.droneId) > 0) continue;
+      const pickup = resolveWorkbenchInputPickup(state, job, reservation);
+      if (!pickup) continue;
       const syntheticNodeId = `workbench_input:${job.workbenchId}:${job.id}:${reservation.id}`;
       const stickyBonus = drone.targetNodeId === syntheticNodeId ? DRONE_STICKY_BONUS : 0;
       candidates.push({
@@ -1435,17 +1705,13 @@ export function selectDroneTask(state: GameState, droneOverride?: StarterDroneSt
 
   if (candidates.length === 0) return null;
 
-  const chosen = scheduleNextDroneTask(candidates);
-  if (!chosen) return null;
-
-  const bestConstructionCandidate = scheduleNextDroneTask(
-    candidates.filter(
-      (candidate) => candidate.taskType === "construction_supply" || candidate.taskType === "hub_dispatch",
-    ),
+  // Sort descending by score; ascending nodeId as deterministic tie-break.
+  candidates.sort((a, b) => b.score - a.score || a.nodeId.localeCompare(b.nodeId));
+  const chosen = candidates[0];
+  const bestConstructionCandidate = candidates.find(
+    (candidate) => candidate.taskType === "construction_supply" || candidate.taskType === "hub_dispatch",
   );
-  const bestHubRestockCandidate = scheduleNextDroneTask(
-    candidates.filter((candidate) => candidate.taskType === "hub_restock"),
-  );
+  const bestHubRestockCandidate = candidates.find((candidate) => candidate.taskType === "hub_restock");
 
   if (import.meta.env.DEV) {
     console.debug(
@@ -1483,10 +1749,15 @@ export function selectDroneTask(state: GameState, droneOverride?: StarterDroneSt
   return { taskType: chosen.taskType, nodeId: chosen.nodeId, deliveryTargetId: chosen.deliveryTargetId };
 }
 
+export const AUTO_SMELTER_BUFFER_CAPACITY = 5;
+
 /**
  * Overclocking-Stufe 1: Zwei feste Modi (normal / boosted), nur für auto_miner
  * und auto_smelter. Multiplikator wirkt konsistent auf Strom UND Produktion.
  */
+export const AUTO_MINER_BOOST_MULTIPLIER = 2;
+export const AUTO_SMELTER_BOOST_MULTIPLIER = 2;
+
 export function isBoostSupportedType(type: AssetType): boolean {
   return type === "auto_miner" || type === "auto_smelter";
 }
@@ -1498,6 +1769,21 @@ export function getBoostMultiplier(asset: Pick<PlacedAsset, "type" | "boosted">)
   if (asset.type === "auto_smelter") return AUTO_SMELTER_BOOST_MULTIPLIER;
   return 1;
 }
+
+/** Maps deposit asset type to the resource it produces */
+export const DEPOSIT_RESOURCE: Record<string, "stone" | "iron" | "copper"> = {
+  stone_deposit: "stone",
+  iron_deposit: "iron",
+  copper_deposit: "copper",
+};
+
+// ---- Battery ----
+/** Maximum energy stored in a battery (J) */
+export const BATTERY_CAPACITY = 1000;
+
+// ---- Power Pole ----
+/** Chebyshev range (cells) in which a power_pole connects to neighbouring conductors */
+export const POWER_POLE_RANGE = 3;
 
 function createEmptyInventory(): Inventory {
   return {
@@ -1826,6 +2112,9 @@ export interface ProductionZone {
   id: string;
   name: string;
 }
+
+/** Maximum number of production zones a player can create. */
+export const MAX_ZONES = 8;
 
 /**
  * Resolve a crafting resource source from an optional warehouse ID.
@@ -2279,6 +2568,8 @@ export function getSourceStatusInfo(state: GameState, buildingId: string | null)
   };
 }
 
+export const MAP_SHOP_POS = { x: Math.floor(GRID_W / 2) - 1, y: Math.floor(GRID_H / 2) - 1 };
+
 /**
  * Manhattan distance between two grid positions.
  */
@@ -2551,48 +2842,79 @@ function getCraftingReservationById(
   return network.reservations.find((reservation) => reservation.id === reservationId) ?? null;
 }
 
-function getWorkbenchInputPickupAssetId(
-  job: CraftingJob,
-  assets: Record<string, PlacedAsset>,
-): string | null {
-  if (job.inventorySource.kind === "warehouse") {
-    return assets[job.inventorySource.warehouseId]?.type === "warehouse"
-      ? job.inventorySource.warehouseId
-      : null;
-  }
-  if (job.inventorySource.kind === "zone") {
-    return [...job.inventorySource.warehouseIds]
-      .sort()
-      .find((warehouseId) => assets[warehouseId]?.type === "warehouse") ?? null;
-  }
-  return null;
-}
-
 function resolveWorkbenchInputPickup(
+  state: Pick<GameState, "assets" | "warehouseInventories" | "serviceHubs" | "network">,
   job: CraftingJob,
-  assets: Record<string, PlacedAsset>,
-): { x: number; y: number } | null {
-  const assetId = getWorkbenchInputPickupAssetId(job, assets);
-  if (!assetId) return null;
-  const asset = assets[assetId];
-  return asset ? { x: asset.x, y: asset.y } : null;
+  reservation: {
+    id: string;
+    itemId: CraftingJob["ingredients"][number]["itemId"];
+    amount: number;
+  },
+): { x: number; y: number; sourceKind: "warehouse" | "hub"; sourceId: string } | null {
+  if (job.inventorySource.kind === "global") return null;
+  const decision = pickCraftingPhysicalSourceForIngredient({
+    source: job.inventorySource,
+    itemId: reservation.itemId,
+    required: reservation.amount,
+    warehouseInventories: state.warehouseInventories,
+    serviceHubs: state.serviceHubs,
+    network: state.network,
+    assets: state.assets,
+    preferredFromAssetId: job.workbenchId,
+    // This reservation is the very item we are about to pick up, so it must
+    // not block its own source decision.
+    excludeReservationId: reservation.id,
+  });
+  if (!decision.source) return null;
+  const sourceId = decision.source.kind === "warehouse"
+    ? decision.source.warehouseId
+    : decision.source.hubId;
+  const asset = state.assets[sourceId];
+  if (!asset) return null;
+  return {
+    x: asset.x,
+    y: asset.y,
+    sourceKind: decision.source.kind,
+    sourceId,
+  };
 }
 
 function commitWorkbenchInputReservation(
   state: GameState,
   job: CraftingJob,
   reservationId: string,
-): { nextState: GameState; itemType: CollectableItemType; amount: number } | null {
+): {
+  nextState: GameState;
+  itemType: CollectableItemType;
+  amount: number;
+  sourceKind: "warehouse" | "hub";
+  sourceId: string;
+} | null {
   const reservation = getCraftingReservationById(state.network, reservationId);
   if (!reservation) return null;
   if (reservation.ownerKind !== "crafting_job" || reservation.ownerId !== job.reservationOwnerId) return null;
   if (!isCollectableCraftingItem(reservation.itemId)) return null;
   if (job.inventorySource.kind === "global") return null;
 
-  if (job.inventorySource.kind === "warehouse") {
-    const scoped = state.warehouseInventories[job.inventorySource.warehouseId]
-      ? { [job.inventorySource.warehouseId]: state.warehouseInventories[job.inventorySource.warehouseId] }
-      : {};
+  const decision = pickCraftingPhysicalSourceForIngredient({
+    source: job.inventorySource,
+    itemId: reservation.itemId,
+    required: reservation.amount,
+    warehouseInventories: state.warehouseInventories,
+    serviceHubs: state.serviceHubs,
+    network: state.network,
+    assets: state.assets,
+    preferredFromAssetId: job.workbenchId,
+    // This reservation should not consume its own free-budget during commit.
+    excludeReservationId: reservation.id,
+  });
+  if (!decision.source) return null;
+
+  if (decision.source.kind === "warehouse") {
+    const warehouseId = decision.source.warehouseId;
+    const warehouseInventory = state.warehouseInventories[warehouseId];
+    if (!warehouseInventory) return null;
+    const scoped = { [warehouseId]: warehouseInventory };
     const result = applyNetworkAction(scoped, state.network, {
       type: "NETWORK_COMMIT_RESERVATION",
       reservationId,
@@ -2609,61 +2931,73 @@ function commitWorkbenchInputReservation(
       },
       itemType: reservation.itemId,
       amount: reservation.amount,
+      sourceKind: "warehouse",
+      sourceId: warehouseId,
     };
   }
 
-  const scoped: Record<string, Inventory> = {};
-  for (const warehouseId of job.inventorySource.warehouseIds) {
-    const inventory = state.warehouseInventories[warehouseId];
-    if (inventory) {
-      scoped[warehouseId] = inventory;
-    }
-  }
+  const hubId = decision.source.hubId;
+  const hubEntry = state.serviceHubs[hubId];
+  if (!hubEntry) return null;
+  const pseudoWarehouseId = getGlobalHubWarehouseId(hubId);
+  const scoped: Record<string, Inventory> = {
+    [pseudoWarehouseId]: hubInventoryToInventoryView(hubEntry.inventory),
+  };
   const result = applyNetworkAction(scoped, state.network, {
     type: "NETWORK_COMMIT_RESERVATION",
     reservationId,
   });
   if (result.network.lastError) return null;
+  const committedHubView = result.warehouseInventories[pseudoWarehouseId] ?? scoped[pseudoWarehouseId];
+  const nextHubInventory = inventoryViewToHubInventory(hubEntry.inventory, committedHubView);
   return {
     nextState: {
       ...state,
-      warehouseInventories: {
-        ...state.warehouseInventories,
-        ...result.warehouseInventories,
+      serviceHubs: {
+        ...state.serviceHubs,
+        [hubId]: {
+          ...hubEntry,
+          inventory: nextHubInventory,
+        },
       },
       network: result.network,
     },
     itemType: reservation.itemId,
     amount: reservation.amount,
+    sourceKind: "hub",
+    sourceId: hubId,
   };
-}
-
-function getWorkbenchDeliveryTargetAssetId(
-  job: CraftingJob,
-  assets: Record<string, PlacedAsset>,
-): string | null {
-  if (job.inventorySource.kind === "warehouse") {
-    return assets[job.inventorySource.warehouseId]?.type === "warehouse"
-      ? job.inventorySource.warehouseId
-      : null;
-  }
-  if (job.inventorySource.kind === "zone") {
-    return [...job.inventorySource.warehouseIds]
-      .sort()
-      .find((warehouseId) => assets[warehouseId]?.type === "warehouse") ?? null;
-  }
-  return null;
 }
 
 function resolveWorkbenchDeliveryDropoff(
   job: CraftingJob,
   assets: Record<string, PlacedAsset>,
+  warehouseInventories: Record<string, Inventory>,
+  serviceHubs: Record<string, ServiceHubEntry>,
 ): { x: number; y: number } {
-  const targetAssetId = getWorkbenchDeliveryTargetAssetId(job, assets);
-  if (targetAssetId) {
-    const targetAsset = assets[targetAssetId];
-    if (targetAsset) return { x: targetAsset.x, y: targetAsset.y };
+  const destination = resolveOutputDestination({
+    source: job.inventorySource,
+    stackItemId: job.output.itemId,
+    warehouseInventories,
+    serviceHubs,
+    assets,
+    preferredFromAssetId: job.workbenchId,
+  });
+
+  if (destination.kind === "warehouse") {
+    const targetAsset = assets[destination.id];
+    if (targetAsset?.type === "warehouse") {
+      return { x: targetAsset.x, y: targetAsset.y };
+    }
   }
+
+  if (destination.kind === "hub") {
+    const targetAsset = assets[destination.id];
+    if (targetAsset?.type === "service_hub") {
+      return { x: targetAsset.x, y: targetAsset.y };
+    }
+  }
+
   return { x: MAP_SHOP_POS.x, y: MAP_SHOP_POS.y };
 }
 
@@ -2682,37 +3016,28 @@ function resolveDroneDropoff(
   drone: StarterDroneState,
   assets: Record<string, PlacedAsset>,
   serviceHubs?: Record<string, ServiceHubEntry>,
+  warehouseInventories?: Record<string, Inventory>,
   crafting?: Pick<GameState, "crafting">["crafting"],
 ): { x: number; y: number } {
-  const resolveOffsetDropoffTarget = (
-    targetAssetId: string,
-    missingTargetMessage: string,
-  ): { x: number; y: number } | null => {
-    const targetAsset = assets[targetAssetId];
-    if (!targetAsset) {
-      debugLog.inventory(missingTargetMessage);
-      return null;
-    }
-    const off = DELIVERY_OFFSETS[droneDeliverySlot(drone.droneId)];
-    return { x: targetAsset.x + off.dx, y: targetAsset.y + off.dy };
-  };
-
   // Construction supply: target is the construction site asset + per-drone offset
   if (drone.currentTaskType === "construction_supply" && drone.deliveryTargetId) {
-    const dropoff = resolveOffsetDropoffTarget(
-      drone.deliveryTargetId,
-      `[Drone] Construction site asset ${drone.deliveryTargetId} gone — falling back`,
-    );
-    if (dropoff) return dropoff;
+    const siteAsset = assets[drone.deliveryTargetId];
+    if (siteAsset) {
+      const off = DELIVERY_OFFSETS[droneDeliverySlot(drone.droneId)];
+      return { x: siteAsset.x + off.dx, y: siteAsset.y + off.dy };
+    }
+    // Site was removed during flight — fall through to hub or MAP_SHOP
+    debugLog.inventory(`[Drone] Construction site asset ${drone.deliveryTargetId} gone — falling back`);
   }
 
   // Building supply: target is the building asset hosting the input buffer
   if (drone.currentTaskType === "building_supply" && drone.deliveryTargetId) {
-    const dropoff = resolveOffsetDropoffTarget(
-      drone.deliveryTargetId,
-      `[Drone] Building input target ${drone.deliveryTargetId} gone — falling back`,
-    );
-    if (dropoff) return dropoff;
+    const targetAsset = assets[drone.deliveryTargetId];
+    if (targetAsset) {
+      const off = DELIVERY_OFFSETS[droneDeliverySlot(drone.droneId)];
+      return { x: targetAsset.x + off.dx, y: targetAsset.y + off.dy };
+    }
+    debugLog.inventory(`[Drone] Building input target ${drone.deliveryTargetId} gone — falling back`);
   }
 
   if (drone.currentTaskType === "workbench_delivery" && crafting) {
@@ -2724,7 +3049,14 @@ function resolveDroneDropoff(
       }
     }
     const job = getCraftingJobById(crafting, drone.craftingJobId ?? task?.jobId ?? null);
-    if (job) return resolveWorkbenchDeliveryDropoff(job, assets);
+    if (job) {
+      return resolveWorkbenchDeliveryDropoff(
+        job,
+        assets,
+        warehouseInventories ?? {},
+        serviceHubs ?? {},
+      );
+    }
   }
 
   // Hub restock (or construction fallback): use dock slot so each drone targets its own tile
@@ -2982,19 +3314,6 @@ function areAutoSmelterEntriesEqual(a: AutoSmelterEntry, b: AutoSmelterEntry): b
   );
 }
 
-function applySmelterWorkflowActions(
-  smelter: AutoSmelterEntry,
-  actions: readonly SmelterWorkflowAction[],
-): AutoSmelterEntry {
-  let next = smelter;
-  for (const action of actions) {
-    if (action.type === "set_status" && next.status !== action.status) {
-      next = { ...next, status: action.status };
-    }
-  }
-  return next;
-}
-
 function placeAsset(
   assets: Record<string, PlacedAsset>,
   cellMap: Record<string, string>,
@@ -3077,6 +3396,11 @@ function addErrorNotification(
   ];
 }
 
+/** Max entries kept in the auto-delivery log. */
+const AUTO_DELIVERY_LOG_MAX = 50;
+/** Entries with the same source+resource within this window are batched together. */
+const AUTO_DELIVERY_BATCH_WINDOW_MS = 8_000;
+
 /**
  * Appends (or batches into the latest matching entry) one unit delivered to a warehouse.
  * Same sourceId + resource within the batch window → increments amount.
@@ -3116,6 +3440,8 @@ function addAutoDelivery(
     ? [...log.slice(1), entry]
     : [...log, entry];
 }
+
+export const EMPTY_HOTBAR_SLOT: HotbarSlot = { toolKind: "empty", amount: 0, label: "", emoji: "" };
 
 export function createInitialHotbar(): HotbarSlot[] {
   return Array.from({ length: HOTBAR_SIZE }, () => ({ ...EMPTY_HOTBAR_SLOT }));
@@ -3661,6 +3987,7 @@ export function createInitialState(mode: GameMode): GameState {
     constructionSites: {},
     network: createEmptyNetworkSlice(),
     crafting: createEmptyCraftingQueue(),
+    keepStockByWorkbench: {},
   };
   // Ensure drones record is pre-populated with the starter drone
   initial.drones = { starter: initial.starterDrone };
@@ -3704,6 +4031,7 @@ export type GameAction =
   | { type: "DEBUG_SET_STATE"; state: GameState }
   // Generator / Energy
   | { type: "GENERATOR_ADD_FUEL"; amount: number }
+  | { type: "GENERATOR_REQUEST_REFILL"; amount: number | "max" }
   | { type: "GENERATOR_START" }
   | { type: "GENERATOR_STOP" }
   | { type: "GENERATOR_TICK" }
@@ -3724,6 +4052,8 @@ export type GameAction =
   | { type: "SET_MACHINE_BOOST"; assetId: string; boosted: boolean }
   // Per-building resource source selection
   | { type: "SET_BUILDING_SOURCE"; buildingId: string; warehouseId: string | null }
+  // Per-workbench keep-in-stock targets for workbench recipes
+  | { type: "SET_KEEP_STOCK_TARGET"; workbenchId: string; recipeId: string; amount: number; enabled: boolean }
   // Production zones
   | { type: "CREATE_ZONE"; name?: string }
   | { type: "DELETE_ZONE"; zoneId: string }
@@ -3769,12 +4099,18 @@ function finalizeWorkbenchDelivery(
   const routed = routeOutput({
     warehouseInventories: state.warehouseInventories,
     globalInventory: state.inventory,
+    serviceHubs: state.serviceHubs,
+    assets: state.assets,
+    preferredFromAssetId: job.workbenchId,
     stack: job.output,
     source: job.inventorySource,
   });
   if (import.meta.env.DEV) {
+    const destinationLabel = routed.destination.kind === "global"
+      ? "global"
+      : `${routed.destination.kind}:${routed.destination.id}`;
     debugLog.general(
-      `Job ${job.id} delivered: ${job.output.count}x ${job.output.itemId} -> ${routed.destination.kind === "warehouse" ? routed.destination.id : "global"}`,
+      `Job ${job.id} delivered: ${job.output.count}x ${job.output.itemId} -> ${destinationLabel}`,
     );
   }
 
@@ -3783,10 +4119,12 @@ function finalizeWorkbenchDelivery(
       ...state,
       warehouseInventories: routed.warehouseInventories as Record<string, Inventory>,
       inventory: routed.globalInventory,
+      serviceHubs: routed.serviceHubs as Record<string, ServiceHubEntry>,
       crafting: {
         ...state.crafting,
         jobs: state.crafting.jobs.map((entry) => (entry.id === job.id ? { ...entry, status: "done" } : entry)),
       },
+      notifications: addNotification(state.notifications, job.output.itemId, job.output.count),
     },
     droneId,
     idleDrone,
@@ -3808,6 +4146,9 @@ function routeWorkbenchInputCargoBack(
   const routed = routeOutput({
     warehouseInventories: state.warehouseInventories,
     globalInventory: state.inventory,
+    serviceHubs: state.serviceHubs,
+    assets: state.assets,
+    preferredFromAssetId: job.workbenchId,
     stack: { itemId: cargo.itemType, count: cargo.amount },
     source: job.inventorySource,
   });
@@ -3815,6 +4156,7 @@ function routeWorkbenchInputCargoBack(
     ...state,
     warehouseInventories: routed.warehouseInventories as Record<string, Inventory>,
     inventory: routed.globalInventory,
+    serviceHubs: routed.serviceHubs as Record<string, ServiceHubEntry>,
   };
 }
 
@@ -3901,13 +4243,15 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
         return currentState;
       }
 
-      // hub_dispatch: drone flies to hub to pick up resources directly from hub inventory.
-      // No collectionNode involvement — navigate to hub asset position.
+      // hub_dispatch: drone flies to hub OR warehouse to pick up resources directly
+      // from inventory. No collectionNode involvement — navigate to source asset position.
+      // Source is encoded in the synthetic nodeId prefix: "hub:" or "wh:".
       if (task.taskType === "hub_dispatch") {
-        const [, hubId] = task.nodeId.split(":");
-        const hubAsset = currentState.assets[hubId];
-        if (!hubAsset) return currentState; // hub gone
-        debugLog.inventory(`[Drone] hub_dispatch: flying to hub ${hubId} for ${task.nodeId.split(":")[2]} → site ${task.deliveryTargetId}`);
+        const [, sourceId] = task.nodeId.split(":");
+        const sourceAsset = currentState.assets[sourceId];
+        if (!sourceAsset) return currentState; // source gone
+        const sourceKind = task.nodeId.startsWith("wh:") ? "warehouse" : "hub";
+        debugLog.inventory(`[Drone] hub_dispatch: flying to ${sourceKind} ${sourceId} for ${task.nodeId.split(":")[2]} → site ${task.deliveryTargetId}`);
         return applyDroneUpdate(currentState, droneId, {
           ...drone,
           status: "moving_to_collect",
@@ -3915,17 +4259,18 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
           currentTaskType: "hub_dispatch",
           deliveryTargetId: task.deliveryTargetId || null,
           craftingJobId: null,
-          ticksRemaining: droneTravelTicks(drone.tileX, drone.tileY, hubAsset.x, hubAsset.y),
+          ticksRemaining: droneTravelTicks(drone.tileX, drone.tileY, sourceAsset.x, sourceAsset.y),
         });
       }
 
-      // building_supply with hub source: drone flies to its hub and withdraws from hub inventory
-      // before delivering to the building's input buffer.
-      if (task.taskType === "building_supply" && task.nodeId.startsWith("hub:")) {
-        const [, hubId, resource] = task.nodeId.split(":");
-        const hubAsset = currentState.assets[hubId];
-        if (!hubAsset) return currentState;
-        debugLog.inventory(`[Drone] building_supply: flying to hub ${hubId} for ${resource} → building ${task.deliveryTargetId}`);
+      // building_supply with hub or warehouse source: drone flies to the source and withdraws
+      // from its inventory before delivering to the building's input buffer.
+      if (task.taskType === "building_supply" && (task.nodeId.startsWith("hub:") || task.nodeId.startsWith("wh:"))) {
+        const [, sourceId, resource] = task.nodeId.split(":");
+        const sourceAsset = currentState.assets[sourceId];
+        if (!sourceAsset) return currentState;
+        const sourceKind = task.nodeId.startsWith("wh:") ? "warehouse" : "hub";
+        debugLog.inventory(`[Drone] building_supply: flying to ${sourceKind} ${sourceId} for ${resource} → building ${task.deliveryTargetId}`);
         return applyDroneUpdate(currentState, droneId, {
           ...drone,
           status: "moving_to_collect",
@@ -3933,7 +4278,7 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
           currentTaskType: "building_supply",
           deliveryTargetId: task.deliveryTargetId || null,
           craftingJobId: null,
-          ticksRemaining: droneTravelTicks(drone.tileX, drone.tileY, hubAsset.x, hubAsset.y),
+          ticksRemaining: droneTravelTicks(drone.tileX, drone.tileY, sourceAsset.x, sourceAsset.y),
         });
       }
 
@@ -3943,8 +4288,9 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
 
         if (workbenchTask.kind === "input") {
           const job = getCraftingJobById(currentState.crafting, workbenchTask.jobId);
-          const pickup = job ? resolveWorkbenchInputPickup(job, currentState.assets) : null;
-          if (!job || job.status !== "reserved" || !pickup) {
+          const reservation = getCraftingReservationById(currentState.network, workbenchTask.reservationId);
+          const pickup = job && reservation ? resolveWorkbenchInputPickup(currentState, job, reservation) : null;
+          if (!job || job.status !== "reserved" || !reservation || !pickup) {
             return currentState;
           }
           debugLog.inventory(
@@ -4014,8 +4360,9 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
 
       if (drone.currentTaskType === "workbench_delivery" && workbenchTask?.kind === "input") {
         const job = getCraftingJobById(state.crafting, workbenchTask.jobId);
-        const pickup = job ? resolveWorkbenchInputPickup(job, state.assets) : null;
-        if (!job || job.status !== "reserved" || !pickup) {
+        const reservation = getCraftingReservationById(state.network, workbenchTask.reservationId);
+        const pickup = job && reservation ? resolveWorkbenchInputPickup(state, job, reservation) : null;
+        if (!job || job.status !== "reserved" || !reservation || !pickup) {
           return applyDroneUpdate(state, droneId, {
             ...drone,
             status: "idle",
@@ -4070,45 +4417,45 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
         });
       }
 
-      // hub_dispatch: navigate toward the hub asset position (no collectionNode)
-      if (drone.currentTaskType === "hub_dispatch" && drone.targetNodeId?.startsWith("hub:")) {
-        const [, hubId] = drone.targetNodeId.split(":");
-        const hubAsset = state.assets[hubId];
-        if (!hubAsset) {
-          // Hub removed mid-flight — abort
+      // hub_dispatch / warehouse-dispatch: navigate toward the source asset position
+      if (drone.currentTaskType === "hub_dispatch" && (drone.targetNodeId?.startsWith("hub:") || drone.targetNodeId?.startsWith("wh:"))) {
+        const [, sourceId] = drone.targetNodeId.split(":");
+        const sourceAsset = state.assets[sourceId];
+        if (!sourceAsset) {
+          // Source removed mid-flight — abort
           return applyDroneUpdate(state, droneId, { ...drone, status: "idle", targetNodeId: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null });
         }
         if (rem > 0) {
-          const { x: nextX, y: nextY } = moveDroneToward(drone.tileX, drone.tileY, hubAsset.x, hubAsset.y, DRONE_SPEED_TILES_PER_TICK);
-          const { x: sepX, y: sepY } = nudgeAwayFromDrones(nextX, nextY, hubAsset.x, hubAsset.y, state.drones, drone.droneId);
+          const { x: nextX, y: nextY } = moveDroneToward(drone.tileX, drone.tileY, sourceAsset.x, sourceAsset.y, DRONE_SPEED_TILES_PER_TICK);
+          const { x: sepX, y: sepY } = nudgeAwayFromDrones(nextX, nextY, sourceAsset.x, sourceAsset.y, state.drones, drone.droneId);
           return applyDroneUpdate(state, droneId, { ...drone, tileX: sepX, tileY: sepY, ticksRemaining: rem });
         }
-        // Arrived at hub — snap and start collecting
+        // Arrived at source — snap and start collecting
         return applyDroneUpdate(state, droneId, {
           ...drone,
-          tileX: hubAsset.x,
-          tileY: hubAsset.y,
+          tileX: sourceAsset.x,
+          tileY: sourceAsset.y,
           status: "collecting",
           ticksRemaining: DRONE_COLLECT_TICKS,
         });
       }
 
-      // building_supply with hub source: same flight path as hub_dispatch
-      if (drone.currentTaskType === "building_supply" && drone.targetNodeId?.startsWith("hub:")) {
-        const [, hubId] = drone.targetNodeId.split(":");
-        const hubAsset = state.assets[hubId];
-        if (!hubAsset) {
+      // building_supply with hub or warehouse source: same flight pattern
+      if (drone.currentTaskType === "building_supply" && (drone.targetNodeId?.startsWith("hub:") || drone.targetNodeId?.startsWith("wh:"))) {
+        const [, sourceId] = drone.targetNodeId.split(":");
+        const sourceAsset = state.assets[sourceId];
+        if (!sourceAsset) {
           return applyDroneUpdate(state, droneId, { ...drone, status: "idle", targetNodeId: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null });
         }
         if (rem > 0) {
-          const { x: nextX, y: nextY } = moveDroneToward(drone.tileX, drone.tileY, hubAsset.x, hubAsset.y, DRONE_SPEED_TILES_PER_TICK);
-          const { x: sepX, y: sepY } = nudgeAwayFromDrones(nextX, nextY, hubAsset.x, hubAsset.y, state.drones, drone.droneId);
+          const { x: nextX, y: nextY } = moveDroneToward(drone.tileX, drone.tileY, sourceAsset.x, sourceAsset.y, DRONE_SPEED_TILES_PER_TICK);
+          const { x: sepX, y: sepY } = nudgeAwayFromDrones(nextX, nextY, sourceAsset.x, sourceAsset.y, state.drones, drone.droneId);
           return applyDroneUpdate(state, droneId, { ...drone, tileX: sepX, tileY: sepY, ticksRemaining: rem });
         }
         return applyDroneUpdate(state, droneId, {
           ...drone,
-          tileX: hubAsset.x,
-          tileY: hubAsset.y,
+          tileX: sourceAsset.x,
+          tileY: sourceAsset.y,
           status: "collecting",
           ticksRemaining: DRONE_COLLECT_TICKS,
         });
@@ -4187,10 +4534,12 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
           },
           committed.nextState.assets,
           committed.nextState.serviceHubs,
+          committed.nextState.warehouseInventories,
           committed.nextState.crafting,
         );
         debugLog.inventory(
-          `[Drone] workbench_input: picked up ${committed.amount}× ${committed.itemType} for ${job.workbenchId} → (${dropoff.x},${dropoff.y})`,
+          `[Drone] workbench_input: picked up ${committed.amount}× ${committed.itemType} from ` +
+            `${committed.sourceKind} ${committed.sourceId} for ${job.workbenchId} → (${dropoff.x},${dropoff.y})`,
         );
         return applyDroneUpdate(committed.nextState, droneId, {
           ...drone,
@@ -4217,7 +4566,7 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
             craftingJobId: null,
           });
         }
-        const dropoff = resolveDroneDropoff(drone, state.assets, state.serviceHubs, state.crafting);
+        const dropoff = resolveDroneDropoff(drone, state.assets, state.serviceHubs, state.warehouseInventories, state.crafting);
         debugLog.inventory(`[Drone] workbench_delivery: picked up ${job.output.count}× ${job.output.itemId} from ${job.workbenchId} → (${dropoff.x},${dropoff.y})`);
         return applyDroneUpdate(state, droneId, {
           ...drone,
@@ -4227,39 +4576,72 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
         });
       }
 
-      // hub_dispatch: arrived at hub — withdraw from hub.inventory and fly to construction site
-      if (drone.currentTaskType === "hub_dispatch" && drone.targetNodeId?.startsWith("hub:")) {
-        const [, hubId, resource] = drone.targetNodeId.split(":");
+      // hub_dispatch warehouse-source: arrived at warehouse — withdraw from warehouseInventories
+      // and fly to construction site. Mirrors the hub branch below; warehouses are the PRIMARY
+      // logistics source, hubs the fallback.
+      if (drone.currentTaskType === "hub_dispatch" && drone.targetNodeId?.startsWith("wh:")) {
+        const [, whId, resource] = drone.targetNodeId.split(":");
+        const inv = state.warehouseInventories[whId];
+        if (!inv) {
+          return applyDroneUpdate(state, droneId, { ...drone, status: "idle", targetNodeId: null, cargo: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null });
+        }
         const itemType = resource as CollectableItemType;
-        const hubEntry = state.serviceHubs[hubId];
+        const available = (inv as unknown as Record<string, number>)[itemType] ?? 0;
+        if (available <= 0) {
+          debugLog.inventory(`[Drone] hub_dispatch: warehouse ${whId} has no ${itemType} on arrival — aborting (will reselect; hub fallback may apply)`);
+          return applyDroneUpdate(state, droneId, { ...drone, status: "idle", targetNodeId: null, cargo: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null });
+        }
         const remainingNeed = drone.deliveryTargetId
           ? getRemainingConstructionNeed(state, drone.deliveryTargetId, itemType, drone.droneId)
           : 0;
-        const executionAction = decideHubDispatchExecutionAction({
-          hubId,
-          itemType,
-          availableInHub: hubEntry ? (hubEntry.inventory[itemType] ?? 0) : null,
-          remainingNeed,
-        });
-
-        if (executionAction.type === "abort_hub_dispatch") {
-          // Hub ran out between task selection and arrival — abort
-          if (executionAction.reason === "hub_empty") {
-            debugLog.inventory(`[Drone] hub_dispatch: hub ${hubId} has no ${itemType} on arrival — aborting`);
-          }
+        if (remainingNeed <= 0) {
           return applyDroneUpdate(state, droneId, { ...drone, status: "idle", targetNodeId: null, cargo: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null });
         }
+        const pickup = Math.min(DRONE_CAPACITY, available, remainingNeed);
+        const updatedWhInv: Inventory = { ...inv, [itemType]: available - pickup };
+        const droneAsConstructionSupplier = { ...drone, currentTaskType: "construction_supply" as DroneTaskType };
+        const dropoff = resolveDroneDropoff(droneAsConstructionSupplier, state.assets, state.serviceHubs, state.warehouseInventories, state.crafting);
+        debugLog.inventory(`[Drone] hub_dispatch: collected ${pickup}× ${itemType} from warehouse ${whId} (PRIMARY) → delivering to site ${drone.deliveryTargetId} at (${dropoff.x},${dropoff.y})`);
+        return applyDroneUpdate(
+          { ...state, warehouseInventories: { ...state.warehouseInventories, [whId]: updatedWhInv } },
+          droneId,
+          {
+            ...drone,
+            status: "moving_to_dropoff",
+            cargo: { itemType, amount: pickup },
+            targetNodeId: null,
+            currentTaskType: "construction_supply",
+            ticksRemaining: droneTravelTicks(drone.tileX, drone.tileY, dropoff.x, dropoff.y),
+          },
+        );
+      }
 
+      // hub_dispatch: arrived at hub — withdraw from hub.inventory and fly to construction site
+      if (drone.currentTaskType === "hub_dispatch" && drone.targetNodeId?.startsWith("hub:")) {
+        const [, hubId, resource] = drone.targetNodeId.split(":");
+        const hubEntry = state.serviceHubs[hubId];
         if (!hubEntry) {
+          // Hub entry gone — abort
           return applyDroneUpdate(state, droneId, { ...drone, status: "idle", targetNodeId: null, cargo: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null });
         }
-
-        const available = hubEntry.inventory[executionAction.itemType] ?? 0;
-        const pickup = executionAction.pickupAmount;
+        const itemType = resource as CollectableItemType;
+        const available = hubEntry.inventory[itemType] ?? 0;
+        if (available <= 0) {
+          // Hub ran out between task selection and arrival — abort
+          debugLog.inventory(`[Drone] hub_dispatch: hub ${hubId} has no ${itemType} on arrival — aborting`);
+          return applyDroneUpdate(state, droneId, { ...drone, status: "idle", targetNodeId: null, cargo: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null });
+        }
+        const remainingNeed = drone.deliveryTargetId
+          ? getRemainingConstructionNeed(state, drone.deliveryTargetId, itemType, drone.droneId)
+          : 0;
+        if (remainingNeed <= 0) {
+          return applyDroneUpdate(state, droneId, { ...drone, status: "idle", targetNodeId: null, cargo: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null });
+        }
+        const pickup = Math.min(DRONE_CAPACITY, available, remainingNeed);
         const updatedHubInv: ServiceHubInventory = { ...hubEntry.inventory, [itemType]: available - pickup };
         // Switch to construction_supply so depositing logic routes correctly to the site
         const droneAsConstructionSupplier = { ...drone, currentTaskType: "construction_supply" as DroneTaskType };
-        const dropoff = resolveDroneDropoff(droneAsConstructionSupplier, state.assets, state.serviceHubs, state.crafting);
+        const dropoff = resolveDroneDropoff(droneAsConstructionSupplier, state.assets, state.serviceHubs, state.warehouseInventories, state.crafting);
         debugLog.inventory(`[Drone] hub_dispatch: collected ${pickup}× ${itemType} from hub ${hubId} → delivering to site ${drone.deliveryTargetId} at (${dropoff.x},${dropoff.y})`);
         return applyDroneUpdate(
           { ...state, serviceHubs: { ...state.serviceHubs, [hubId]: { ...hubEntry, inventory: updatedHubInv } } },
@@ -4269,7 +4651,43 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
             status: "moving_to_dropoff",
             cargo: { itemType, amount: pickup },
             targetNodeId: null,
-            currentTaskType: executionAction.nextTaskType, // depositing case handles construction_supply
+            currentTaskType: "construction_supply", // depositing case handles construction_supply
+            ticksRemaining: droneTravelTicks(drone.tileX, drone.tileY, dropoff.x, dropoff.y),
+          },
+        );
+      }
+
+      // building_supply warehouse-source: arrived at warehouse — withdraw from warehouseInventories
+      // and fly to building input buffer. Mirrors the hub branch below; warehouses PRIMARY.
+      if (drone.currentTaskType === "building_supply" && drone.targetNodeId?.startsWith("wh:")) {
+        const [, whId, resource] = drone.targetNodeId.split(":");
+        const inv = state.warehouseInventories[whId];
+        if (!inv) {
+          return applyDroneUpdate(state, droneId, { ...drone, status: "idle", targetNodeId: null, cargo: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null });
+        }
+        const itemType = resource as CollectableItemType;
+        const available = (inv as unknown as Record<string, number>)[itemType] ?? 0;
+        if (available <= 0) {
+          debugLog.inventory(`[Drone] building_supply: warehouse ${whId} has no ${itemType} on arrival — aborting (will reselect; hub fallback may apply)`);
+          return applyDroneUpdate(state, droneId, { ...drone, status: "idle", targetNodeId: null, cargo: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null });
+        }
+        const remainingNeed = drone.deliveryTargetId
+          ? getRemainingBuildingInputDemand(state, drone.deliveryTargetId, itemType, drone.droneId)
+          : 0;
+        if (remainingNeed <= 0) {
+          return applyDroneUpdate(state, droneId, { ...drone, status: "idle", targetNodeId: null, cargo: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null });
+        }
+        const pickup = Math.min(DRONE_CAPACITY, available, remainingNeed);
+        const updatedWhInv: Inventory = { ...inv, [itemType]: available - pickup };
+        const droneAfterPickup: StarterDroneState = { ...drone, targetNodeId: null, cargo: { itemType, amount: pickup } };
+        const dropoff = resolveDroneDropoff(droneAfterPickup, state.assets, state.serviceHubs, state.warehouseInventories, state.crafting);
+        debugLog.inventory(`[Drone] building_supply: collected ${pickup}× ${itemType} from warehouse ${whId} (PRIMARY) → delivering to building ${drone.deliveryTargetId} at (${dropoff.x},${dropoff.y})`);
+        return applyDroneUpdate(
+          { ...state, warehouseInventories: { ...state.warehouseInventories, [whId]: updatedWhInv } },
+          droneId,
+          {
+            ...droneAfterPickup,
+            status: "moving_to_dropoff",
             ticksRemaining: droneTravelTicks(drone.tileX, drone.tileY, dropoff.x, dropoff.y),
           },
         );
@@ -4298,7 +4716,7 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
         const updatedHubInv: ServiceHubInventory = { ...hubEntry.inventory, [itemType]: available - pickup };
         // Clear targetNodeId so the inbound calc switches from hub-bound to cargo-bound counting.
         const droneAfterPickup: StarterDroneState = { ...drone, targetNodeId: null, cargo: { itemType, amount: pickup } };
-        const dropoff = resolveDroneDropoff(droneAfterPickup, state.assets, state.serviceHubs, state.crafting);
+        const dropoff = resolveDroneDropoff(droneAfterPickup, state.assets, state.serviceHubs, state.warehouseInventories, state.crafting);
         debugLog.inventory(`[Drone] building_supply: collected ${pickup}× ${itemType} from hub ${hubId} → delivering to building ${drone.deliveryTargetId} at (${dropoff.x},${dropoff.y})`);
         return applyDroneUpdate(
           { ...state, serviceHubs: { ...state.serviceHubs, [hubId]: { ...hubEntry, inventory: updatedHubInv } } },
@@ -4376,7 +4794,7 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
       debugLog.mining(`Drone collected ${pickup}× ${node.itemType} from node ${node.id}`);
 
       // Resolve dropoff position — task-type-aware, never silently defaults to trader
-      const dropoff = resolveDroneDropoff(drone, state.assets, state.serviceHubs, state.crafting);
+      const dropoff = resolveDroneDropoff(drone, state.assets, state.serviceHubs, state.warehouseInventories, state.crafting);
       debugLog.inventory(`[Drone] Dropoff resolved: (${dropoff.x},${dropoff.y}) | task=${drone.currentTaskType} deliveryTarget=${drone.deliveryTargetId} hubId=${drone.hubId}`);
 
       return applyDroneUpdate(
@@ -4395,7 +4813,7 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
     case "moving_to_dropoff": {
       const rem = drone.ticksRemaining - 1;
       // Resolve dropoff position — task-type-aware, consistent with collecting transition
-      const { x: dropX, y: dropY } = resolveDroneDropoff(drone, state.assets, state.serviceHubs, state.crafting);
+      const { x: dropX, y: dropY } = resolveDroneDropoff(drone, state.assets, state.serviceHubs, state.warehouseInventories, state.crafting);
 
       if (rem > 0) {
         // Interpolate position toward dropoff target each tick
@@ -4442,7 +4860,8 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
             const space = Math.max(0, cfg.capacity - gen.fuel);
             const applied = Math.min(amount, space);
             const leftover = amount - applied;
-            const newGenerators = { ...state.generators, [deliveryId]: { ...gen, fuel: gen.fuel + applied } };
+            const nextRequested = Math.max(0, (gen.requestedRefill ?? 0) - applied);
+            const newGenerators = { ...state.generators, [deliveryId]: { ...gen, fuel: gen.fuel + applied, requestedRefill: nextRequested } };
             const newInv = leftover > 0 ? addResources(state.inventory, { [itemType]: leftover }) : state.inventory;
             debugLog.inventory(
               `Drone deposited ${applied}× ${itemType} into generator ${deliveryId} (fuel ${gen.fuel} → ${gen.fuel + applied}/${cfg.capacity})` +
@@ -4480,6 +4899,9 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
           }
           // Check if construction is complete
           const isComplete = Object.values(newRemaining).every((v) => (v ?? 0) <= 0);
+          const isHubUpgradeSite =
+            site.buildingType === "service_hub" &&
+            !!state.serviceHubs[deliveryId]?.pendingUpgrade;
           let newSites: Record<string, ConstructionSite>;
           if (isComplete) {
             const { [deliveryId]: _, ...rest } = state.constructionSites;
@@ -4491,6 +4913,12 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
           // Any leftover goes to global inventory
           const newInv = leftover > 0 ? addResources(state.inventory, { [itemType]: leftover }) : state.inventory;
           debugLog.inventory(`Drone deposited ${applied}× ${itemType} into construction site ${deliveryId}` + (leftover > 0 ? ` (${leftover} overflow → global)` : ""));
+          if (import.meta.env.DEV && isHubUpgradeSite) {
+            const remainingAfter = newRemaining[itemType] ?? 0;
+            debugLog.building(
+              `[HubUpgrade] Delivery applied to ${deliveryId}: ${applied}× ${itemType}, remaining ${itemType}=${remainingAfter}`,
+            );
+          }
           let completionState = applyDroneUpdate(
             { ...state, constructionSites: newSites, inventory: newInv },
             droneId,
@@ -4499,11 +4927,20 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
           // Recompute energy grid when a construction finishes (cables/poles/generators may now conduct)
           if (isComplete) {
             completionState = { ...completionState, connectedAssetIds: computeConnectedAssetIds(completionState) };
-            // Spawn 1 drone for a newly completed service_hub (Proto-Hub)
             const completedAsset = completionState.assets[deliveryId];
             if (completedAsset?.type === "service_hub") {
               const hubEntry = completionState.serviceHubs[deliveryId];
-              if (hubEntry && hubEntry.droneIds.length < getMaxDrones(hubEntry.tier)) {
+              if (hubEntry?.pendingUpgrade) {
+                if (import.meta.env.DEV) {
+                  debugLog.building(
+                    `[HubUpgrade] Upgrade demand for ${deliveryId} fully delivered via construction flow — finalizing tier upgrade.`,
+                  );
+                }
+                completionState = finalizeHubTier2Upgrade(completionState, deliveryId, {
+                  deductPendingFromHubInventory: false,
+                });
+              } else if (hubEntry && hubEntry.droneIds.length < getMaxDrones(hubEntry.tier)) {
+                // New Proto-Hub construction: spawn its first drone after completion.
                 const newDroneId = `drone-${makeId()}`;
                 const dockSlot = hubEntry.droneIds.length;
                 const offset = getDroneDockOffset(dockSlot);
@@ -4562,8 +4999,7 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
           ...depositState,
           serviceHubs: { ...depositState.serviceHubs, [drone.hubId]: { ...hubEntry, inventory: updatedHubInv } },
         };
-        // Pending tier-2 upgrade: finalize once the hub itself holds the full
-        // required stock. Drones deliver via hub_restock; no warehouse drain.
+        // Finalize a pending tier-2 upgrade once the hub holds the full cost.
         const updatedHubEntry = afterDeposit.serviceHubs[drone.hubId];
         const finalized = isHubUpgradeDeliverySatisfied(updatedHubEntry)
           ? finalizeHubTier2Upgrade(afterDeposit, drone.hubId)
@@ -4606,8 +5042,9 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
           const workbenchTask = parseWorkbenchTaskNodeId(urgentTask.nodeId);
           if (workbenchTask?.kind === "input") {
             const job = getCraftingJobById(state.crafting, workbenchTask.jobId);
-            const pickup = job ? resolveWorkbenchInputPickup(job, state.assets) : null;
-            if (job && job.status === "reserved" && pickup) {
+            const reservation = getCraftingReservationById(state.network, workbenchTask.reservationId);
+            const pickup = job && reservation ? resolveWorkbenchInputPickup(state, job, reservation) : null;
+            if (job && job.status === "reserved" && reservation && pickup) {
               return applyDroneUpdate(state, droneId, {
                 ...drone,
                 status: "moving_to_collect",
@@ -4667,6 +5104,178 @@ function tickOneDrone(state: GameState, droneId: string): GameState {
   }
 }
 
+function getKeepStockByWorkbench(state: Pick<GameState, "keepStockByWorkbench">): KeepStockByWorkbench {
+  return state.keepStockByWorkbench ?? {};
+}
+
+function areCraftingSourcesEqual(left: CraftingInventorySource, right: CraftingInventorySource): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "global" && right.kind === "global") return true;
+  if (left.kind === "warehouse" && right.kind === "warehouse") {
+    return left.warehouseId === right.warehouseId;
+  }
+  if (left.kind === "zone" && right.kind === "zone") {
+    if (left.zoneId !== right.zoneId) return false;
+    if (left.warehouseIds.length !== right.warehouseIds.length) return false;
+    const leftIds = [...left.warehouseIds].sort();
+    const rightIds = [...right.warehouseIds].sort();
+    for (let i = 0; i < leftIds.length; i++) {
+      if (leftIds[i] !== rightIds[i]) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function isNonTerminalCraftingJob(status: CraftingJob["status"]): boolean {
+  return status !== "done" && status !== "cancelled";
+}
+
+function getProjectedPendingOutput(
+  jobs: readonly CraftingJob[],
+  source: CraftingInventorySource,
+  outputItem: string,
+): number {
+  let total = 0;
+  for (const job of jobs) {
+    if (!isNonTerminalCraftingJob(job.status)) continue;
+    if (job.output.itemId !== outputItem) continue;
+    if (!areCraftingSourcesEqual(job.inventorySource, source)) continue;
+    total += job.output.count;
+  }
+  return total;
+}
+
+function enqueueKeepStockRefills(state: GameState): GameState {
+  const byWorkbench = getKeepStockByWorkbench(state);
+  const configuredTargets: Array<{ workbenchId: string; recipeId: string; target: KeepStockTargetEntry }> = [];
+
+  for (const [workbenchId, recipes] of Object.entries(byWorkbench)) {
+    for (const [recipeId, target] of Object.entries(recipes ?? {})) {
+      configuredTargets.push({ workbenchId, recipeId, target });
+    }
+  }
+
+  if (configuredTargets.length === 0) return state;
+
+  configuredTargets.sort((a, b) => {
+    if (a.workbenchId === b.workbenchId) return a.recipeId.localeCompare(b.recipeId);
+    return a.workbenchId.localeCompare(b.workbenchId);
+  });
+
+  let nextState = state;
+
+  for (const cfg of configuredTargets) {
+    const targetAmount = Math.max(0, Math.min(KEEP_STOCK_MAX_TARGET, Math.floor(cfg.target.amount ?? 0)));
+    const enabled = !!cfg.target.enabled && targetAmount > 0;
+    if (!enabled) continue;
+
+    const workbenchAsset = nextState.assets[cfg.workbenchId];
+    if (!workbenchAsset || workbenchAsset.type !== "workbench") continue;
+    if (isUnderConstruction(nextState, cfg.workbenchId)) continue;
+
+    const recipe = getWorkbenchRecipe(cfg.recipeId);
+    if (!recipe) {
+      if (import.meta.env.DEV) {
+        debugLog.general(
+          `[KeepStock] Skip unsupported recipe ${cfg.recipeId} (workbench ${cfg.workbenchId}).`,
+        );
+      }
+      continue;
+    }
+
+    const source = resolveBuildingSource(nextState, cfg.workbenchId);
+    if (source.kind === "global") {
+      if (import.meta.env.DEV) {
+        debugLog.general(
+          `[KeepStock] Skip ${cfg.recipeId} on ${cfg.workbenchId}: no physical source.`,
+        );
+      }
+      continue;
+    }
+
+    const inventorySource = toCraftingJobInventorySource(nextState, source);
+    const sourceInv = getCraftingSourceInventory(nextState, source) as unknown as Record<string, number>;
+    const storedCount = sourceInv[recipe.outputItem] ?? 0;
+    const pendingCount = getProjectedPendingOutput(
+      nextState.crafting.jobs,
+      inventorySource,
+      recipe.outputItem,
+    );
+    const projectedCount = storedCount + pendingCount;
+
+    if (projectedCount >= targetAmount) continue;
+
+    const missingOutput = targetAmount - projectedCount;
+    const craftsNeeded = Math.ceil(missingOutput / Math.max(1, recipe.outputAmount));
+    if (craftsNeeded <= 0) continue;
+
+    const plan = buildWorkbenchAutoCraftPlan({
+      recipeId: cfg.recipeId,
+      amount: craftsNeeded,
+      producerAssetId: cfg.workbenchId,
+      source: inventorySource,
+      warehouseInventories: nextState.warehouseInventories,
+      serviceHubs: nextState.serviceHubs,
+      network: nextState.network,
+      assets: nextState.assets,
+      existingJobs: nextState.crafting.jobs,
+    });
+
+    if (!plan.ok) {
+      if (import.meta.env.DEV) {
+        debugLog.general(
+          `[KeepStock] Plan failed for ${cfg.recipeId} on ${cfg.workbenchId}: ${plan.error.message}`,
+        );
+      }
+      continue;
+    }
+
+    let queue = nextState.crafting;
+    let enqueueFailed = false;
+    for (const step of plan.steps) {
+      for (let i = 0; i < step.count; i++) {
+        const enqueueResult = craftingEnqueueJob(queue, {
+          recipeId: step.recipeId,
+          workbenchId: cfg.workbenchId,
+          source: "automation",
+          priority: "normal",
+          inventorySource,
+          assets: nextState.assets,
+        });
+        queue = enqueueResult.queue;
+        if (!enqueueResult.ok) {
+          if (import.meta.env.DEV) {
+            debugLog.general(
+              `[KeepStock] Enqueue failed for ${step.recipeId} on ${cfg.workbenchId}: ${enqueueResult.error.message}`,
+            );
+          }
+          enqueueFailed = true;
+          break;
+        }
+      }
+      if (enqueueFailed) break;
+    }
+
+    if (queue === nextState.crafting) continue;
+
+    if (import.meta.env.DEV) {
+      debugLog.general(
+        `[KeepStock] Enqueued refill for ${cfg.recipeId} on ${cfg.workbenchId}: ${plan.steps
+          .map((step) => `${step.count}x ${step.recipeId}`)
+          .join(", ")}`,
+      );
+    }
+
+    nextState = {
+      ...nextState,
+      crafting: queue,
+    };
+  }
+
+  return nextState;
+}
+
 export function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     // -----------------------------------------------------------------
@@ -4698,6 +5307,121 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     // -----------------------------------------------------------------
     // Crafting jobs (Step 3)
     // -----------------------------------------------------------------
+    case "CRAFT_REQUEST_WITH_PREREQUISITES": {
+      const workbenchAsset = state.assets[action.workbenchId];
+      if (!workbenchAsset || workbenchAsset.type !== "workbench") {
+        return {
+          ...state,
+          notifications: addErrorNotification(
+            state.notifications,
+            `Werkbank "${action.workbenchId}" existiert nicht.`,
+          ),
+        };
+      }
+
+      logCraftingSelectionComparison(state, "workbench", action.workbenchId);
+      if (isUnderConstruction(state, workbenchAsset.id)) {
+        debugLog.general(`Crafting workbench [${workbenchAsset.id}] - under construction`);
+        return {
+          ...state,
+          notifications: addErrorNotification(state.notifications, `Werkbank [${workbenchAsset.id}] ist noch im Bau.`),
+        };
+      }
+
+      const resolvedSource = resolveBuildingSource(state, action.workbenchId);
+      if (resolvedSource.kind === "global") {
+        return {
+          ...state,
+          notifications: addErrorNotification(
+            state.notifications,
+            "Werkbank braucht ein physisches Lager als Quelle.",
+          ),
+        };
+      }
+
+      const inventorySource = toCraftingJobInventorySource(state, resolvedSource);
+      if (inventorySource.kind === "global") {
+        return {
+          ...state,
+          notifications: addErrorNotification(
+            state.notifications,
+            "Workbench braucht eine physische Quelle (Lagerhaus/Zone) für Auto-Craft.",
+          ),
+        };
+      }
+
+      const plan = buildWorkbenchAutoCraftPlan({
+        recipeId: action.recipeId,
+        amount: action.amount ?? 1,
+        producerAssetId: action.workbenchId,
+        source: inventorySource,
+        warehouseInventories: state.warehouseInventories,
+        serviceHubs: state.serviceHubs,
+        network: state.network,
+        assets: state.assets,
+        existingJobs: state.crafting.jobs,
+      });
+
+      if (!plan.ok) {
+        if (import.meta.env.DEV) {
+          debugLog.general(
+            `Auto-craft planning failed for ${action.recipeId}: ${plan.error.message}`,
+          );
+        }
+        return {
+          ...state,
+          notifications: addErrorNotification(state.notifications, plan.error.message),
+        };
+      }
+
+      let nextQueue = state.crafting;
+      const plannedTotalCount = plan.steps.reduce((sum, step) => sum + step.count, 0);
+      let divergenceNotice: string | null = null;
+      if (
+        typeof action.expectedStepCount === "number" &&
+        action.expectedStepCount !== plannedTotalCount
+      ) {
+        divergenceNotice = `Hinweis: Auto-Craft-Plan an aktuellen Bestand angepasst (${action.expectedStepCount} → ${plannedTotalCount} Schritte).`;
+      }
+      for (const step of plan.steps) {
+        for (let i = 0; i < step.count; i++) {
+          const enqueueResult = craftingEnqueueJob(nextQueue, {
+            recipeId: step.recipeId,
+            workbenchId: action.workbenchId,
+            source: action.source,
+            priority: action.priority,
+            inventorySource,
+            assets: state.assets,
+          });
+          if (!enqueueResult.ok) {
+            return {
+              ...state,
+              crafting: enqueueResult.queue,
+              notifications: addErrorNotification(state.notifications, enqueueResult.error.message),
+            };
+          }
+          nextQueue = enqueueResult.queue;
+        }
+      }
+
+      if (import.meta.env.DEV) {
+        debugLog.general(
+          `Auto-craft plan enqueued for ${action.recipeId}: ${plan.steps
+            .map((step) => `${step.count}x ${step.recipeId}`)
+            .join(", ")}`,
+        );
+      }
+
+      if (nextQueue === state.crafting) return state;
+      return {
+        ...state,
+        crafting: nextQueue,
+        notifications: divergenceNotice
+          ? addErrorNotification(state.notifications, divergenceNotice)
+          : state.notifications,
+      };
+    }
+
     case "JOB_ENQUEUE": {
       const workbenchAsset = state.assets[action.workbenchId];
       if (!workbenchAsset || workbenchAsset.type !== "workbench") {
@@ -4727,6 +5451,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       }
       const resolvedSource = resolveBuildingSource(state, action.workbenchId);
       if (resolvedSource.kind === "global") {
+        if (import.meta.env.DEV) {
+          debugLog.general(
+            `Enqueue rejected because: workbench ${action.workbenchId} has no physical source (recipe ${action.recipeId})`,
+          );
+        }
         return {
           ...state,
           notifications: addErrorNotification(
@@ -4744,11 +5473,19 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         assets: state.assets,
       });
       if (!r.ok) {
+        if (import.meta.env.DEV) {
+          debugLog.general(
+            `Enqueue rejected because: ${r.error.message} (recipe ${action.recipeId}, workbench ${action.workbenchId})`,
+          );
+        }
         return {
           ...state,
           crafting: r.queue,
           notifications: addErrorNotification(state.notifications, r.error.message),
         };
+      }
+      if (import.meta.env.DEV) {
+        debugLog.general(`Craft availability check for recipe ${action.recipeId}`);
       }
       debugLog.general(`Job ${r.job.id} created for workbench ${action.workbenchId}`);
       return { ...state, crafting: r.queue };
@@ -4767,37 +5504,50 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, crafting: r.queue, network: nextNetwork };
     }
 
+    case "JOB_MOVE": {
+      const r = craftingMoveJob(state.crafting, action.jobId, action.direction);
+      if (r.queue === state.crafting) return state;
+      return { ...state, crafting: r.queue };
+    }
+
+    case "JOB_SET_PRIORITY": {
+      const r = craftingSetJobPriority(state.crafting, action.jobId, action.priority);
+      if (r.queue === state.crafting) return state;
+      return { ...state, crafting: r.queue };
+    }
+
     case "JOB_TICK": {
+      const stateWithKeepStock = enqueueKeepStockRefills(state);
       const readyWorkbenchIds = new Set(
-        Object.values(state.assets)
+        Object.values(stateWithKeepStock.assets)
           .filter(
             (asset) =>
               asset.type === "workbench" &&
-              !isUnderConstruction(state, asset.id),
+              !isUnderConstruction(stateWithKeepStock, asset.id),
           )
           .map((asset) => asset.id),
       );
       const out = tickCraftingJobs({
-        warehouseInventories: state.warehouseInventories,
-        globalInventory: state.inventory,
-        serviceHubs: state.serviceHubs,
-        network: state.network,
-        crafting: state.crafting,
-        assets: state.assets,
+        warehouseInventories: stateWithKeepStock.warehouseInventories,
+        globalInventory: stateWithKeepStock.inventory,
+        serviceHubs: stateWithKeepStock.serviceHubs,
+        network: stateWithKeepStock.network,
+        crafting: stateWithKeepStock.crafting,
+        assets: stateWithKeepStock.assets,
         readyWorkbenchIds,
         now: Date.now(),
       });
       if (
-        out.warehouseInventories === state.warehouseInventories &&
-        out.globalInventory === state.inventory &&
-        out.serviceHubs === state.serviceHubs &&
-        out.network === state.network &&
-        out.crafting === state.crafting
+        out.warehouseInventories === stateWithKeepStock.warehouseInventories &&
+        out.globalInventory === stateWithKeepStock.inventory &&
+        out.serviceHubs === stateWithKeepStock.serviceHubs &&
+        out.network === stateWithKeepStock.network &&
+        out.crafting === stateWithKeepStock.crafting
       ) {
-        return state;
+        return stateWithKeepStock;
       }
       return {
-        ...state,
+        ...stateWithKeepStock,
         warehouseInventories: out.warehouseInventories as Record<string, Inventory>,
         inventory: out.globalInventory,
         serviceHubs: out.serviceHubs as Record<string, ServiceHubEntry>,
@@ -5413,6 +6163,35 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       };
     }
 
+    case "GENERATOR_REQUEST_REFILL": {
+      const genId = state.selectedGeneratorId;
+      if (!genId || !state.generators[genId]) return state;
+      if (isUnderConstruction(state, genId)) return state;
+      const gen = state.generators[genId];
+      const currentReq = gen.requestedRefill ?? 0;
+      // Cap by remaining fuel-slot space minus what's already been requested
+      // (so repeated clicks don't over-promise beyond capacity).
+      const headroom = Math.max(0, GENERATOR_MAX_FUEL - gen.fuel - currentReq);
+      const desired = action.amount === "max" ? headroom : Math.max(0, Math.floor(action.amount));
+      const add = Math.min(desired, headroom);
+      if (add <= 0) {
+        return {
+          ...state,
+          notifications: addErrorNotification(
+            state.notifications,
+            currentReq > 0
+              ? `Generator ${genId}: bereits ${currentReq} Holz angefordert`
+              : `Generator ${genId}: Speicher voll`,
+          ),
+        };
+      }
+      debugLog.building(`Generator ${genId}: refill request +${add} (open ${currentReq} → ${currentReq + add})`);
+      return {
+        ...state,
+        generators: { ...state.generators, [genId]: { ...gen, requestedRefill: currentReq + add } },
+      };
+    }
+
     case "GENERATOR_START": {
       const genId = state.selectedGeneratorId;
       if (!genId) return state;
@@ -5468,16 +6247,18 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // Priority scheduling: lower number gets energy first.
       // For equal priority, keep the logistics backbone stable by serving
       // conveyors first, then miners, then other machines, then smelters.
-      const prioritizedConsumers = computeEnergyAllocationOrder(
-        connectedConsumers.map((asset, index) => ({
+      const prioritizedConsumers = connectedConsumers
+        .map((asset, index) => ({
           asset,
           index,
+          priority: clampMachinePriority(asset.priority),
+          allocationRank: getEnergyAllocationRank(asset.type),
           drain:
             (asset.type === "auto_smelter"
               ? (state.autoSmelters?.[asset.id]?.processing ? AUTO_SMELTER_PROCESSING_DRAIN_PER_PERIOD : AUTO_SMELTER_IDLE_DRAIN_PER_PERIOD)
               : ENERGY_DRAIN[asset.type]) * getBoostMultiplier(asset),
-        })),
-      );
+        }))
+        .sort((a, b) => a.priority - b.priority || a.allocationRank - b.allocationRank || a.index - b.index);
 
       // === Battery is the sole energy storage ===
       const batteryAsset = Object.values(state.assets).find((a) => a.type === "battery");
@@ -6124,7 +6905,6 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       let newInvL = state.inventory;
       let newWarehouseInventoriesL = state.warehouseInventories;
       let newSmithyL = state.smithy;
-      let newAutoSmeltersL = state.autoSmelters;
       let newNotifsL = state.notifications;
       let newAutoDeliveryLogL = state.autoDeliveryLog;
       let changed = false;
@@ -6144,80 +6924,6 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           : newWarehouseInventoriesL;
         newWarehouseInventoriesL[warehouseId] = addResources(whInv, { [resKey]: 1 });
         return true;
-      };
-
-      const canStoreInWarehouse = (warehouseId: string, resource: ConveyorItem): boolean => {
-        const whInv = (newWarehouseInventoriesL === state.warehouseInventories
-          ? state.warehouseInventories[warehouseId]
-          : newWarehouseInventoriesL[warehouseId]);
-        if (!whInv) return false;
-        const cap = getWarehouseCapacity(state.mode);
-        const resKey = resource as keyof Inventory;
-        return (whInv[resKey] as number) < cap;
-      };
-
-      // Applies a warehouse-input-tile routing decision for a single conveyor.
-      // Returns true when the decision consumed the tile (caller should `continue`).
-      const applyConveyorWarehouseInputRoutingAction = (
-        action: LogisticsWarehouseInputRoutingAction,
-        convId: string,
-        currentItem: ConveyorItem,
-        activeQueue: readonly ConveyorItem[],
-      ): boolean => {
-        if (action.type === "route_to_input_tile_warehouse") {
-          if (tryStoreInWarehouse(action.warehouseId, currentItem)) {
-            newAutoDeliveryLogL = addAutoDelivery(
-              newAutoDeliveryLogL,
-              "conveyor",
-              convId,
-              currentItem,
-              action.warehouseId,
-            );
-            newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-            newConveyorsL[convId] = { queue: activeQueue.slice(1) };
-            changed = true;
-          }
-          return true;
-        }
-        if (action.type === "mark_input_tile_routing_blocked") {
-          return true;
-        }
-        return false;
-      };
-
-      // Applies a directional conveyor routing decision for a single conveyor.
-      // Returns true when the decision consumed the tile (caller should skip the
-      // remaining downstream-asset fallthroughs for workbench/smithy).
-      const applyConveyorRoutingAction = (
-        action: LogisticsRoutingAction,
-        convId: string,
-        currentItem: ConveyorItem,
-        activeQueue: readonly ConveyorItem[],
-        nextAssetId: string | null,
-        nextAsset: PlacedAsset | null,
-        nextQueue: readonly ConveyorItem[],
-      ): boolean => {
-        if (action.type === "route_to_next_conveyor" && nextAssetId) {
-          newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-          newConveyorsL[nextAssetId] = { queue: [...nextQueue, currentItem] };
-          newConveyorsL[convId] = { queue: activeQueue.slice(1) };
-          movedThisTick.add(nextAssetId);
-          changed = true;
-          return true;
-        }
-        if (
-          action.type === "route_to_adjacent_warehouse" &&
-          nextAsset?.type === "warehouse"
-        ) {
-          if (tryStoreInWarehouse(nextAsset.id, currentItem)) {
-            newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "conveyor", convId, currentItem, nextAsset.id);
-            newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-            newConveyorsL[convId] = { queue: activeQueue.slice(1) };
-            changed = true;
-          }
-          return true;
-        }
-        return false;
       };
 
       const getLiveLogisticsState = (): GameState => {
@@ -6333,35 +7039,23 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         // ---- Priority: if this belt is sitting on a warehouse input tile, deliver directly ----
         // This overrides directional movement so the item always goes into the warehouse
         // regardless of which direction the belt faces.
-        const convZoneDirect = state.buildingZoneIds[convId] ?? null;
-        const warehouseInputRoutingAction = decideConveyorWarehouseInputRoutingAction({
-          conveyorX: convAsset.x,
-          conveyorY: convAsset.y,
-          candidates: Object.values(state.assets)
-            .filter((asset) => asset.type === "warehouse")
-            .map((warehouse) => ({
-              warehouseId: warehouse.id,
-              warehouseX: warehouse.x,
-              warehouseY: warehouse.y,
-              warehouseHeight: assetHeight(warehouse),
-              zoneCompatible: areZonesTransportCompatible(
-                convZoneDirect,
-                state.buildingZoneIds[warehouse.id] ?? null,
-              ),
-              hasCapacity: canStoreInWarehouse(warehouse.id, currentItem),
-            })),
-        });
-
-        if (
-          applyConveyorWarehouseInputRoutingAction(
-            warehouseInputRoutingAction,
-            convId,
-            currentItem,
-            activeQueue,
-          )
-        ) {
-          continue;
+        let deliveredToWarehouse = false;
+        for (const wAsset of Object.values(state.assets)) {
+          if (wAsset.type !== "warehouse") continue;
+          if (convAsset.x === wAsset.x && convAsset.y === wAsset.y + assetHeight(wAsset)) {
+            const convZoneDirect = state.buildingZoneIds[convId] ?? null;
+            const whZoneDirect = state.buildingZoneIds[wAsset.id] ?? null;
+            if (areZonesTransportCompatible(convZoneDirect, whZoneDirect) && tryStoreInWarehouse(wAsset.id, currentItem)) {
+              newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "conveyor", convId, currentItem, wAsset.id);
+              newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
+              newConveyorsL[convId] = { queue: activeQueue.slice(1) };
+              changed = true;
+            }
+            deliveredToWarehouse = true;
+            break;
+          }
         }
+        if (deliveredToWarehouse) continue;
 
         const inDir = convAsset.direction ?? "east";
         // For both conveyor and conveyor_corner, `direction` is the OUTPUT direction.
@@ -6376,50 +7070,34 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         const nextAssetId = state.cellMap[cellKey(nextX, nextY)];
         const nextAsset = nextAssetId ? state.assets[nextAssetId] : null;
 
+        // Straight belts only accept items arriving from behind (same output direction).
+        // Corner belts accept from any direction — they are the intended turn mechanism.
+        const nextBeltCompatible =
+          nextAsset?.type === "conveyor_corner" ||
+          (nextAsset?.type === "conveyor" && (nextAsset.direction ?? "east") === dir);
         // Zone-aware transport: block belt-to-belt if both have explicit, differing zones.
         const convZone = state.buildingZoneIds[convId] ?? null;
         const nextTileZone = nextAssetId ? (state.buildingZoneIds[nextAssetId] ?? null) : null;
         const beltToNextZoneOk = areZonesTransportCompatible(convZone, nextTileZone);
-        const nextConv =
-          nextAssetId && (nextAsset?.type === "conveyor" || nextAsset?.type === "conveyor_corner")
-            ? (newConveyorsL === state.conveyors ? state.conveyors[nextAssetId] : newConveyorsL[nextAssetId])
-            : null;
-        const nextQueue = nextConv?.queue ?? [];
-        const nextWarehouseInputValid =
-          nextAsset?.type === "warehouse" &&
-          isValidWarehouseInput(convAsset.x, convAsset.y, dir, nextAsset);
-        const nextWarehouseZoneCompatible =
-          nextAsset?.type === "warehouse"
-            ? areZonesTransportCompatible(convZone, state.buildingZoneIds[nextAsset.id] ?? null)
-            : false;
-        const nextWarehouseHasCapacity =
-          nextAsset?.type === "warehouse"
-            ? canStoreInWarehouse(nextAsset.id, currentItem)
-            : false;
-
-        const routingAction = decideConveyorRoutingAction({
-          conveyorDirection: dir,
-          nextAssetType: nextAsset?.type ?? null,
-          nextAssetDirection: nextAsset?.direction ?? null,
-          nextConveyorMovedThisTick: nextAssetId ? movedThisTick.has(nextAssetId) : false,
-          nextConveyorHasCapacity: nextQueue.length < CONVEYOR_TILE_CAPACITY,
-          beltToNextZoneCompatible: beltToNextZoneOk,
-          nextWarehouseInputValid,
-          nextWarehouseZoneCompatible,
-          nextWarehouseHasCapacity,
-        });
-
-        const routingHandled = applyConveyorRoutingAction(
-          routingAction,
-          convId,
-          currentItem,
-          activeQueue,
-          nextAssetId,
-          nextAsset,
-          nextQueue,
-        );
-
-        if (!routingHandled && nextAsset?.type === "workbench") {
+        if (nextBeltCompatible && !movedThisTick.has(nextAssetId) && beltToNextZoneOk) {
+          const nextConv = newConveyorsL === state.conveyors ? state.conveyors[nextAssetId] : newConveyorsL[nextAssetId];
+          const nextQueue = nextConv?.queue ?? [];
+          if (nextQueue.length < CONVEYOR_TILE_CAPACITY) {
+            newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
+            newConveyorsL[nextAssetId] = { queue: [...nextQueue, currentItem] };
+            newConveyorsL[convId] = { queue: activeQueue.slice(1) };
+            movedThisTick.add(nextAssetId);
+            changed = true;
+          }
+        } else if (nextAsset?.type === "warehouse" && isValidWarehouseInput(convAsset.x, convAsset.y, dir, nextAsset)) {
+          const adjWhZone = state.buildingZoneIds[nextAsset.id] ?? null;
+          if (areZonesTransportCompatible(convZone, adjWhZone) && tryStoreInWarehouse(nextAsset.id, currentItem)) {
+            newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "conveyor", convId, currentItem, nextAsset.id);
+            newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
+            newConveyorsL[convId] = { queue: activeQueue.slice(1) };
+            changed = true;
+          }
+        } else if (nextAsset?.type === "workbench") {
           // Guard: only deliver conveyor items into the workbench's source when an active
           // crafting job (queued / reserved / crafting) exists for this workbench.
           // Without an active job the item stays on the belt — no silent stockpiling.
@@ -6472,40 +7150,12 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
               changed = true;
             }
           }
-        } else if (nextAsset?.type === "auto_smelter") {
-          // Feed conveyor item into per-instance auto-smelter input buffer.
-          // Strict requirements (no fallback to global/zone inventory):
-          //  1. Conveyor must sit on the smelter's declared input cell.
-          //  2. Conveyor's facing direction (= push direction) must point at the smelter.
-          //  3. Item type must match the smelter's currently selected recipe input.
-          //  4. Buffer must have remaining capacity.
-          const smelterEntry = newAutoSmeltersL[nextAsset.id] ?? state.autoSmelters?.[nextAsset.id];
-          if (smelterEntry) {
-            const smelterIo = getAutoSmelterIoCells(nextAsset);
-            const isInputCell =
-              convAsset.x === smelterIo.input.x && convAsset.y === smelterIo.input.y;
-            const recipeForFeed = getSmeltingRecipe(smelterEntry.selectedRecipe);
-            const itemMatches = !!recipeForFeed && currentItem === recipeForFeed.inputItem;
-            const hasBufferSpace = smelterEntry.inputBuffer.length < AUTO_SMELTER_BUFFER_CAPACITY;
-            if (isInputCell && itemMatches && hasBufferSpace) {
-              newAutoSmeltersL =
-                newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;
-              newAutoSmeltersL[nextAsset.id] = {
-                ...smelterEntry,
-                inputBuffer: [...smelterEntry.inputBuffer, currentItem],
-              };
-              newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-              newConveyorsL[convId] = { queue: activeQueue.slice(1) };
-              changed = true;
-            }
-          }
         }
       }
 
-      // ---- Auto Smelters: conveyor-fed input -> process -> source/conveyor output ----
-      // Input is exclusively populated by adjacent conveyor delivery (handled above).
-      // Smelter no longer pulls from zone/legacy/global inventory for input.
-      for (const [smelterId, smelterState] of Object.entries(newAutoSmeltersL ?? {})) {
+      // ---- Auto Smelters: source input -> process -> source output ----
+      let newAutoSmeltersL = state.autoSmelters;
+      for (const [smelterId, smelterState] of Object.entries(state.autoSmelters ?? {})) {
         const smelterAsset = state.assets[smelterId];
         if (!smelterAsset || smelterAsset.type !== "auto_smelter") continue;
 
@@ -6513,13 +7163,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         // Unterstrom = kompletter Stopp: jede Unterversorgung (ratio < 1) stoppt die Verarbeitung vollständig.
         // Laufender progressMs bleibt erhalten und wird pausiert, bis wieder volle Versorgung anliegt.
         if (powerRatio < 1) {
-          const noPowerActions = decideSmelterWorkflowActions({
-            powerRatio,
-            smelter: smelterState,
-          });
-          const noPowerSmelter = applySmelterWorkflowActions(smelterState, noPowerActions);
           newAutoSmeltersL = newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;
-          newAutoSmeltersL[smelterId] = noPowerSmelter;
+          newAutoSmeltersL[smelterId] = { ...smelterState, status: "NO_POWER" };
           changed = true;
           continue;
         }
@@ -6540,9 +7185,47 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         let sourceInv = getCraftingSourceInventory(getLiveLogisticsState(), source);
         const sourceCapacity = getSourceCapacity(getLiveLogisticsState(), source);
 
-        // Input is fed exclusively by adjacent conveyors (see conveyor loop above).
-        // No fallback to zone/legacy/global inventory: the smelter must be wired up.
-        // The internal `inputBuffer` now stores raw conveyor items (1 entry = 1 ore unit).
+        // Belt-only input: pull 1 matching item per tick from the adjacent input conveyor.
+        // No inventory fallback — the auto-smelter is exclusively belt-fed.
+        {
+          const smelterInputIo = getAutoSmelterIoCells(smelterAsset);
+          const inX = smelterInputIo.input.x;
+          const inY = smelterInputIo.input.y;
+          if (import.meta.env.DEV) {
+            console.log(`[AutoSmelter:${smelterId}] input check at tile (${inX},${inY}), buffer=${nextSmelter.inputBuffer.length}/${AUTO_SMELTER_BUFFER_CAPACITY}`);
+          }
+          if (
+            nextSmelter.inputBuffer.length < AUTO_SMELTER_BUFFER_CAPACITY &&
+            inX >= 0 && inX < GRID_W && inY >= 0 && inY < GRID_H
+          ) {
+            const inAssetId = state.cellMap[cellKey(inX, inY)];
+            const inAsset = inAssetId ? state.assets[inAssetId] : null;
+            if (inAsset?.type === "conveyor" || inAsset?.type === "conveyor_corner") {
+              const inConv = newConveyorsL === state.conveyors ? state.conveyors[inAssetId] : newConveyorsL[inAssetId];
+              const inQueue = inConv?.queue ?? [];
+              const frontItem = inQueue[0];
+              if (frontItem === selectedRecipe.inputItem) {
+                newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
+                newConveyorsL[inAssetId] = { queue: inQueue.slice(1) };
+                nextSmelter.inputBuffer = [...nextSmelter.inputBuffer, frontItem];
+                nextSmelter.lastRecipeInput = selectedRecipe.inputItem;
+                nextSmelter.lastRecipeOutput = selectedRecipe.outputItem;
+                changed = true;
+                if (import.meta.env.DEV) {
+                  console.log(`[AutoSmelter:${smelterId}] consumed "${frontItem}" from conveyor tile (${inX},${inY})`);
+                }
+              } else {
+                if (import.meta.env.DEV) {
+                  console.log(`[AutoSmelter:${smelterId}] no matching item on belt – found: ${frontItem ?? "empty"}, need: ${selectedRecipe.inputItem}`);
+                }
+              }
+            } else {
+              if (import.meta.env.DEV) {
+                console.log(`[AutoSmelter:${smelterId}] no conveyor at input tile (${inX},${inY}) – smelter blocked`);
+              }
+            }
+          }
+        }
 
         // Flush pending output — Priority 1: output conveyor belt, Priority 2: source inventory.
         while (nextSmelter.pendingOutput.length > 0) {
@@ -6589,51 +7272,36 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             const added = addResources(sourceInv, { [pendingOutputKey]: pendingRecipe.outputAmount });
             applySourceInventory(source, added);
             sourceInv = added;
-            // Mirror Auto-Miner Priority-2 logging so the AutoDeliveryFeed reflects the
-            // smelter's source-fallback output (zone → first zone warehouse,
-            // legacy warehouse → that warehouse, global → smelter id as fallback key).
-            const logWhId = source.kind === "warehouse"
-              ? source.warehouseId
-              : source.kind === "zone"
-              ? (getZoneWarehouseIds(getLiveLogisticsState(), source.zoneId)[0] ?? smelterId)
-              : smelterId;
-            newAutoDeliveryLogL = addAutoDelivery(
-              newAutoDeliveryLogL,
-              "auto_smelter",
-              smelterId,
-              pendingRecipe.outputItem,
-              logWhId,
-            );
             nextSmelter.pendingOutput = nextSmelter.pendingOutput.slice(1);
             nextSmelter.throughputEvents = [...nextSmelter.throughputEvents, Date.now()];
             changed = true;
           }
         }
 
-        // Start processing if idle: requires `recipe.inputAmount` matching items in the buffer.
-        if (
-          !nextSmelter.processing &&
-          nextSmelter.pendingOutput.length === 0 &&
-          nextSmelter.inputBuffer.length >= selectedRecipe.inputAmount
-        ) {
-          const expectedInput = selectedRecipe.inputItem as ConveyorItem;
-          const head = nextSmelter.inputBuffer.slice(0, selectedRecipe.inputAmount);
-          if (head.every((it) => it === expectedInput)) {
-            if (import.meta.env.DEV && !_smelterRecipesLogged) {
-              console.log("[Smelter] Rezepte geladen:", SMELTING_RECIPES);
-              _smelterRecipesLogged = true;
-            }
-            nextSmelter.inputBuffer = nextSmelter.inputBuffer.slice(selectedRecipe.inputAmount);
-            nextSmelter.processing = {
-              inputItem: expectedInput,
-              outputItem: selectedRecipe.outputItem as ConveyorItem,
-              progressMs: 0,
-              durationMs: Math.max(1, selectedRecipe.processingTime * 1000),
-            };
-            nextSmelter.lastRecipeInput = selectedRecipe.inputItem;
-            nextSmelter.lastRecipeOutput = selectedRecipe.outputItem;
-            changed = true;
+        // Start processing once buffer holds recipe.inputAmount matching items.
+        const matchCount = nextSmelter.inputBuffer.filter((it) => it === selectedRecipe.inputItem).length;
+        if (!nextSmelter.processing && nextSmelter.pendingOutput.length === 0 && matchCount >= selectedRecipe.inputAmount) {
+          if (import.meta.env.DEV && !_smelterRecipesLogged) {
+            console.log("[Smelter] Rezepte geladen:", SMELTING_RECIPES);
+            _smelterRecipesLogged = true;
           }
+          let batchConsumed = 0;
+          nextSmelter.inputBuffer = nextSmelter.inputBuffer.filter((it) => {
+            if (batchConsumed < selectedRecipe.inputAmount && it === selectedRecipe.inputItem) {
+              batchConsumed++;
+              return false;
+            }
+            return true;
+          });
+          nextSmelter.processing = {
+            inputItem: selectedRecipe.inputItem as ConveyorItem,
+            outputItem: selectedRecipe.outputItem as ConveyorItem,
+            progressMs: 0,
+            durationMs: Math.max(1, selectedRecipe.processingTime * 1000),
+          };
+          nextSmelter.lastRecipeInput = selectedRecipe.inputItem;
+          nextSmelter.lastRecipeOutput = selectedRecipe.outputItem;
+          changed = true;
         }
 
         // Ab hier gilt powerRatio === 1 (volle Versorgung). Produktion läuft mit voller Geschwindigkeit
@@ -6660,21 +7328,39 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           changed = true;
         }
 
-        const statusIo = getAutoSmelterIoCells(smelterAsset);
-        const workflowActions = decideSmelterWorkflowActions({
-          powerRatio,
-          smelter: nextSmelter,
-          outputRoute: {
-            outputX: statusIo.output.x,
-            outputY: statusIo.output.y,
-            cellMap: state.cellMap,
-            assets: state.assets,
-            conveyors: newConveyorsL === state.conveyors ? state.conveyors : newConveyorsL,
-            sourceInventory: sourceInv,
-            sourceCapacity,
-          },
-        });
-        nextSmelter = applySmelterWorkflowActions(nextSmelter, workflowActions);
+        if (nextSmelter.pendingOutput.length > 0) {
+          const pendingRecipe = getSmeltingRecipe(nextSmelter.pendingOutput[0]);
+          if (!pendingRecipe) {
+            nextSmelter.status = "MISCONFIGURED";
+          } else {
+            const pendingOutputKey = pendingRecipe.outputItem as keyof Inventory;
+            // Check output route: conveyor takes priority over source inventory.
+            const statusIo = getAutoSmelterIoCells(smelterAsset);
+            const statusOutX = statusIo.output.x;
+            const statusOutY = statusIo.output.y;
+            let hasOutputConveyor = false;
+            let outputConveyorHasSpace = false;
+            if (statusOutX >= 0 && statusOutX < GRID_W && statusOutY >= 0 && statusOutY < GRID_H) {
+              const statusOutId = state.cellMap[cellKey(statusOutX, statusOutY)];
+              const statusOutAsset = statusOutId ? state.assets[statusOutId] : null;
+              if (statusOutAsset?.type === "conveyor" || statusOutAsset?.type === "conveyor_corner") {
+                hasOutputConveyor = true;
+                const statusConv = newConveyorsL === state.conveyors ? state.conveyors[statusOutId] : newConveyorsL[statusOutId];
+                outputConveyorHasSpace = (statusConv?.queue?.length ?? 0) < CONVEYOR_TILE_CAPACITY;
+              }
+            }
+            const outputCanProceed = hasOutputConveyor
+              ? outputConveyorHasSpace
+              : (sourceInv[pendingOutputKey] as number) + pendingRecipe.outputAmount <= sourceCapacity;
+            nextSmelter.status = outputCanProceed ? "IDLE" : "OUTPUT_BLOCKED";
+          }
+        } else if (nextSmelter.processing) {
+          nextSmelter.status = "PROCESSING";
+        } else if (nextSmelter.inputBuffer.length > 0) {
+          nextSmelter.status = "IDLE";
+        } else {
+          nextSmelter.status = "IDLE";
+        }
 
         if (!areAutoSmelterEntriesEqual(nextSmelter, smelterState)) {
           newAutoSmeltersL = newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;
@@ -6749,6 +7435,60 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, buildingSourceWarehouseIds: { ...state.buildingSourceWarehouseIds, [buildingId]: warehouseId } };
     }
 
+    case "SET_KEEP_STOCK_TARGET": {
+      const workbench = state.assets[action.workbenchId];
+      if (!workbench || workbench.type !== "workbench") return state;
+
+      const clampedAmount = Math.max(0, Math.min(KEEP_STOCK_MAX_TARGET, Math.floor(action.amount)));
+      const nextTarget: KeepStockTargetEntry = {
+        enabled: !!action.enabled && clampedAmount > 0,
+        amount: clampedAmount,
+      };
+
+      const byWorkbench = getKeepStockByWorkbench(state);
+      const recipeTargets = byWorkbench[action.workbenchId] ?? {};
+      const currentTarget = recipeTargets[action.recipeId];
+
+      if (
+        currentTarget &&
+        currentTarget.enabled === nextTarget.enabled &&
+        currentTarget.amount === nextTarget.amount
+      ) {
+        return state;
+      }
+
+      // Cleanup path: remove zero+disabled entries to keep persisted config compact.
+      if (!nextTarget.enabled && nextTarget.amount === 0) {
+        if (!currentTarget) return state;
+        const { [action.recipeId]: _removed, ...remainingRecipes } = recipeTargets;
+        if (Object.keys(remainingRecipes).length === 0) {
+          const { [action.workbenchId]: _removedWorkbench, ...remainingWorkbenches } = byWorkbench;
+          return {
+            ...state,
+            keepStockByWorkbench: remainingWorkbenches,
+          };
+        }
+        return {
+          ...state,
+          keepStockByWorkbench: {
+            ...byWorkbench,
+            [action.workbenchId]: remainingRecipes,
+          },
+        };
+      }
+
+      return {
+        ...state,
+        keepStockByWorkbench: {
+          ...byWorkbench,
+          [action.workbenchId]: {
+            ...recipeTargets,
+            [action.recipeId]: nextTarget,
+          },
+        },
+      };
+    }
+
     // ---- Production Zone Actions ----
 
     case "CREATE_ZONE": {
@@ -6818,10 +7558,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         // Upgrade already in flight — drones are currently delivering.
         return state;
       }
-      // Affordance check: cost must exist *somewhere* in the world (warehouse,
-      // hub, or global fallback). We do NOT deduct here — drones are responsible
-      // for physically bringing the resources to the hub before the upgrade
-      // finalizes.
+      // Affordance check: cost must exist somewhere in physical storage.
+      // We do NOT deduct here — drones deliver the resources to the hub first.
       if (!hasResourcesInPhysicalStorage(state, HUB_UPGRADE_COST as Partial<Record<keyof Inventory, number>>)) {
         return { ...state, notifications: addErrorNotification(state.notifications, "Nicht genug Ressourcen für das Upgrade!") };
       }
@@ -6832,20 +7570,31 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           pending[k as CollectableItemType] = amt;
         }
       }
+
+      const upgradeDemand = fullCostAsRemaining(HUB_UPGRADE_COST);
       const withPending: GameState = {
         ...state,
         serviceHubs: {
           ...state.serviceHubs,
           [action.hubId]: { ...hub, pendingUpgrade: pending },
         },
+        constructionSites: {
+          ...state.constructionSites,
+          [action.hubId]: { buildingType: "service_hub", remaining: upgradeDemand },
+        },
       };
-      // Fast-path: if the hub already holds enough stock in its own inventory
-      // (e.g. from prior drone deliveries), finalize immediately. Otherwise
-      // the upgrade waits for hub_restock drones to deliver the remainder.
-      const withPendingHub = withPending.serviceHubs[action.hubId];
-      if (isHubUpgradeDeliverySatisfied(withPendingHub)) {
-        return finalizeHubTier2Upgrade(withPending, action.hubId);
+
+      if (import.meta.env.DEV) {
+        const before = getEffectiveBuildInventory(state);
+        const after = getEffectiveBuildInventory(withPending);
+        debugLog.building(
+          `[HubUpgrade] Started for ${action.hubId}: construction demand created, no immediate stock deduction`,
+        );
+        debugLog.building(
+          `[HubUpgrade] Physical stock snapshot (wood ${before.wood}->${after.wood}, stone ${before.stone}->${after.stone}, iron ${before.iron}->${after.iron}, copper ${before.copper}->${after.copper})`,
+        );
       }
+
       return withPending;
     }
 

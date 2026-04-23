@@ -13,7 +13,7 @@
  *  - node gone mid-flight (moving_to_collect → idle)
  */
 
-import { gameReducer, createInitialState, addToCollectionNodeAt, BUILDING_COSTS, SERVICE_HUB_TARGET_STOCK, PROTO_HUB_TARGET_STOCK, createEmptyHubInventory, selectDroneTask, CONSTRUCTION_SITE_BUILDINGS, MAX_HUB_TARGET_STOCK, createDefaultHubTargetStock, scoreDroneTask, DRONE_TASK_BASE_SCORE, DRONE_ROLE_BONUS, DRONE_STICKY_BONUS, DRONE_URGENCY_BONUS_MAX, DRONE_DEMAND_BONUS_MAX, DRONE_SPREAD_PENALTY_PER_DRONE, MAX_DRONES_PER_CONSTRUCTION_TARGET, getParkedDrones, getDroneHomeDock } from "../reducer";
+import { gameReducer, createInitialState, addToCollectionNodeAt, BUILDING_COSTS, SERVICE_HUB_TARGET_STOCK, PROTO_HUB_TARGET_STOCK, createEmptyHubInventory, selectDroneTask, CONSTRUCTION_SITE_BUILDINGS, MAX_HUB_TARGET_STOCK, createDefaultHubTargetStock, scoreDroneTask, DRONE_TASK_BASE_SCORE, DRONE_ROLE_BONUS, DRONE_STICKY_BONUS, DRONE_URGENCY_BONUS_MAX, DRONE_DEMAND_BONUS_MAX, DRONE_SPREAD_PENALTY_PER_DRONE, MAX_DRONES_PER_CONSTRUCTION_TARGET, getParkedDrones, getDroneHomeDock, getDroneDockOffset, getMaxDrones } from "../reducer";
 import type { GameState, CollectionNode, StarterDroneState, GameAction, Inventory, ServiceHubEntry, ConstructionSite, CollectableItemType } from "../reducer";
 import { MAP_SHOP_POS, DRONE_CAPACITY, DRONE_COLLECT_TICKS, DRONE_DEPOSIT_TICKS } from "../reducer";
 
@@ -32,6 +32,52 @@ function withDrone(state: GameState, patch: Partial<StarterDroneState>): GameSta
 
 function addNode(state: GameState, itemType: CollectionNode["itemType"], tileX: number, tileY: number, amount: number): GameState {
   return { ...state, collectionNodes: addToCollectionNodeAt(state.collectionNodes, itemType, tileX, tileY, amount) };
+}
+
+function withTier2HubAndDockedDrones(state: GameState, hubId: string): GameState {
+  const hub = state.serviceHubs[hubId];
+  const hubAsset = state.assets[hubId];
+  if (!hub || !hubAsset) return state;
+
+  const targetDroneCount = getMaxDrones(2);
+  const nextDrones = { ...state.drones };
+  const nextHubDroneIds = [...hub.droneIds];
+  let seq = 1;
+
+  while (nextHubDroneIds.length < targetDroneCount) {
+    const droneId = `test-drone-${hubId}-${seq++}`;
+    if (nextDrones[droneId]) continue;
+    const dockSlot = nextHubDroneIds.length;
+    const offset = getDroneDockOffset(dockSlot);
+    nextDrones[droneId] = {
+      status: "idle",
+      tileX: hubAsset.x + offset.dx,
+      tileY: hubAsset.y + offset.dy,
+      targetNodeId: null,
+      cargo: null,
+      ticksRemaining: 0,
+      hubId,
+      currentTaskType: null,
+      deliveryTargetId: null,
+      craftingJobId: null,
+      droneId,
+    };
+    nextHubDroneIds.push(droneId);
+  }
+
+  return {
+    ...state,
+    drones: nextDrones,
+    serviceHubs: {
+      ...state.serviceHubs,
+      [hubId]: {
+        ...hub,
+        tier: 2,
+        pendingUpgrade: undefined,
+        droneIds: nextHubDroneIds,
+      },
+    },
+  };
 }
 
 // ---- tests -----------------------------------------------------------------
@@ -452,24 +498,7 @@ describe("DRONE_TICK – hub assignment", () => {
   it("upgraded hub gives all parked drones unique dock positions", () => {
     let state = { ...base, inventory: { ...base.inventory, wood: 100, stone: 100, iron: 100 } };
     const hubId = state.starterDrone.hubId!;
-    // Pre-stock the hub inventory with the upgrade cost so UPGRADE_HUB fast-paths
-    // to Tier 2 (simulating that drones have already delivered the materials).
-    state = {
-      ...state,
-      serviceHubs: {
-        ...state.serviceHubs,
-        [hubId]: {
-          ...state.serviceHubs[hubId],
-          inventory: {
-            ...state.serviceHubs[hubId].inventory,
-            wood: 100,
-            stone: 100,
-            iron: 100,
-          },
-        },
-      },
-    };
-    state = gameReducer(state, { type: "UPGRADE_HUB", hubId });
+    state = withTier2HubAndDockedDrones(state, hubId);
 
     const parked = getParkedDrones(state, hubId);
     expect(parked).toHaveLength(4);
@@ -1602,23 +1631,7 @@ describe("Hub parking derivation", () => {
     let state = createInitialState("release");
     const hubId = state.starterDrone.hubId!;
     state = { ...state, inventory: { ...state.inventory, wood: 100, stone: 100, iron: 100 } };
-    // Pre-stock the hub so UPGRADE_HUB fast-paths past the drone-delivery phase.
-    state = {
-      ...state,
-      serviceHubs: {
-        ...state.serviceHubs,
-        [hubId]: {
-          ...state.serviceHubs[hubId],
-          inventory: {
-            ...state.serviceHubs[hubId].inventory,
-            wood: 100,
-            stone: 100,
-            iron: 100,
-          },
-        },
-      },
-    };
-    state = gameReducer(state, { type: "UPGRADE_HUB", hubId });
+    state = withTier2HubAndDockedDrones(state, hubId);
 
     expect(getParkedDrones(state, hubId)).toHaveLength(4);
 

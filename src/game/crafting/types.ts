@@ -128,7 +128,32 @@ export type CraftingAction =
       /** Optional override; default is "high" for player, "normal" for automation. */
       readonly priority?: JobPriority;
     }
+  | {
+      readonly type: "CRAFT_REQUEST_WITH_PREREQUISITES";
+      readonly recipeId: RecipeId;
+      readonly workbenchId: WorkbenchId;
+      readonly source: JobSource;
+      readonly amount?: number;
+      /** Optional override; default is "high" for player, "normal" for automation. */
+      readonly priority?: JobPriority;
+      /**
+       * Sum of `step.count` from the UI preview at confirm-time. The reducer
+       * compares this with its freshly-computed plan and surfaces a notice if
+       * the live state has shifted since the preview (G1 divergence guard).
+       */
+      readonly expectedStepCount?: number;
+    }
   | { readonly type: "JOB_CANCEL"; readonly jobId: JobId }
+  | {
+      readonly type: "JOB_MOVE";
+      readonly jobId: JobId;
+      readonly direction: "up" | "down" | "top";
+    }
+  | {
+      readonly type: "JOB_SET_PRIORITY";
+      readonly jobId: JobId;
+      readonly priority: JobPriority;
+    }
   | { readonly type: "JOB_TICK" };
 
 // ---------------------------------------------------------------------------

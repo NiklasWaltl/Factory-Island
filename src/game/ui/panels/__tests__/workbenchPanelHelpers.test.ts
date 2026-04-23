@@ -156,6 +156,97 @@ describe("workbenchPanelHelpers", () => {
       expect(avail.worstStatus).toBe("missing");
       expect(avail.canCraft).toBe(false);
     });
+
+    it("marks as available via hub fallback when warehouse is insufficient", () => {
+      const base = baseState();
+      const hubId = base.starterDrone.hubId;
+      expect(hubId).toBeTruthy();
+      if (!hubId) return;
+
+      const state: GameState = {
+        ...base,
+        assets: {
+          ...base.assets,
+          "wh-1": { id: "wh-1", type: "warehouse", x: 4, y: 4, size: 2 },
+        },
+        warehouseInventories: {
+          ...base.warehouseInventories,
+          "wh-1": { ...base.inventory, wood: 2 },
+        },
+        serviceHubs: {
+          ...base.serviceHubs,
+          [hubId]: {
+            ...base.serviceHubs[hubId],
+            inventory: { ...base.serviceHubs[hubId].inventory, wood: 10 },
+          },
+        },
+      };
+
+      const recipe = getWorkbenchRecipe("wood_pickaxe")!; // needs 5 wood
+      const lines = computeIngredientLines(
+        state,
+        recipe,
+        { kind: "warehouse", warehouseId: "wh-1" },
+        state.warehouseInventories["wh-1"],
+      );
+
+      expect(lines).toHaveLength(1);
+      expect(lines[0].status).toBe("available");
+      expect(lines[0].stored).toBe(10);
+      expect(lines[0].free).toBe(10);
+    });
+
+    it("marks as reserved when fallback hub stock exists but is reserved", () => {
+      const base = baseState();
+      const hubId = base.starterDrone.hubId;
+      expect(hubId).toBeTruthy();
+      if (!hubId) return;
+
+      const state: GameState = {
+        ...base,
+        assets: {
+          ...base.assets,
+          "wh-1": { id: "wh-1", type: "warehouse", x: 4, y: 4, size: 2 },
+        },
+        warehouseInventories: {
+          ...base.warehouseInventories,
+          "wh-1": { ...base.inventory, wood: 0 },
+        },
+        serviceHubs: {
+          ...base.serviceHubs,
+          [hubId]: {
+            ...base.serviceHubs[hubId],
+            inventory: { ...base.serviceHubs[hubId].inventory, wood: 10 },
+          },
+        },
+        network: {
+          ...base.network,
+          reservations: [
+            {
+              id: "r-hub",
+              itemId: "wood" as ItemId,
+              amount: 8,
+              ownerKind: "crafting_job",
+              ownerId: "job-1",
+              scopeKey: `crafting:warehouse:wh-1:hub:${hubId}`,
+              createdAt: 1,
+            },
+          ],
+        },
+      };
+
+      const recipe = getWorkbenchRecipe("wood_pickaxe")!;
+      const lines = computeIngredientLines(
+        state,
+        recipe,
+        { kind: "warehouse", warehouseId: "wh-1" },
+        state.warehouseInventories["wh-1"],
+      );
+
+      expect(lines[0].status).toBe("reserved");
+      expect(lines[0].reserved).toBe(8);
+      expect(lines[0].free).toBe(2);
+    });
   });
 
   describe("isPlayerGearRecipe", () => {

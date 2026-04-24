@@ -7,12 +7,12 @@
 import {
   DEFAULT_MACHINE_PRIORITY,
   ENERGY_ALLOCATION_RANK,
-} from "../constants/energy/energy-balance";
+} from "../store/constants/energy/energy-balance";
 import type {
   AssetType,
   MachinePriority,
   PlacedAsset,
-} from "../state";
+} from "../store/state";
 
 type EnergyConsumerWithDrain = {
   asset: PlacedAsset;

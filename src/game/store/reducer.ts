@@ -17,10 +17,6 @@ import {
   SMELTING_RECIPES,
 } from "../simulation/recipes";
 import {
-  createEmptyNetworkSlice,
-  type NetworkAction,
-} from "../inventory/reservationTypes";
-import {
   cancelJob as craftingCancelJob,
   enqueueJob as craftingEnqueueJob,
   createEmptyCraftingQueue,
@@ -224,10 +220,7 @@ import {
   decideAutoMinerTickEligibility,
 } from "./auto-miner-decisions";
 import { getDroneStatusDetail as getDroneStatusDetailClassifier } from "./drone-status-detail";
-import type {
-  CraftingAction,
-  CraftingInventorySource,
-} from "../crafting/types";
+import type { CraftingInventorySource } from "../crafting/types";
 
 // ---- Core types ----------------------------------------------------------
 // All shape declarations live in ./types. Imported for internal use and

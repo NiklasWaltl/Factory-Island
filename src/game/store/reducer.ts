@@ -225,6 +225,7 @@ import type { CraftingInventorySource } from "../crafting/types";
 // ---- Core types ----------------------------------------------------------
 // All shape declarations live in ./types. Imported for internal use and
 // re-exported below for backward-compatible `from "../store/reducer"` consumers.
+// GameAction moved to ./game-actions; re-exported below at the ACTIONS section.
 import type {
   GameMode,
   AssetType,
@@ -1172,8 +1173,6 @@ export function hasStaleWarehouseAssignment(state: GameState, buildingId: string
 // compatibility with `from "../store/reducer"` consumers.
 export { makeId } from "./make-id";
 import { makeId } from "./make-id";
-
-
 
 /**
  * Add `amount` of `itemType` to a collection node at (tileX, tileY). If a

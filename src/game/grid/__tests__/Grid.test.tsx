@@ -2,7 +2,8 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Grid } from "../Grid";
 import type { StaticAssetSnapshot } from "../../world/PhaserGame";
-import { createInitialState, type GameState } from "../../store/reducer";
+import { createInitialState } from "../../store/reducer";
+import type { GameState } from "../../store/types";
 
 let phaserHostProps: { staticAssets: StaticAssetSnapshot[] } | null = null;
 const clientWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");

@@ -8,7 +8,7 @@ import {
   getWorkbenchRecipe,
   type WorkbenchRecipe,
 } from "../../simulation/recipes";
-import type { Inventory, PlacedAsset, ServiceHubEntry } from "../../store/reducer";
+import type { Inventory, PlacedAsset, ServiceHubEntry } from "../../store/types";
 import { pickCraftingPhysicalSourceForIngredient } from "../tick";
 import { pickOutputWarehouseId } from "../output";
 import type { CraftingInventorySource, CraftingJob, RecipeId } from "../types";

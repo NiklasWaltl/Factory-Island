@@ -1,11 +1,5 @@
-import {
-  cellKey,
-  createInitialState,
-  gameReducer,
-  type GameState,
-  type Inventory,
-  type PlacedAsset,
-} from "../reducer";
+import { cellKey, createInitialState, gameReducer } from "../reducer";
+import type { GameState, Inventory, PlacedAsset } from "../types";
 
 const WB = "wb-1";
 const WH = "wh-1";

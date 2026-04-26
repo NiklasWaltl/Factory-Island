@@ -1,4 +1,4 @@
-import type { GameAction } from "../reducer";
+import type { GameAction } from "../actions";
 import type { DroneHubAssignmentPreflightResult } from "../helpers/droneAssignment";
 import type {
   DroneStatus,

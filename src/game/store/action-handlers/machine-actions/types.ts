@@ -1,4 +1,4 @@
-import type { GameAction } from "../../reducer";
+import type { GameAction } from "../../actions";
 
 export type HandledActionType =
   | "SMITHY_ADD_FUEL"

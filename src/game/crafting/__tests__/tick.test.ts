@@ -2,13 +2,8 @@
 // Crafting Tick Scheduler — tests (Step 3)
 // ============================================================
 
-import {
-  createInitialState,
-  gameReducer,
-  type GameState,
-  type Inventory,
-  type PlacedAsset,
-} from "../../store/reducer";
+import { createInitialState, gameReducer } from "../../store/reducer";
+import type { GameState, Inventory, PlacedAsset } from "../../store/types";
 
 const WB_A = "wb-A";
 const WB_B = "wb-B";

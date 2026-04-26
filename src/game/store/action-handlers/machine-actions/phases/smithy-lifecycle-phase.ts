@@ -8,7 +8,7 @@ import {
   SMITHY_PROCESS_MS,
   SMITHY_TICK_MS,
 } from "../../../constants/workbench-timing";
-import type { GameAction } from "../../../reducer";
+import type { GameAction } from "../../../actions";
 import type { GameState } from "../../../types";
 import type { MachineActionDeps } from "../deps";
 import { deriveSmithyRuntimeContext } from "./smithy-runtime";

@@ -11,15 +11,13 @@
 //      deduct/complete on click.
 //   4. Save/Load round-trips do not break the view.
 
+import type { GameState, Inventory, ServiceHubEntry } from "../types";
 import {
   createInitialState,
   selectGlobalInventoryView,
   gameReducer,
   addResources,
   HUB_UPGRADE_COST,
-  type GameState,
-  type Inventory,
-  type ServiceHubEntry,
 } from "../reducer";
 import { serializeState, deserializeState } from "../../simulation/save";
 import { applyMockToState } from "../../debug/mockData";

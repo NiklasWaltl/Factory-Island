@@ -1,10 +1,5 @@
-import {
-  cellKey,
-  createInitialState,
-  type GameState,
-  type Inventory,
-  type PlacedAsset,
-} from "../../store/reducer";
+import { cellKey, createInitialState } from "../../store/reducer";
+import type { GameState, Inventory, PlacedAsset } from "../../store/types";
 import { WORKBENCH_RECIPES, type WorkbenchRecipe } from "../../simulation/recipes";
 import { buildWorkbenchAutoCraftPlan } from "../planner/planner";
 import { pickOutputWarehouseId, routeOutput } from "../output";

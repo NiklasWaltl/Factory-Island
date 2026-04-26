@@ -1,17 +1,16 @@
 ﻿import React from "react";
+import type { GameState, PlacedAsset } from "../../store/types";
 import {
   CELL_PX,
   GRID_W,
   GRID_H,
-  POWER_POLE_RANGE,
   ENERGY_DRAIN,
   GENERATOR_ENERGY_PER_TICK,
   GENERATOR_TICK_MS,
   ENERGY_NET_TICK_MS,
   getConnectedConsumerDrainEntries,
-  type GameState,
-  type PlacedAsset,
 } from "../../store/reducer";
+import { POWER_POLE_RANGE } from "../../store/constants/energy/power-pole";
 
 const WORLD_W = GRID_W * CELL_PX;
 const WORLD_H = GRID_H * CELL_PX;

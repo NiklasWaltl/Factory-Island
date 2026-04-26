@@ -4,7 +4,7 @@ import {
   decideConveyorTickEligibility,
   decideConveyorTargetSelection,
 } from "../../../conveyor-decisions";
-import type { CraftingSource } from "../../../reducer";
+import type { CraftingSource } from "../../../types";
 import type { ConveyorItem, Inventory } from "../../../types";
 import { resolveBuildingSource } from "../../../building-source";
 import { addResources } from "../../../inventory-ops";

@@ -2,15 +2,13 @@
 // Tests – Workbench Resource Source (per-building, global vs. warehouse)
 // ============================================================
 
+import type { GameState, Inventory, PlacedAsset } from "../types";
 import {
   gameReducer,
   createInitialState,
   addResources,
   resolveBuildingSource,
   cellKey,
-  type GameState,
-  type PlacedAsset,
-  type Inventory,
 } from "../reducer";
 
 // ---------------------------------------------------------------------------

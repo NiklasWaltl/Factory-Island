@@ -1,4 +1,6 @@
 import React from "react";
+import type { BuildingType, FloorTileType, GameState, Inventory } from "../../store/types";
+import type { GameAction } from "../../store/actions";
 import {
   BUILDING_COSTS,
   BUILDING_LABELS,
@@ -6,7 +8,6 @@ import {
   RESOURCE_EMOJIS,
   RESOURCE_LABELS,
   STACKABLE_BUILDINGS,
-  MAX_WAREHOUSES,
   FLOOR_TILE_COSTS,
   FLOOR_TILE_LABELS,
   FLOOR_TILE_DESCRIPTIONS,
@@ -14,12 +15,8 @@ import {
   selectBuildMenuInventoryView,
   selectGlobalInventoryView,
   hasResourcesInPhysicalStorage,
-  type GameState,
-  type GameAction,
-  type BuildingType,
-  type FloorTileType,
-  type Inventory,
 } from "../../store/reducer";
+import { MAX_WAREHOUSES } from "../../store/constants/buildings";
 import { ASSET_SPRITES, FLOOR_SPRITES, GRASS_TILE_SPRITES } from "../../assets/sprites/sprites";
 
 interface BuildMenuProps {
@@ -39,28 +36,28 @@ interface BuildMenuDebugSectionProps {
 }
 
 const CATEGORIES: BuildCategory[] = [
-  { label: "Energie", emoji: "?", buildings: ["generator", "cable", "power_pole", "battery"] },
-  { label: "Produktion", emoji: "??", buildings: ["workbench", "smithy", "auto_miner", "manual_assembler", "auto_smelter"] },
-  { label: "Logistik", emoji: "??", buildings: ["conveyor", "conveyor_corner"] },
-  { label: "Lager", emoji: "??", buildings: ["warehouse"] },
+  { label: "Energie", emoji: "⚡", buildings: ["generator", "cable", "power_pole", "battery"] },
+  { label: "Produktion", emoji: "🏭", buildings: ["workbench", "smithy", "auto_miner", "manual_assembler", "auto_smelter"] },
+  { label: "Logistik", emoji: "🚚", buildings: ["conveyor", "conveyor_corner"] },
+  { label: "Lager", emoji: "📦", buildings: ["warehouse"] },
   { label: "Hub", emoji: "\uD83D\uDEF8", buildings: ["service_hub"] },
 ];
 
 const FLOOR_TILES: FloorTileType[] = ["stone_floor", "grass_block"];
 
 const BUILDING_DESCRIPTIONS: Record<BuildingType, string> = {
-  generator: "Verbrennt Holz und erzeugt Energie f�r das Netzwerk.",
-  cable: "Verbindet Generator mit Stromknoten (1�1).",
-  power_pole: "Verteilt Energie kabellos an Geb�ude in Reichweite (3 Felder).",
-  battery: "Speichert �bersch�ssige Energie f�r sp�ter.",
+  generator: "Verbrennt Holz und erzeugt Energie für das Netzwerk.",
+  cable: "Verbindet Generator mit Stromknoten (1×1).",
+  power_pole: "Verteilt Energie kabellos an Gebäude in Reichweite (3 Felder).",
+  battery: "Speichert überschüssige Energie für später.",
   workbench: "Stelle Werkzeuge und Items her.",
   smithy: "Schmelze Erze zu Barren.",
-  warehouse: "Erh�ht die Lagerkapazit�t f�r Ressourcen.",
-  auto_miner: "Baut automatisch Ressourcen von Vorkommen ab. Nur auf 2�2 Deposits. Ben�tigt Energie. R zum Drehen.",
-  manual_assembler: "Stellt per Hand Metallplatten und Zahnr�der her. Keine Energie n�tig.",
-  auto_smelter: "Automatisches Schmelzen per F�rderband. 2�1, rotierbar, Input/Output auf gegen�berliegenden Seiten.",
-  conveyor: "Transportiert Items automatisch in eine Richtung. Ben�tigt Energie. R zum Drehen.",
-  conveyor_corner: "Leitet Items in einer 90�-Ecke weiter. Ben�tigt Energie. R zum Drehen.",
+  warehouse: "Erhöht die Lagerkapazität für Ressourcen.",
+  auto_miner: "Baut automatisch Ressourcen von Vorkommen ab. Nur auf 2×2 Deposits. Benötigt Energie. R zum Drehen.",
+  manual_assembler: "Stellt per Hand Metallplatten und Zahnräder her. Keine Energie nötig.",
+  auto_smelter: "Automatisches Schmelzen per Förderband. 2×1, rotierbar, Input/Output auf gegenüberliegenden Seiten.",
+  conveyor: "Transportiert Items automatisch in eine Richtung. Benötigt Energie. R zum Drehen.",
+  conveyor_corner: "Leitet Items in einer 90°-Ecke weiter. Benötigt Energie. R zum Drehen.",
   service_hub: "Platziert einen Proto-Hub (Stufe 1). Kann sp\u00e4ter zu einem Service-Hub (Stufe 2) aufger\u00fcstet werden.",
 };
 
@@ -69,14 +66,14 @@ const BuildMenuDebugSection: React.FC<BuildMenuDebugSectionProps> = ({
   onToggle,
 }) => (
   <div className="fi-build-category">
-    <h3 className="fi-build-category-title">?? Debug</h3>
+    <h3 className="fi-build-category-title">🧪 Debug</h3>
     <div className="fi-build-items">
       <div
         className={`fi-build-item ${energyDebugOverlay ? "fi-build-item--selected" : ""}`}
         onClick={onToggle}
         title="Stromnetz-Analyse ein/aus"
       >
-        <div className="fi-build-item-icon" style={{ fontSize: 28, display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36 }}>?</div>
+        <div className="fi-build-item-icon" style={{ fontSize: 28, display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36 }}>⚡</div>
         <div className="fi-build-item-info">
           <div className="fi-build-item-name">Stromnetz-Analyse</div>
           <div className="fi-build-item-desc">Zeigt Stromknoten, Verbindungen, Verbraucher und Energie-Bilanz an.</div>
@@ -129,15 +126,15 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
   return (
     <div className="fi-build-menu" onClick={(e) => e.stopPropagation()}>
       <div className="fi-build-menu-header">
-        <h2>??? Bau-Men�</h2>
+        <h2>🏗️ Bau-Menü</h2>
         <button className="fi-btn fi-btn-sm" onClick={() => dispatch({ type: "TOGGLE_BUILD_MODE" })}>
-          ? Schlie�en
+          ✕ Schließen
         </button>
       </div>
 
       <div className="fi-build-menu-hint">
-        W�hle ein Geb�ude und klicke auf das Spielfeld zum Platzieren.
-        <br />Rechtsklick auf ein platziertes Geb�ude zum Entfernen.
+        Wähle ein Gebäude und klicke auf das Spielfeld zum Platzieren.
+        <br />Rechtsklick auf ein platziertes Gebäude zum Entfernen.
       </div>
 
       {CATEGORIES.map((cat) => (
@@ -170,7 +167,7 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
                   <div className="fi-build-item-info">
                     <div className="fi-build-item-name">
                       {BUILDING_LABELS[bType]}
-                      <span className="fi-build-item-size">{size}�{size}</span>
+                      <span className="fi-build-item-size">{size}×{size}</span>
                     </div>
                     <div className="fi-build-item-desc">{BUILDING_DESCRIPTIONS[bType]}</div>
                     <div className="fi-build-item-costs">
@@ -195,7 +192,7 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
 
       {/* ---- Boden ---- */}
       <div className="fi-build-category">
-        <h3 className="fi-build-category-title">?? Boden</h3>
+        <h3 className="fi-build-category-title">🧱 Boden</h3>
         <div className="fi-build-items">
           {FLOOR_TILES.map((tileType) => {
             const costs = FLOOR_TILE_COSTS[tileType];
@@ -213,7 +210,7 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
                 <div className="fi-build-item-info">
                   <div className="fi-build-item-name">
                     {FLOOR_TILE_LABELS[tileType]}
-                    <span className="fi-build-item-size">1�1</span>
+                    <span className="fi-build-item-size">1×1</span>
                   </div>
                   <div className="fi-build-item-desc">{FLOOR_TILE_DESCRIPTIONS[tileType]}</div>
                   <div className="fi-build-item-costs">

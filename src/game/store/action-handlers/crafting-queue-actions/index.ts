@@ -11,7 +11,7 @@
 // ============================================================
 
 import type { GameState } from "../../types";
-import type { GameAction } from "../../reducer";
+import type { GameAction } from "../../actions";
 import type { CraftingQueueActionDeps } from "./deps";
 import { HANDLED_ACTION_TYPES, type CraftingQueueHandledAction } from "./types";
 import {

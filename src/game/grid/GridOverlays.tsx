@@ -6,10 +6,9 @@ import {
   cellKey,
   isValidWarehouseInput,
   getWarehouseInputCell,
-  type GameState,
-  type Direction,
   isUnderConstruction,
 } from "../store/reducer";
+import type { Direction, GameState } from "../store/types";
 import { WAREHOUSE_INPUT_SPRITE } from "../assets/sprites/sprites";
 import type { StaticAssetSnapshot } from "../world/PhaserGame";
 

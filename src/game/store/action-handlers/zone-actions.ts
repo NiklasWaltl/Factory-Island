@@ -6,7 +6,7 @@
 // case bodies — no new abstractions, no logic changes.
 // ============================================================
 
-import type { GameAction } from "../reducer";
+import type { GameAction } from "../actions";
 import { MAX_ZONES } from "../constants/buildings";
 import { makeId } from "../make-id";
 import type { GameState } from "../types";

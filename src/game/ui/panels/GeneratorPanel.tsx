@@ -1,4 +1,6 @@
 import React from "react";
+import type { GameState } from "../../store/types";
+import type { GameAction } from "../../store/actions";
 import {
   GENERATOR_TICKS_PER_WOOD,
   GENERATOR_ENERGY_PER_TICK,
@@ -10,8 +12,6 @@ import {
   getCraftingSourceInventory,
   getSourceStatusInfo,
   getInboundBuildingSupplyAmount,
-  type GameState,
-  type GameAction,
 } from "../../store/reducer";
 import { ZoneSourceSelector } from "./ZoneSourceSelector";
 

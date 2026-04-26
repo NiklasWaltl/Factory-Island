@@ -1,11 +1,8 @@
 ﻿import React from "react";
-import {
-  BATTERY_CAPACITY,
-  getConnectedDemandPerPeriod,
-  getEnergyProductionPerPeriod,
-  type GameState,
-  type GameAction,
-} from "../../store/reducer";
+import type { GameState } from "../../store/types";
+import type { GameAction } from "../../store/actions";
+import { getConnectedDemandPerPeriod, getEnergyProductionPerPeriod } from "../../store/reducer";
+import { BATTERY_CAPACITY } from "../../store/constants/energy/battery";
 
 interface BatteryPanelProps {
   state: GameState;

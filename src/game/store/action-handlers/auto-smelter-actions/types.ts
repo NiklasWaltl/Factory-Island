@@ -1,6 +1,6 @@
 // Action types handled by the auto-smelter action cluster.
 
-import type { GameAction } from "../../reducer";
+import type { GameAction } from "../../actions";
 
 export type AutoSmelterHandledActionType = "AUTO_SMELTER_SET_RECIPE";
 

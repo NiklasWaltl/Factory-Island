@@ -14,7 +14,8 @@ import {
   getCraftingSourceInventory,
 } from "../../crafting/crafting-sources";
 import { MANUAL_ASSEMBLER_TICK_MS } from "../constants/workbench-timing";
-import type { CraftingSource, GameAction } from "../reducer";
+import type { GameAction } from "../actions";
+import type { CraftingSource } from "../types";
 import type {
   GameNotification,
   GameState,

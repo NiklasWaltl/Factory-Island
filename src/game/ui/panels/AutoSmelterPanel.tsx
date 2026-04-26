@@ -1,17 +1,16 @@
 ﻿import React from "react";
+import type { GameState, Inventory } from "../../store/types";
+import type { GameAction } from "../../store/actions";
 import {
   AUTO_SMELTER_BOOST_MULTIPLIER,
   AUTO_SMELTER_IDLE_ENERGY_PER_SEC,
   AUTO_SMELTER_PROCESSING_ENERGY_PER_SEC,
-  WAREHOUSE_CAPACITY,
   getCapacityPerResource,
   getCraftingSourceInventory,
   getSourceStatusInfo,
   getZoneItemCapacity,
-  type GameAction,
-  type GameState,
-  type Inventory,
 } from "../../store/reducer";
+import { WAREHOUSE_CAPACITY } from "../../store/constants/buildings";
 import { getSmeltingRecipe } from "../../simulation/recipes";
 import { ZoneSourceSelector } from "./ZoneSourceSelector";
 

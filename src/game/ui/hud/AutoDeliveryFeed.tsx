@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { RESOURCE_EMOJIS, RESOURCE_LABELS, type AutoDeliveryEntry } from "../../store/reducer";
+import type { AutoDeliveryEntry } from "../../store/types";
+import { RESOURCE_EMOJIS, RESOURCE_LABELS } from "../../store/reducer";
 
 interface Props {
   log: AutoDeliveryEntry[];

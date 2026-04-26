@@ -31,7 +31,7 @@ import type {
   GeneratorState,
   Inventory,
   CollectableItemType,
-} from "../reducer";
+} from "../types";
 
 const HUB_POS = { x: MAP_SHOP_POS.x + 3, y: MAP_SHOP_POS.y };
 

@@ -10,7 +10,7 @@
 // No game logic — purely structural conversion.
 // ============================================================
 
-import type { Inventory, ServiceHubEntry } from "../../store/reducer";
+import type { Inventory, ServiceHubEntry } from "../../store/types";
 import type { WarehouseId } from "../../items/types";
 import type { CraftingInventorySource, CraftingJob } from "../types";
 

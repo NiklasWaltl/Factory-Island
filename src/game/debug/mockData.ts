@@ -5,7 +5,8 @@
 // Completely tree-shaken in production because every public function
 // exits early when `!import.meta.env.DEV`.
 
-import type { GameState, GameAction, Inventory, ServiceHubInventory } from "../store/reducer";
+import type { GameState, Inventory, ServiceHubInventory } from "../store/types";
+import type { GameAction } from "../store/actions";
 import { HOTBAR_STACK_MAX } from "../store/constants/hotbar";
 import { createInitialHotbar } from "../store/helpers/hotbar";
 import { debugLog } from "./debugLogger";

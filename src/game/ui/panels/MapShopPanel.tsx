@@ -1,11 +1,7 @@
 ﻿import React from "react";
-import {
-  MAP_SHOP_ITEMS,
-  RESOURCE_EMOJIS,
-  RESOURCE_LABELS,
-  type GameState,
-  type GameAction,
-} from "../../store/reducer";
+import type { GameState } from "../../store/types";
+import type { GameAction } from "../../store/actions";
+import { MAP_SHOP_ITEMS, RESOURCE_EMOJIS, RESOURCE_LABELS } from "../../store/reducer";
 
 interface MapShopPanelProps {
   state: GameState;

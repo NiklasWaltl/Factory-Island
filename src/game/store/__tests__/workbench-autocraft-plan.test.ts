@@ -3,10 +3,8 @@ import {
   createInitialState,
   gameReducer,
   KEEP_STOCK_OPEN_JOB_CAP,
-  type GameState,
-  type Inventory,
-  type PlacedAsset,
 } from "../reducer";
+import type { GameState, Inventory, PlacedAsset } from "../types";
 import { WORKBENCH_RECIPES, type WorkbenchRecipe } from "../../simulation/recipes";
 import { deserializeState, serializeState } from "../../simulation/save";
 

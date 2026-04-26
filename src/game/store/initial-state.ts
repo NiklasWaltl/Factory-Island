@@ -29,7 +29,6 @@ import type {
   StarterDroneState,
 } from "./types";
 import {
-  BATTERY_CAPACITY,
   DEFAULT_MACHINE_PRIORITY,
   MAP_SHOP_POS,
   assetHeight,
@@ -43,6 +42,7 @@ import {
   placeAsset,
   withDefaultMachinePriority,
 } from "./reducer";
+import { BATTERY_CAPACITY } from "./constants/energy/battery";
 
 export function createInitialState(mode: GameMode): GameState {
   const assets: Record<string, PlacedAsset> = {};

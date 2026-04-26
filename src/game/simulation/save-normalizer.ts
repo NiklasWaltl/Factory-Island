@@ -7,7 +7,7 @@ import type {
   DroneRole,
   KeepStockTargetEntry,
   KeepStockByWorkbench,
-} from "../store/reducer";
+} from "../store/types";
 import {
   MAP_SHOP_POS,
   KEEP_STOCK_MAX_TARGET,

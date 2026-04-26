@@ -1,10 +1,10 @@
 /**
  * Pixel-art SVG sprites for Factory Island.
  *
- * Each sprite is a data-URI pointing to a 32�32 (or 64�64 for 2�2 buildings)
+ * Each sprite is a data-URI pointing to a 32x32 (or 64x64 for 2x2 buildings)
  * SVG that uses crisp <rect> elements for a clean pixel-art look.
- * Grid cells are 64 px, so 1�1 assets map to 32?64 (2� scale) and
- * 2�2 assets to 64?128 (also 2� scale), keeping everything sharp.
+ * Grid cells are 64 px, so 1x1 assets map to 32x64 (2x scale) and
+ * 2x2 assets to 64x128 (also 2x scale), keeping everything sharp.
  *
  * Palette (shared across ALL assets for visual consistency):
  *   dark outline   #1a1a2e   light outline  #3a3a5e
@@ -20,7 +20,7 @@
  *   purple-dark    #4a3a80   purple-mid     #6a5acd  purple-light #8a7ae8
  */
 
-import type { AssetType, FloorTileType } from "../../store/reducer";
+import type { AssetType, FloorTileType } from "../../store/types";
 import warehousePng from "./images/warehouse.png";
 
 // ---------------------------------------------------------------------------

@@ -1,11 +1,9 @@
+import type { GameState, Inventory, ServiceHubEntry } from "../types";
 import {
   addResources,
   createInitialState,
   hasResources,
   selectBuildMenuInventoryView,
-  type GameState,
-  type Inventory,
-  type ServiceHubEntry,
 } from "../reducer";
 
 function emptyInv(): Inventory {

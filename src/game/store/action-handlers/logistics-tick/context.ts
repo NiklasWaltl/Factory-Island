@@ -1,5 +1,5 @@
 import { applyCraftingSourceInventory } from "../../../crafting/crafting-sources";
-import type { CraftingSource } from "../../reducer";
+import type { CraftingSource } from "../../types";
 import type {
   AutoDeliveryEntry,
   AutoMinerEntry,

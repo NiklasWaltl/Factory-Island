@@ -12,7 +12,7 @@
 
 import { isPlayerGear, isSeed } from "../items/registry";
 import type { ItemStack, WarehouseId } from "../items/types";
-import type { Inventory, PlacedAsset, ServiceHubEntry } from "../store/reducer";
+import type { Inventory, PlacedAsset, ServiceHubEntry } from "../store/types";
 import type { CraftingInventorySource } from "./types";
 
 export interface RouteOutputInput {

@@ -13,7 +13,7 @@ import type {
   ConveyorItem,
   AutoSmelterEntry,
   ManualAssemblerState,
-} from "../store/reducer";
+} from "../store/types";
 import { createInitialState } from "../store/reducer";
 
 /** Represents a pre-version save payload. */

@@ -8,7 +8,7 @@
 // Behaviour is intentionally unchanged.
 // ============================================================
 
-import type { GameAction } from "../reducer";
+import type { GameAction } from "../actions";
 import type { GameState } from "../types";
 import type { MachineActionDeps } from "./machine-actions/deps";
 import {

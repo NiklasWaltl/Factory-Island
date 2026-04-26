@@ -6,7 +6,7 @@
 // structural slice required for stock aggregation.
 // ============================================================
 
-import type { Inventory } from "../store/reducer";
+import type { Inventory } from "../store/types";
 import {
   assertItemExists,
   isKnownItemId,

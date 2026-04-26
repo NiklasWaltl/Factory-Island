@@ -13,10 +13,8 @@ import {
   getNearestWarehouseId,
   hasStaleWarehouseAssignment,
   cellKey,
-  type GameState,
-  type PlacedAsset,
-  type Inventory,
 } from "../reducer";
+import type { GameState, PlacedAsset, Inventory } from "../types";
 
 import {
   serializeState,

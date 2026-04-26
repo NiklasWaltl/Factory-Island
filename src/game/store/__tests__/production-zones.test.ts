@@ -14,9 +14,9 @@ import {
   getCraftingSourceInventory,
   cleanBuildingZoneIds,
   hasStaleWarehouseAssignment,
-  WAREHOUSE_CAPACITY,
   MAX_ZONES,
 } from "../reducer";
+import { WAREHOUSE_CAPACITY } from "../constants/buildings";
 
 // ---------------------------------------------------------------------------
 // Helpers: build a minimal clean state for zone testing

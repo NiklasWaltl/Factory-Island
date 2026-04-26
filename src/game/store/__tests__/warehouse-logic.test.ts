@@ -7,12 +7,12 @@ import {
   createInitialState,
   addResources,
   cellKey,
-  WAREHOUSE_CAPACITY,
   type GameState,
   type PlacedAsset,
   type Inventory,
   type ConveyorState,
 } from "../reducer";
+import { WAREHOUSE_CAPACITY } from "../constants/buildings";
 
 // ---------------------------------------------------------------------------
 // Helpers

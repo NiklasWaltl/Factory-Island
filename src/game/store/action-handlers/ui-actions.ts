@@ -7,11 +7,10 @@
 // - CLOSE_PANEL
 // - TOGGLE_ENERGY_DEBUG
 //
-// CLICK_CELL intentionally remains in reducer.ts because it is much
-// broader and domain-coupled.
+// CLICK_CELL is handled by handleClickCellAction (see action-handlers/click-cell.ts).
 // ============================================================
 
-import type { GameAction } from "../reducer";
+import type { GameAction } from "../actions";
 import type { GameState } from "../types";
 
 type HandledActionType =

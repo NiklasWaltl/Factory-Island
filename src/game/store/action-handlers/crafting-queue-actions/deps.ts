@@ -9,7 +9,7 @@ import type {
   KeepStockByWorkbench,
   RecipeAutomationPolicyMap,
 } from "../../types";
-import type { CraftingSource } from "../../reducer";
+import type { CraftingSource } from "../../types";
 
 /**
  * Reducer-internal helpers/constants the crafting/queue handler needs

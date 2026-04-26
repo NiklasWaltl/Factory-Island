@@ -1,4 +1,4 @@
-import type { GameAction } from "../reducer";
+import type { GameAction } from "../actions";
 import type { MapShopItem } from "../constants/shop";
 import type {
   BuildingType,

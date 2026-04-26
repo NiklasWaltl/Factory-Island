@@ -1,7 +1,7 @@
 import { getZoneAggregateInventory } from "../zones/production-zone-aggregation";
 import { applyZoneDelta } from "../zones/production-zone-mutation";
 import type { GameState, Inventory } from "../store/types";
-import type { CraftingSource } from "../store/reducer";
+import type { CraftingSource } from "../store/types";
 
 /** Read the inventory for a resolved crafting source. */
 export function getCraftingSourceInventory(state: GameState, source: CraftingSource): Inventory {

@@ -8,7 +8,7 @@
 import { isKnownItemId } from "../../items/registry";
 import type { ItemStack } from "../../items/types";
 import { getWorkbenchRecipe, type WorkbenchRecipe } from "../../simulation/recipes";
-import type { PlacedAsset } from "../../store/reducer";
+import type { PlacedAsset } from "../../store/types";
 import {
   asItemId,
   createEmptyCraftingQueue,

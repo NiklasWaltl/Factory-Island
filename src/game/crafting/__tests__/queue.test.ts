@@ -14,7 +14,7 @@ import {
   createEmptyCraftingQueue,
 } from "../queue/queue";
 import type { CraftingJob } from "../types";
-import type { PlacedAsset } from "../../store/reducer";
+import type { PlacedAsset } from "../../store/types";
 import { WORKBENCH_RECIPES } from "../../simulation/recipes";
 
 const WB_ID = "wb-1";

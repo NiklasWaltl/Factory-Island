@@ -4,17 +4,15 @@ import {
   GRID_H,
   CELL_PX,
   BUILDING_SIZES,
-  POWER_POLE_RANGE,
   FLOOR_TILE_EMOJIS,
   REQUIRES_STONE_FLOOR,
   DEPOSIT_TYPES,
   directionOffset,
   cellKey,
   getWarehouseInputCell,
-  type GameState,
-  type Direction,
-  type PlacedAsset,
 } from "../store/reducer";
+import type { Direction, GameState, PlacedAsset } from "../store/types";
+import { POWER_POLE_RANGE } from "../store/constants/energy/power-pole";
 import { WAREHOUSE_INPUT_SPRITE } from "../assets/sprites/sprites";
 
 interface BuildSelectionOverlaysParams {

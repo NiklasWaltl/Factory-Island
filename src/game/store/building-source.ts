@@ -1,4 +1,4 @@
-import type { CraftingSource } from "./reducer";
+import type { CraftingSource } from "./types";
 import type { GameState } from "./types";
 import { resolveCraftingSource } from "../crafting/crafting-sources";
 import { getZoneWarehouseIds } from "../zones/production-zone-aggregation";

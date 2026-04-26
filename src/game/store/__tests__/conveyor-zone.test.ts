@@ -8,7 +8,6 @@ import {
   addResources,
   cellKey,
   CONVEYOR_TILE_CAPACITY,
-  WAREHOUSE_CAPACITY,
   getConveyorZone,
   areZonesTransportCompatible,
   getConveyorZoneStatus,
@@ -17,6 +16,7 @@ import {
   type Inventory,
   type PlacedAsset,
 } from "../reducer";
+import { WAREHOUSE_CAPACITY } from "../constants/buildings";
 
 function emptyInv(): Inventory {
   return createInitialState("release").inventory;

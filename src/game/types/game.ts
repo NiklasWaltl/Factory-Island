@@ -23,4 +23,4 @@ export type {
   GeneratorState,
   GameNotification,
   GameState,
-} from "../store/reducer";
+} from "../store/types";

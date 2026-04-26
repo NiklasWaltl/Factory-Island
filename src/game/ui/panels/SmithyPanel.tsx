@@ -1,10 +1,7 @@
 ﻿import React from "react";
-import {
-  getSourceStatusInfo,
-  getCraftingSourceInventory,
-  type GameState,
-  type GameAction,
-} from "../../store/reducer";
+import type { GameState } from "../../store/types";
+import type { GameAction } from "../../store/actions";
+import { getSourceStatusInfo, getCraftingSourceInventory } from "../../store/reducer";
 import { ZoneSourceSelector } from "./ZoneSourceSelector";
 
 interface SmithyPanelProps {

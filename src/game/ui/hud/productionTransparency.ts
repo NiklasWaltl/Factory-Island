@@ -26,7 +26,7 @@ import {
   type KeepStockEvaluationDeps,
 } from "../../crafting/policies";
 import { isKnownItemId, getItemDef } from "../../items/registry";
-import type { CollectableItemType, CraftingSource, GameState } from "../../store/reducer";
+import type { CollectableItemType, CraftingSource, GameState } from "../../store/types";
 import {
   KEEP_STOCK_MAX_TARGET,
   KEEP_STOCK_OPEN_JOB_CAP,

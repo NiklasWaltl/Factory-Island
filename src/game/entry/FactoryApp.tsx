@@ -11,9 +11,8 @@ import {
   LOGISTICS_TICK_MS,
   CRAFTING_TICK_MS,
   DRONE_TICK_MS,
-  type GameMode,
-  type GameState,
 } from "../store/reducer";
+import type { GameMode, GameState } from "../store/types";
 import { serializeState, loadAndHydrate } from "../simulation/save";
 import { ModeSelect } from "../ui/menus/ModeSelect";
 import { Grid } from "../grid/Grid";
@@ -343,9 +342,9 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
       <button
         className={`fi-build-toggle ${state.buildMode ? "fi-build-toggle--active" : ""}`}
         onClick={() => dispatch({ type: "TOGGLE_BUILD_MODE" })}
-        title="Bau-Men� �ffnen/schlie�en (B)"
+        title="Bau-Menü öffnen/schließen (B)"
       >
-        ??? {state.buildMode ? "Bauen aktiv" : "Bauen"}
+        🏗️ {state.buildMode ? "Bauen aktiv" : "Bauen"}
       </button>
 
       {/* Build Menu overlay */}

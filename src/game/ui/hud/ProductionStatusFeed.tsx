@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import type { GameState } from "../../store/reducer";
+import type { GameState } from "../../store/types";
 import { buildProductionTransparency } from "./productionTransparency";
 
 interface ProductionStatusFeedProps {

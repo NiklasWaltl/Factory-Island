@@ -5,13 +5,8 @@
 // and round-trip through the full GameState correctly.
 // ============================================================
 
-import {
-  createInitialState,
-  gameReducer,
-  type GameState,
-  type Inventory,
-  type PlacedAsset,
-} from "../../store/reducer";
+import { createInitialState, gameReducer } from "../../store/reducer";
+import type { GameState, Inventory, PlacedAsset } from "../../store/types";
 
 function withWarehouse(over: Partial<Inventory>): GameState {
   const base = createInitialState("release");

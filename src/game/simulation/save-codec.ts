@@ -6,7 +6,7 @@ import type {
   StarterDroneState,
   ServiceHubEntry,
   ConstructionSite,
-} from "../store/reducer";
+} from "../store/types";
 import {
   computeConnectedAssetIds,
   createInitialState,
@@ -21,7 +21,7 @@ import {
   GRID_H,
   cellKey,
 } from "../store/reducer";
-import type { HubTier } from "../store/reducer";
+import type { HubTier } from "../store/types";
 import { debugLog } from "../debug/debugLogger";
 import {
   CURRENT_SAVE_VERSION,

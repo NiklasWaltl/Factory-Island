@@ -15,10 +15,8 @@ import {
   createInitialState,
   consumeFromPhysicalStorage,
   addResources,
-  type GameState,
-  type Inventory,
-  type ServiceHubEntry,
 } from "../reducer";
+import type { GameState, Inventory, ServiceHubEntry } from "../types";
 
 function emptyInv(): Inventory {
   const inv = createInitialState("release").inventory;

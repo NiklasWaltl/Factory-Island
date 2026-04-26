@@ -1,5 +1,6 @@
 import React from "react";
-import type { GameState, GameAction, CollectableItemType, DroneRole } from "../../store/reducer";
+import type { GameState, CollectableItemType, DroneRole, Inventory } from "../../store/types";
+import type { GameAction } from "../../store/actions";
 import {
   getDroneStatusDetail,
   getHubTierLabel,
@@ -9,27 +10,29 @@ import {
   getMaxDrones,
   getHubDrones,
   HUB_UPGRADE_COST,
+  RESOURCE_LABELS as GLOBAL_RESOURCE_LABELS,
   hasResourcesInPhysicalStorage,
 } from "../../store/reducer";
-import type { Inventory } from "../../store/reducer";
 
 interface ServiceHubPanelProps {
   state: GameState;
   dispatch: React.Dispatch<GameAction>;
 }
 
-const RESOURCE_LABELS: Record<CollectableItemType, string> = {
-  wood: "🪵 Holz",
-  stone: "🪨 Stein",
-  iron: "⛏️ Eisen",
-  copper: "🟠 Kupfer",
+const HUB_RESOURCE_EMOJIS: Record<CollectableItemType, string> = {
+  wood: "🪵",
+  stone: "🪨",
+  iron: "⛏️",
+  copper: "🟠",
 };
 
 const RESOURCE_ORDER: CollectableItemType[] = ["wood", "stone", "iron", "copper"];
+const formatHubResourceLabel = (resource: CollectableItemType): string =>
+  `${HUB_RESOURCE_EMOJIS[resource]} ${GLOBAL_RESOURCE_LABELS[resource] ?? resource}`;
 
 const UPGRADE_COST_LABEL = Object.entries(HUB_UPGRADE_COST)
   .filter(([, v]) => (v ?? 0) > 0)
-  .map(([k, v]) => `${v} ${RESOURCE_LABELS[k as CollectableItemType] ?? k}`)
+  .map(([k, v]) => `${v} ${formatHubResourceLabel(k as CollectableItemType)}`)
   .join(", ");
 
 function demandLabel(current: number, target: number): { text: string; color: string } {
@@ -175,7 +178,7 @@ export const ServiceHubPanel: React.FC<ServiceHubPanelProps> = ({ state, dispatc
                   const demand = demandLabel(current, target);
                   return (
                     <div key={res} style={{ display: "flex", alignItems: "center", gap: 6, opacity: isActive ? 1 : 0.4 }}>
-                      <span style={{ minWidth: 85 }}>{RESOURCE_LABELS[res]}</span>
+                      <span style={{ minWidth: 85 }}>{formatHubResourceLabel(res)}</span>
                       {isActive ? (
                         <>
                           <span style={{ minWidth: 30, textAlign: "right", color: current >= target ? "#4caf50" : "#ffa500" }}>
@@ -219,7 +222,7 @@ export const ServiceHubPanel: React.FC<ServiceHubPanelProps> = ({ state, dispatc
                     if (entry.count === 0) return null;
                     return (
                       <span key={res} style={{ fontSize: 12, color: "#bbb" }}>
-                        {RESOURCE_LABELS[res]}: {entry.amount}
+                        {formatHubResourceLabel(res)}: {entry.amount}
                       </span>
                     );
                   })}

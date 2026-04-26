@@ -1,5 +1,5 @@
 import { getAssetOfType } from "../../../utils/asset-guards";
-import type { GameAction } from "../../../reducer";
+import type { GameAction } from "../../../actions";
 import type {
   GameState,
   KeepStockTargetEntry,

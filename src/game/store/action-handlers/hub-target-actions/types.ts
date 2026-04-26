@@ -1,6 +1,6 @@
 // Action types handled by the hub-target action cluster.
 
-import type { GameAction } from "../../reducer";
+import type { GameAction } from "../../actions";
 
 export type HubTargetHandledActionType = "SET_HUB_TARGET_STOCK";
 

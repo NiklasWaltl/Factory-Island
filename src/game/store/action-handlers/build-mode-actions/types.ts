@@ -2,7 +2,7 @@
 // Mirrors the pattern used by other action-handler clusters
 // (zone-actions, warehouse-hotbar-actions, ...).
 
-import type { GameAction } from "../../reducer";
+import type { GameAction } from "../../actions";
 
 export type BuildModeHandledActionType =
   | "TOGGLE_BUILD_MODE"

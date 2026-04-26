@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo } from "react";
-import { GRID_W, GRID_H, CELL_PX, type GameState, type Direction } from "../store/reducer";
+import { GRID_W, GRID_H, CELL_PX } from "../store/reducer";
+import type { Direction, GameState } from "../store/types";
 import { EnergyDebugOverlay, EnergyDebugHud } from "../ui/panels/EnergyDebugOverlay";
 import { PhaserHost } from "../world/PhaserHost";
 import { buildWorldOverlayData } from "./GridOverlays";

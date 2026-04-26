@@ -1,19 +1,17 @@
 import React from "react";
+import type { BuildingType, GameState, Inventory } from "../../store/types";
+import type { GameAction } from "../../store/actions";
 import {
   RESOURCE_LABELS,
   RESOURCE_EMOJIS,
-  WAREHOUSE_CAPACITY,
   MAX_ZONES,
   BUILDING_LABELS,
   getZoneWarehouseIds,
   getZoneBuildingIds,
   getZoneAggregateInventory,
   getZoneItemCapacity,
-  type GameState,
-  type GameAction,
-  type Inventory,
-  type BuildingType,
 } from "../../store/reducer";
+import { WAREHOUSE_CAPACITY } from "../../store/constants/buildings";
 
 interface WarehousePanelProps {
   state: GameState;

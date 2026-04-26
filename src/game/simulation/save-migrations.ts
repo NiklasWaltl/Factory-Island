@@ -17,14 +17,14 @@ import type {
   ServiceHubEntry,
   ConstructionSite,
   KeepStockByWorkbench,
-} from "../store/reducer";
+  HubTier,
+} from "../store/types";
 import {
   createEmptyHubInventory,
   createDefaultHubTargetStock,
   MAP_SHOP_POS,
   GENERATOR_MAX_FUEL,
 } from "../store/reducer";
-import type { HubTier } from "../store/reducer";
 import type { NetworkSlice } from "../inventory/reservationTypes";
 import { createEmptyNetworkSlice } from "../inventory/reservationTypes";
 import type { CraftingQueueState } from "../crafting/types";

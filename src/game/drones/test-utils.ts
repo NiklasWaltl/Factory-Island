@@ -10,12 +10,12 @@ import type {
   CollectionNode,
   CollectableItemType,
   ConstructionSite,
-  GameAction,
   GameState,
   Inventory,
   ServiceHubEntry,
   StarterDroneState,
-} from "../store/reducer";
+} from "../store/types";
+import type { GameAction } from "../store/actions";
 
 export {
   BUILDING_COSTS,

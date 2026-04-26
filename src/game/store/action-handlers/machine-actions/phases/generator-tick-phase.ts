@@ -1,5 +1,5 @@
 import { GENERATOR_TICKS_PER_WOOD } from "../../../constants/energy/generator";
-import type { GameAction } from "../../../reducer";
+import type { GameAction } from "../../../actions";
 import type { GameState } from "../../../types";
 import type { MachineActionDeps } from "../deps";
 

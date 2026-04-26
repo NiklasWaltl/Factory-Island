@@ -14,7 +14,7 @@ import type {
   BuildingType,
   CollectableItemType,
   Inventory,
-} from "../reducer";
+} from "../types";
 
 /**
  * Maximum wood the generator's local input buffer can hold

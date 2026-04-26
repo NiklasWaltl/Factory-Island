@@ -15,7 +15,7 @@ import type {
   Inventory,
   PlacedAsset,
   ServiceHubEntry,
-} from "../../store/reducer";
+} from "../../store/types";
 import type { ItemId, WarehouseId } from "../../items/types";
 import type { NetworkSlice } from "../../inventory/reservationTypes";
 import type { CraftingInventorySource } from "../types";

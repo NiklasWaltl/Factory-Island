@@ -7,6 +7,7 @@ import { CELL_PX, GRID_H, GRID_W } from "../constants/grid";
 import {
   GENERATOR_MAX_FUEL,
   getBuildingInputConfig,
+  WAREHOUSE_CAPACITY,
 } from "./constants/buildings";
 import { CONVEYOR_TILE_CAPACITY } from "./constants/conveyor";
 import {
@@ -138,7 +139,6 @@ import {
   type BuildingSiteActionDeps,
 } from "./action-handlers/building-site";
 import {
-  handleUiCellPrelude,
   type UiCellPreludeDeps,
 } from "./action-handlers/ui-cell-prelude";
 import {
@@ -146,9 +146,12 @@ import {
   type MachineActionDeps,
 } from "./action-handlers/machine-actions";
 import {
-  handleClickCellToolAction,
   type ClickCellToolActionDeps,
 } from "./action-handlers/click-cell-tools";
+import {
+  handleClickCellAction,
+  type ClickCellActionDeps,
+} from "./action-handlers/click-cell";
 import {
   handleWarehouseHotbarAction,
   type WarehouseHotbarActionDeps,
@@ -269,6 +272,8 @@ import type {
   RecipeAutomationPolicyEntry,
   RecipeAutomationPolicyMap,
   ProductionZone,
+  CraftingSource,
+  WorkbenchSource,
   GameState,
 } from "./types";
 
@@ -312,6 +317,8 @@ export type {
   RecipeAutomationPolicyEntry,
   RecipeAutomationPolicyMap,
   ProductionZone,
+  CraftingSource,
+  WorkbenchSource,
   GameState,
 };
 
@@ -355,6 +362,12 @@ import {
 } from "./constants/timing";
 export * from "./constants/timing";
 
+// Auto-delivery log limits live in ./constants/auto-delivery.
+import {
+  AUTO_DELIVERY_BATCH_WINDOW_MS,
+  AUTO_DELIVERY_LOG_MAX,
+} from "./constants/auto-delivery";
+
 // Drone/logistics constants live in ./constants/drone-config.
 // Imported for internal use and re-exported for backward compatibility.
 import {
@@ -375,8 +388,15 @@ import {
 export * from "./constants/energy/energy-smelter";
 
 // Energy balance constants live in ./constants/energy-balance.
-// Re-exported for backward compatibility.
+// Named import for reducer-internal helpers; full module re-exported below.
+import {
+  POWER_CABLE_CONDUCTOR_TYPES,
+  POWER_POLE_RANGE_TYPES,
+} from "./constants/energy/energy-balance";
 export * from "./constants/energy/energy-balance";
+
+export { BATTERY_CAPACITY } from "./constants/energy/battery";
+export { POWER_POLE_RANGE } from "./constants/energy/power-pole";
 
 // Generator constants live in ./constants/generator.
 // Imported for internal use and re-exported for backward compatibility.
@@ -452,10 +472,7 @@ export * from "./constants/shop";
 /** Drop amount for all 1×1 harvestable resources (tree, stone, iron, copper). */
 export const RESOURCE_1x1_DROP_AMOUNT = 10;
 if (import.meta.env.DEV) console.log(`[FactoryIsland] Drop-Multiplikator auf ${RESOURCE_1x1_DROP_AMOUNT}x für 1x1-Ressourcen gesetzt.`);
-export const HOTBAR_SIZE = 9;
-export const HOTBAR_STACK_MAX = 5;
-export const WAREHOUSE_CAPACITY = 20;
-export const MAX_WAREHOUSES = 2;
+export { HOTBAR_SIZE, HOTBAR_STACK_MAX } from "./constants/hotbar";
 export const KEEP_STOCK_MAX_TARGET = 999;
 export const KEEP_STOCK_OPEN_JOB_CAP = 2;
 
@@ -478,23 +495,6 @@ const EXECUTION_TICK_DEPS: ExecutionTickDeps = {
 };
 
 // ---- Energy / Generator ----
-export const DEFAULT_MACHINE_PRIORITY: MachinePriority = 3;
-
-const POWER_CABLE_CONDUCTOR_TYPES = new Set<AssetType>([
-  "cable",
-  "generator",
-  "power_pole",
-]);
-
-const POWER_POLE_RANGE_TYPES = new Set<AssetType>([
-  "power_pole",
-  "battery",
-  "smithy",
-  "auto_miner",
-  "conveyor",
-  "conveyor_corner",
-  "auto_smelter",
-]);
 
 export function isPowerCableConductorType(type: AssetType): boolean {
   return POWER_CABLE_CONDUCTOR_TYPES.has(type);
@@ -646,19 +646,6 @@ export function getParkedDrones(
     .filter((drone): drone is StarterDroneState => !!drone)
     .filter((drone) => isDroneParkedAtHub(state, drone));
 }
-
-// ---- Construction Sites ----
-
-/**
- * Buildings eligible for drone-based construction when a service hub exists.
- * Only includes buildings whose costs are purely CollectableItemType resources
- * and use the generic placement path.
- */
-export const CONSTRUCTION_SITE_BUILDINGS = new Set<BuildingType>([
-  "workbench", "warehouse", "smithy", "generator", "service_hub",
-  "cable", "power_pole", "battery", "auto_miner",
-  "conveyor", "conveyor_corner", "manual_assembler", "auto_smelter",
-]);
 
 // costIsFullyCollectable, fullCostAsRemaining, COLLECTABLE_KEYS extracted to ./inventory-ops
 
@@ -880,7 +867,7 @@ export function selectDroneTask(state: GameState, droneOverride?: StarterDroneSt
   return selectDroneTaskBinding(state, droneOverride);
 }
 
-export const AUTO_SMELTER_BUFFER_CAPACITY = 5;
+export { AUTO_SMELTER_BUFFER_CAPACITY } from "./constants/auto-smelter";
 
 /**
  * Overclocking-Stufe 1: Zwei feste Modi (normal / boosted), nur für auto_miner
@@ -898,14 +885,6 @@ export function getBoostMultiplier(asset: Pick<PlacedAsset, "type" | "boosted">)
   if (asset.type === "auto_smelter") return AUTO_SMELTER_BOOST_MULTIPLIER;
   return 1;
 }
-
-// ---- Battery ----
-/** Maximum energy stored in a battery (J) */
-export const BATTERY_CAPACITY = 1000;
-
-// ---- Power Pole ----
-/** Chebyshev range (cells) in which a power_pole connects to neighbouring conductors */
-export const POWER_POLE_RANGE = 3;
 
 export { createEmptyInventory };
 
@@ -969,22 +948,9 @@ export function devAssertInventoryNonNegative(label: string, inv: Inventory): vo
 // ============================================================
 // CRAFTING SOURCE POLICY
 //
-// Determines where a crafting device reads/writes resources.
-// - "global": uses state.inventory (default, backward-compatible)
-// - "warehouse": uses a specific warehouseInventories[id]
-//
-// The resolver validates the assignment on every call: if the
-// warehouse was removed or its inventory is missing, the
-// device silently falls back to global.
+// `CraftingSource` / `WorkbenchSource` are declared in ./types and
+// re-exported above. Determines where a crafting device reads/writes resources.
 // ============================================================
-
-export type CraftingSource =
-  | { kind: "global" }
-  | { kind: "warehouse"; warehouseId: string }
-  | { kind: "zone"; zoneId: string };
-
-/** Maximum number of production zones a player can create. */
-export const MAX_ZONES = 8;
 
 export function toCraftingJobInventorySource(
   state: GameState,
@@ -1029,10 +995,6 @@ export function getZoneItemCapacity(state: GameState, zoneId: string): number {
   const count = getZoneWarehouseIds(state, zoneId).length;
   return count * WAREHOUSE_CAPACITY;
 }
-
-// Backward-compatible aliases (used by existing workbench code & tests)
-/** @deprecated Use CraftingSource */
-export type WorkbenchSource = CraftingSource;
 
 /**
  * Resolve crafting source for a specific building instance.
@@ -1187,7 +1149,7 @@ export function getSourceStatusInfo(state: GameState, buildingId: string | null)
   };
 }
 
-export const MAP_SHOP_POS = { x: Math.floor(GRID_W / 2) - 1, y: Math.floor(GRID_H / 2) - 1 };
+export { MAP_SHOP_POS } from "./constants/map-layout";
 
 /**
  * Manhattan distance between two grid positions.
@@ -1258,11 +1220,6 @@ export { getWarehouseInputCell, isValidWarehouseInput };
 // removeAsset extracted to ./asset-mutation
 
 export { placeAsset };
-
-/** Max entries kept in the auto-delivery log. */
-const AUTO_DELIVERY_LOG_MAX = 50;
-/** Entries with the same source+resource within this window are batched together. */
-const AUTO_DELIVERY_BATCH_WINDOW_MS = 8_000;
 
 /**
  * Appends (or batches into the latest matching entry) one unit delivered to a warehouse.
@@ -1476,6 +1433,11 @@ const CLICK_CELL_TOOL_ACTION_DEPS: ClickCellToolActionDeps = {
   debugLog,
 };
 
+const CLICK_CELL_ACTION_DEPS: ClickCellActionDeps = {
+  uiCellPreludeDeps: UI_CELL_PRELUDE_DEPS,
+  clickCellToolActionDeps: CLICK_CELL_TOOL_ACTION_DEPS,
+};
+
 const MACHINE_ACTION_DEPS: MachineActionDeps = {
   getSelectedCraftingAsset,
   getActiveSmithyAsset,
@@ -1579,7 +1541,7 @@ const LOGISTICS_TICK_IO_DEPS: LogisticsTickIoDeps = {
 // state (action belonged to its cluster) or `null` (fall through).
 //
 // The remaining inline `switch` only covers cases that have not
-// been extracted (e.g. CLICK_CELL, ENERGY_NET_TICK, LOGISTICS_TICK,
+// been extracted (e.g. ENERGY_NET_TICK, LOGISTICS_TICK,
 // AUTO_SMELTER_SET_RECIPE). All extracted cases are documented
 // inline below via `// <ACTION> is handled above by handle<Cluster>Action`
 // markers so the action surface remains greppable from this file.
@@ -1665,28 +1627,20 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     DRONE_ASSIGNMENT_ACTION_DEPS,
   );
   if (droneAssignmentResult !== null) return droneAssignmentResult;
+  const clickCellResult = handleClickCellAction(
+    state,
+    action,
+    CLICK_CELL_ACTION_DEPS,
+  );
+  if (clickCellResult !== null) return clickCellResult;
   switch (action.type) {
     // NETWORK_*, CRAFT_REQUEST_WITH_PREREQUISITES, JOB_*,
     // SET_KEEP_STOCK_TARGET and SET_RECIPE_AUTOMATION_POLICY are handled
     // above by handleCraftingQueueAction
     // (see action-handlers/crafting-queue-actions/index.ts).
 
-    case "CLICK_CELL": {
-      const { x, y } = action;
-      if (x < 0 || x >= GRID_W || y < 0 || y >= GRID_H) return state;
-
-      const assetId = state.cellMap[cellKey(x, y)];
-      const asset = assetId ? state.assets[assetId] : null;
-
-      const uiPreludeState = handleUiCellPrelude(state, asset, UI_CELL_PRELUDE_DEPS);
-      if (uiPreludeState !== null) return uiPreludeState;
-
-      return handleClickCellToolAction(
-        state,
-        { x, y, assetId, asset },
-        CLICK_CELL_TOOL_ACTION_DEPS,
-      );
-    }
+    // CLICK_CELL is handled above by
+    // handleClickCellAction (see action-handlers/click-cell.ts).
 
     // SET_ACTIVE_SLOT is handled above by
     // handleUiAction (see action-handlers/ui-actions.ts).

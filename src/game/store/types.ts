@@ -413,6 +413,22 @@ export interface ProductionZone {
   name: string;
 }
 
+// ---- Crafting source (read/write resource scope) ----
+//
+// Where a crafting device reads/writes resources:
+// - "global": state.inventory
+// - "warehouse": a specific warehouseInventories[id]
+// - "zone": aggregate of zone member warehouses
+//
+// Resolvers may fall back to global when a warehouse/zone is invalid.
+export type CraftingSource =
+  | { kind: "global" }
+  | { kind: "warehouse"; warehouseId: string }
+  | { kind: "zone"; zoneId: string };
+
+/** @deprecated Use CraftingSource */
+export type WorkbenchSource = CraftingSource;
+
 export interface GameState {
   mode: GameMode;
   assets: Record<string, PlacedAsset>;

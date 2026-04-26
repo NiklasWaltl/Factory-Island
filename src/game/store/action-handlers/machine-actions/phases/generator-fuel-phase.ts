@@ -4,7 +4,7 @@ import {
   getCraftingSourceInventory,
 } from "../../../../crafting/crafting-sources";
 import { GENERATOR_MAX_FUEL } from "../../../constants/buildings";
-import type { GameAction } from "../../../reducer";
+import type { GameAction } from "../../../actions";
 import type { GameState } from "../../../types";
 import type { MachineActionDeps } from "../deps";
 

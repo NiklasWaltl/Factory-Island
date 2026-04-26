@@ -3,9 +3,8 @@ import {
   RESOURCE_EMOJIS,
   getCapacityPerResource,
   selectGlobalInventoryView,
-  type GameState,
-  type Inventory,
 } from "../../store/reducer";
+import type { GameState, Inventory } from "../../store/types";
 
 interface ResourceBarProps {
   state: GameState;

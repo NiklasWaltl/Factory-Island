@@ -10,7 +10,7 @@
 // ============================================================
 
 import { debugLog } from "../../debug/debugLogger";
-import type { Inventory, ServiceHubEntry } from "../../store/reducer";
+import type { Inventory, ServiceHubEntry } from "../../store/types";
 import type { ItemId, WarehouseId } from "../../items/types";
 import { applyNetworkAction } from "../../inventory/reservations";
 import type { NetworkSlice } from "../../inventory/reservationTypes";

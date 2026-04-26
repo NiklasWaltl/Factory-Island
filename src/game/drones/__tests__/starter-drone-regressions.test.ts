@@ -531,6 +531,51 @@ describe("Task Scoring – DroneRole influence", () => {
     expect(state.drones[droneId]?.role).toBe("construction");
   });
 
+  it("DRONE_SET_ROLE updates non-starter drone without mutating starter role", () => {
+    const { state: hubState } = placeServiceHub(createInitialState("release"), 6, 6);
+    const extraDroneId = "drone-role-non-starter";
+    const stateWithExtra: GameState = {
+      ...hubState,
+      drones: {
+        ...hubState.drones,
+        [extraDroneId]: {
+          ...hubState.starterDrone,
+          droneId: extraDroneId,
+          role: "auto",
+        },
+      },
+      serviceHubs: {
+        ...hubState.serviceHubs,
+        [hubState.starterDrone.hubId!]: {
+          ...hubState.serviceHubs[hubState.starterDrone.hubId!],
+          tier: 2,
+          droneIds: [
+            ...hubState.serviceHubs[hubState.starterDrone.hubId!].droneIds,
+            extraDroneId,
+          ],
+        },
+      },
+    };
+    const next = gameReducer(stateWithExtra, {
+      type: "DRONE_SET_ROLE",
+      droneId: extraDroneId,
+      role: "supply",
+    });
+    expect(next.starterDrone.role ?? "auto").toBe(stateWithExtra.starterDrone.role ?? "auto");
+    expect(next.drones[extraDroneId]?.role).toBe("supply");
+    expect(next.drones.starter).toBe(next.starterDrone);
+  });
+
+  it("DRONE_SET_ROLE is strict no-op for unknown non-starter droneId", () => {
+    const { state: hubState } = placeServiceHub(createInitialState("release"), 6, 6);
+    const next = gameReducer(hubState, {
+      type: "DRONE_SET_ROLE",
+      droneId: "missing-drone-id",
+      role: "construction",
+    });
+    expect(next).toBe(hubState);
+  });
+
   it("supply-role drone prefers hub_restock over no-construction-site", () => {
     const { state: hubState } = placeServiceHub(createInitialState("release"), 6, 6);
     const droneId = hubState.starterDrone.droneId;

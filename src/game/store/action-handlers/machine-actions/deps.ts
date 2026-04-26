@@ -1,4 +1,4 @@
-import type { CraftingSource } from "../../reducer";
+import type { CraftingSource } from "../../types";
 import type {
   GameNotification,
   GameState,

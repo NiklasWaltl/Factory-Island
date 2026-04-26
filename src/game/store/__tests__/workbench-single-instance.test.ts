@@ -9,14 +9,8 @@
 //     hotbar manually. There is no AutoPanel and no auto-startpoint
 //     attached to placement.
 
-import {
-  gameReducer,
-  createInitialState,
-  addResources,
-  cellKey,
-  type GameState,
-  type PlacedAsset,
-} from "../reducer";
+import { gameReducer, createInitialState, addResources, cellKey } from "../reducer";
+import type { GameState, PlacedAsset } from "../types";
 
 function emptyInv() {
   return createInitialState("release").inventory;

@@ -13,7 +13,7 @@ import type {
   CraftingSource,
   GameState,
   Inventory,
-} from "../../../store/reducer";
+} from "../../../store/types";
 import { getZoneWarehouseIds } from "../../../store/reducer";
 import {
   MANUAL_ASSEMBLER_RECIPES,

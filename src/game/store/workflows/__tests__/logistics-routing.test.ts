@@ -1,6 +1,7 @@
 import { decideConveyorRoutingAction } from "../logistics-routing";
 import { decideConveyorTargetSelection } from "../../conveyor-decisions";
-import { createInitialState, type CraftingSource } from "../../reducer";
+import { createInitialState } from "../../reducer";
+import type { CraftingSource } from "../../types";
 import type { CraftingJob } from "../../../crafting/types";
 import type {
   ConveyorItem,

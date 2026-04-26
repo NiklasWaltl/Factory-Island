@@ -29,7 +29,7 @@ import type {
   Inventory,
   PlacedAsset,
   ServiceHubEntry,
-} from "../store/reducer";
+} from "../store/types";
 import type { WarehouseId } from "../items/types";
 import { applyNetworkAction } from "../inventory/reservations";
 import type { NetworkSlice } from "../inventory/reservationTypes";

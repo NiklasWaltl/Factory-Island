@@ -6,7 +6,7 @@
 // - build-mode panel routing
 // - normal-mode panel routing
 //
-// Tool branches (axe/pickaxe/sapling) stay in reducer.ts.
+// Tool branches (axe/pickaxe/sapling) stay in click-cell-tools.ts.
 // ============================================================
 
 import type { GameState, PlacedAsset } from "../types";

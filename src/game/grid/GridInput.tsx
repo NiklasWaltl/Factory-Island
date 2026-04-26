@@ -4,10 +4,9 @@ import {
   GRID_H,
   CELL_PX,
   cellKey,
-  type GameState,
-  type GameAction,
-  type Direction,
 } from "../store/reducer";
+import type { Direction, GameState } from "../store/types";
+import type { GameAction } from "../store/actions";
 
 const WORLD_W = GRID_W * CELL_PX;
 const WORLD_H = GRID_H * CELL_PX;

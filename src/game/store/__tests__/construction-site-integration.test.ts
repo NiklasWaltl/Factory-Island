@@ -13,7 +13,7 @@ import {
   isUnderConstruction,
   computeConnectedAssetIds,
 } from "../reducer";
-import type { GameState, BuildingType, PlacedAsset } from "../reducer";
+import type { GameState, BuildingType, PlacedAsset } from "../types";
 
 // ---- helpers ---------------------------------------------------------------
 

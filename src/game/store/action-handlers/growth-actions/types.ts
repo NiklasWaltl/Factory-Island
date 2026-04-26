@@ -1,6 +1,6 @@
 // Action types handled by the deterministic growth action cluster.
 
-import type { GameAction } from "../../reducer";
+import type { GameAction } from "../../actions";
 
 export type GrowthHandledActionType =
   | "GROW_SAPLING"

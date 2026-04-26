@@ -6,7 +6,7 @@
 // case body — no new abstractions, no logic changes.
 // ============================================================
 
-import type { GameAction } from "../../reducer";
+import type { GameAction } from "../../actions";
 import type { GameState } from "../../types";
 import { HANDLED_ACTION_TYPES, type AutoSmelterAction } from "./types";
 import { runAutoSmelterSetRecipePhase } from "./phases/auto-smelter-set-recipe-phase";

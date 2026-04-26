@@ -36,7 +36,7 @@ import type {
   Inventory,
   KeepStockTargetEntry,
 } from "../../store/types";
-import type { CraftingSource } from "../../store/reducer";
+import type { CraftingSource } from "../../store/types";
 
 export type KeepStockSkipCode =
   | "disabled"

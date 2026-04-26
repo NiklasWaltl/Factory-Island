@@ -12,7 +12,7 @@
 // case bodies — no new abstractions, no logic changes.
 // ============================================================
 
-import type { GameAction } from "../../reducer";
+import type { GameAction } from "../../actions";
 import type { GameState } from "../../types";
 import { HANDLED_ACTION_TYPES, type MaintenanceHandledAction } from "./types";
 import {

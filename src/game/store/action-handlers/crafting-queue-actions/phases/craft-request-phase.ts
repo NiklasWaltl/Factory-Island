@@ -4,7 +4,7 @@ import { buildWorkbenchAutoCraftPlan } from "../../../../crafting/planner";
 import { checkRecipeAutomationPolicy } from "../../../../crafting/policies";
 import { getAssetOfType } from "../../../utils/asset-guards";
 import { withErrorNotification } from "../../../utils/notification-utils";
-import type { GameAction } from "../../../reducer";
+import type { GameAction } from "../../../actions";
 import type { GameState } from "../../../types";
 import type { CraftingQueueActionDeps } from "../deps";
 

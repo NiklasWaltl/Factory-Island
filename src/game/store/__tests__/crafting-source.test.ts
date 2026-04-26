@@ -2,6 +2,7 @@
 // Tests – Generic CraftingSource: Smithy + Manual Assembler (per-building)
 // ============================================================
 
+import type { GameState, Inventory, PlacedAsset } from "../types";
 import {
   gameReducer,
   createInitialState,
@@ -9,9 +10,6 @@ import {
   resolveBuildingSource,
   resolveCraftingSource,
   cellKey,
-  type GameState,
-  type PlacedAsset,
-  type Inventory,
 } from "../reducer";
 
 // ---------------------------------------------------------------------------

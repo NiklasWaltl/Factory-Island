@@ -1,13 +1,12 @@
 ﻿import React from "react";
+import type { BuildingType, GameState } from "../../store/types";
+import type { GameAction } from "../../store/actions";
 import {
   getSourceStatusInfo,
   getZoneWarehouseIds,
   getZoneAggregateInventory,
   getZoneItemCapacity,
   BUILDING_LABELS,
-  type GameState,
-  type GameAction,
-  type BuildingType,
 } from "../../store/reducer";
 
 interface ZoneSourceSelectorProps {

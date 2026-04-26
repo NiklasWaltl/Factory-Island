@@ -8,7 +8,6 @@ import {
   addResources,
   cellKey,
   AUTO_MINER_PRODUCE_TICKS,
-  WAREHOUSE_CAPACITY,
   getSourceStatusInfo,
   type AutoMinerEntry,
   type GameAction,
@@ -16,6 +15,7 @@ import {
   type Inventory,
   type PlacedAsset,
 } from "../reducer";
+import { WAREHOUSE_CAPACITY } from "../constants/buildings";
 
 function emptyInv(): Inventory {
   return createInitialState("release").inventory;

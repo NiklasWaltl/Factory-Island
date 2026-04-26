@@ -7,7 +7,7 @@
 // semantics.
 // ============================================================
 
-import type { Inventory } from "../store/reducer";
+import type { Inventory } from "../store/types";
 import {
   ALL_ITEM_IDS,
   getItemsByCategory,

@@ -6,7 +6,8 @@
 // exits early when `!import.meta.env.DEV`.
 
 import type { GameState, GameAction, Inventory, ServiceHubInventory } from "../store/reducer";
-import { createInitialHotbar, HOTBAR_STACK_MAX } from "../store/reducer";
+import { HOTBAR_STACK_MAX } from "../store/constants/hotbar";
+import { createInitialHotbar } from "../store/helpers/hotbar";
 import { debugLog } from "./debugLogger";
 
 // ---- Mock presets ----

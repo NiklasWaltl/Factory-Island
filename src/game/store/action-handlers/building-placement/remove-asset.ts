@@ -1,7 +1,3 @@
-// ============================================================
-// BUILD_REMOVE_ASSET case handler
-// ============================================================
-
 import type { GameAction } from "../../reducer";
 import type {
   BuildingType,
@@ -13,8 +9,15 @@ import type {
   PlacedAsset,
   UIPanel,
 } from "../../types";
+import { BUILDING_COSTS } from "../../constants/buildings";
+import { ASSET_LABELS } from "../../constants/assets";
+import { cellKey } from "../../cell-key";
+import { addResources } from "../../inventory-ops";
+import { removeAsset } from "../../asset-mutation";
+import { reassignBuildingSourceIds } from "../../../buildings/warehouse/warehouse-assignment";
+import { computeConnectedAssetIds } from "../../../logistics/connectivity";
 import {
-  type BuildingPlacementActionDeps,
+  type BuildingPlacementIoDeps,
   logPlacementInvariantWarnings,
 } from "./shared";
 
@@ -110,18 +113,9 @@ function deriveDeliveredRefundForConstructionSite(input: {
 export function handleRemoveAssetAction(
   state: GameState,
   action: Extract<GameAction, { type: "BUILD_REMOVE_ASSET" }>,
-  deps: BuildingPlacementActionDeps,
+  deps: BuildingPlacementIoDeps,
 ): GameState {
-  const {
-    BUILDING_COSTS,
-    ASSET_LABELS,
-    cellKey,
-    addResources,
-    removeAsset,
-    reassignBuildingSourceIds,
-    computeConnectedAssetIds,
-    debugLog,
-  } = deps;
+  const { debugLog } = deps;
 
   const activeHotbarSlot = state.hotbarSlots[state.activeSlot];
   // Only buildings can be removed via build mode; resources and map_shop are off-limits

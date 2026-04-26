@@ -20,14 +20,14 @@
 
 import type { GameState } from "../types";
 import {
-  type LogisticsTickActionDeps,
+  type LogisticsTickIoDeps,
   type LogisticsTickContext,
 } from "./logistics-tick/context";
 import { runAutoMinerPhase } from "./logistics-tick/phases/auto-miner";
 import { runConveyorPhase } from "./logistics-tick/phases/conveyor";
 import { runAutoSmelterPhase } from "./logistics-tick/phases/auto-smelter";
 
-export type { LogisticsTickActionDeps } from "./logistics-tick/context";
+export type { LogisticsTickIoDeps } from "./logistics-tick/context";
 
 // ------------------------------------------------------------
 // Phase 2 is extracted in ./logistics-tick/phases/auto-miner.ts.
@@ -46,7 +46,7 @@ export type { LogisticsTickActionDeps } from "./logistics-tick/context";
 // ------------------------------------------------------------
 export function handleLogisticsTickAction(
   state: GameState,
-  deps: LogisticsTickActionDeps,
+  deps: LogisticsTickIoDeps,
 ): GameState {
   // Phase 0: Snapshot powered machines and initialize mutable working set.
   const ctx: LogisticsTickContext = {

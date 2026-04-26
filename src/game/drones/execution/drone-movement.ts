@@ -7,23 +7,20 @@ import type {
   GameState,
   StarterDroneState,
 } from "../../store/types";
-import { droneTravelTicks } from "../drone-movement";
+import { droneTravelTicks, moveDroneToward, nudgeAwayFromDrones } from "../drone-movement";
 import { decideInventorySourceTravelTarget } from "../utils/drone-utils";
-import type { TickOneDroneDeps } from "./tick-one-drone";
+import { applyDroneUpdate } from "../drone-state-helpers";
+import {
+  getCraftingJobById,
+  getCraftingReservationById,
+  parseWorkbenchTaskNodeId,
+} from "../../store/workbench-task-utils";
+import { resolveWorkbenchInputPickup } from "../../store/workbench-input-pickup";
+import { resolveDroneDropoff } from "../resolve-drone-dropoff";
+import { finalizeWorkbenchDelivery } from "./workbench-finalizer-bindings";
+import type { TickOneDroneIoDeps } from "./tick-one-drone";
 
-type DroneMovementDeps = Pick<
-  TickOneDroneDeps,
-  | "applyDroneUpdate"
-  | "parseWorkbenchTaskNodeId"
-  | "getCraftingJobById"
-  | "getCraftingReservationById"
-  | "resolveWorkbenchInputPickup"
-  | "finalizeWorkbenchDelivery"
-  | "moveDroneToward"
-  | "nudgeAwayFromDrones"
-  | "resolveDroneDropoff"
-  | "debugLog"
->;
+type DroneMovementDeps = TickOneDroneIoDeps;
 
 export function handleMovingToCollectStatus(
   state: GameState,
@@ -31,17 +28,6 @@ export function handleMovingToCollectStatus(
   drone: StarterDroneState,
   deps: DroneMovementDeps,
 ): GameState {
-  const {
-    applyDroneUpdate,
-    parseWorkbenchTaskNodeId,
-    getCraftingJobById,
-    getCraftingReservationById,
-    resolveWorkbenchInputPickup,
-    finalizeWorkbenchDelivery,
-    moveDroneToward,
-    nudgeAwayFromDrones,
-  } = deps;
-
   const rem = drone.ticksRemaining - 1;
 
   const workbenchTask = parseWorkbenchTaskNodeId(drone.targetNodeId);
@@ -194,13 +180,7 @@ export function handleMovingToDropoffStatus(
   drone: StarterDroneState,
   deps: DroneMovementDeps,
 ): GameState {
-  const {
-    applyDroneUpdate,
-    moveDroneToward,
-    nudgeAwayFromDrones,
-    resolveDroneDropoff,
-    debugLog,
-  } = deps;
+  const { debugLog } = deps;
 
   const rem = drone.ticksRemaining - 1;
   // Resolve dropoff position - task-type-aware, consistent with collecting transition

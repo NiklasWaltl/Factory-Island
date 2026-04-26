@@ -1,8 +1,3 @@
-// ============================================================
-// BUILD_PLACE_BUILDING case handler
-// Pure body of the place-building branch; deps come from reducer.
-// ============================================================
-
 import type { GameAction } from "../../reducer";
 import type {
   AssetType,
@@ -14,9 +9,40 @@ import type {
   PlacedAsset,
   StarterDroneState,
 } from "../../types";
-import type { BuildPlacementEligibilityDecision } from "../../build-placement-eligibility";
+import { GRID_W, GRID_H } from "../../../constants/grid";
 import {
-  type BuildingPlacementActionDeps,
+  BUILDING_COSTS,
+  BUILDING_LABELS,
+  BUILDING_SIZES,
+  BUILDINGS_WITH_DEFAULT_SOURCE,
+  CONSTRUCTION_SITE_BUILDINGS,
+  MAX_WAREHOUSES,
+  REQUIRES_STONE_FLOOR,
+  STACKABLE_BUILDINGS,
+} from "../../constants/buildings";
+import { DEPOSIT_RESOURCE, DEPOSIT_TYPES } from "../../constants/deposit-positions";
+import { DEFAULT_MACHINE_PRIORITY } from "../../constants/energy/energy-balance";
+import { createDefaultProtoHubTargetStock } from "../../constants/hub/hub-target-stock";
+import { cellKey } from "../../cell-key";
+import { getAutoSmelterIoCells } from "../../asset-geometry";
+import { placeAsset } from "../../asset-mutation";
+import {
+  consumeBuildResources,
+  costIsFullyCollectable,
+  createEmptyInventory,
+  fullCostAsRemaining,
+  getEffectiveBuildInventory,
+  hasResources,
+} from "../../inventory-ops";
+import { decideBuildingPlacementEligibility } from "../../build-placement-eligibility";
+import type { BuildPlacementEligibilityDecision } from "../../build-placement-eligibility";
+import { decideAutoMinerPlacementEligibility } from "../../build-auto-miner-placement-eligibility";
+import { getNearestWarehouseId } from "../../../buildings/warehouse/warehouse-assignment";
+import { createEmptyHubInventory } from "../../../buildings/service-hub/hub-upgrade-workflow";
+import { getDroneDockOffset } from "../../../drones/drone-dock-geometry";
+import { computeConnectedAssetIds } from "../../../logistics/connectivity";
+import {
+  type BuildingPlacementIoDeps,
   logPlacementInvariantWarnings,
 } from "./shared";
 
@@ -55,42 +81,9 @@ function getAutoSmelterFootprintDimensions(
 export function handlePlaceBuildingAction(
   state: GameState,
   action: Extract<GameAction, { type: "BUILD_PLACE_BUILDING" }>,
-  deps: BuildingPlacementActionDeps,
+  deps: BuildingPlacementIoDeps,
 ): GameState {
-  const {
-    GRID_W,
-    GRID_H,
-    BUILDING_COSTS,
-    CONSTRUCTION_SITE_BUILDINGS,
-    BUILDING_LABELS,
-    BUILDING_SIZES,
-    BUILDINGS_WITH_DEFAULT_SOURCE,
-    REQUIRES_STONE_FLOOR,
-    STACKABLE_BUILDINGS,
-    MAX_WAREHOUSES,
-    DEPOSIT_TYPES,
-    DEPOSIT_RESOURCE,
-    DEFAULT_MACHINE_PRIORITY,
-    cellKey,
-    hasResources,
-    getEffectiveBuildInventory,
-    costIsFullyCollectable,
-    fullCostAsRemaining,
-    placeAsset,
-    makeId,
-    getAutoSmelterIoCells,
-    consumeBuildResources,
-    createEmptyInventory,
-    createEmptyHubInventory,
-    createDefaultProtoHubTargetStock,
-    getNearestWarehouseId,
-    getDroneDockOffset,
-    computeConnectedAssetIds,
-    decideBuildingPlacementEligibility,
-    decideAutoMinerPlacementEligibility,
-    addErrorNotification,
-    debugLog,
-  } = deps;
+  const { makeId, addErrorNotification, debugLog } = deps;
 
   type AutoSmelterFootprintEligibilityDecision =
     | { kind: "eligible" }
@@ -111,9 +104,6 @@ export function handlePlaceBuildingAction(
     ioOutOfBounds: boolean;
   };
 
-  // Pure auto-smelter footprint decision.
-  // Input: x, y, width, height, dir, cellMap.
-  // Output: eligible/blocked with explicit blockReason.
   const checkAutoSmelterFootprintEligibility = (input: {
     x: number;
     y: number;
@@ -139,9 +129,6 @@ export function handlePlaceBuildingAction(
     return { kind: "eligible" };
   };
 
-  // Pure auto-smelter connector preflight.
-  // Input: x, y, width, height, dir, cellMap, assets.
-  // Output: connector data + pure decision flags (beltFound, ioOutOfBounds).
   const computeAutoSmelterConnectorPreflight = (input: {
     x: number;
     y: number;

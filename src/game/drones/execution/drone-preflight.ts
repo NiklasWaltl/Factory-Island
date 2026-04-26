@@ -1,14 +1,12 @@
 import type {
-  CollectableItemType,
   GameState,
-  ServiceHubInventory,
   StarterDroneState,
 } from "../../store/types";
 import type { TickOneDroneDebugLog } from "../utils/drone-utils";
+import { createEmptyHubInventory } from "../../buildings/service-hub/hub-upgrade-workflow";
+import { createDefaultProtoHubTargetStock } from "../../store/constants/hub/hub-target-stock";
 
 export interface DronePreflightDeps {
-  createEmptyHubInventory: () => ServiceHubInventory;
-  createDefaultProtoHubTargetStock: () => Record<CollectableItemType, number>;
   debugLog: TickOneDroneDebugLog;
 }
 
@@ -27,8 +25,8 @@ export function runIdleHubSelfHeal(
     serviceHubs: {
       ...state.serviceHubs,
       [drone.hubId]: {
-        inventory: deps.createEmptyHubInventory(),
-        targetStock: deps.createDefaultProtoHubTargetStock(),
+        inventory: createEmptyHubInventory(),
+        targetStock: createDefaultProtoHubTargetStock(),
         tier: 1,
         droneIds: [drone.droneId],
       },

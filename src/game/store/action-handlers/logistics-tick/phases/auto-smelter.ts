@@ -1,5 +1,7 @@
 import { debugLog } from "../../../../debug/debugLogger";
-import { LOGISTICS_TICK_MS as LOGISTICS_TICK_MS_DEFAULT } from "../../../constants/timing";
+import { LOGISTICS_TICK_MS } from "../../../constants/timing";
+import { AUTO_SMELTER_BUFFER_CAPACITY } from "../../../constants/auto-smelter";
+import { CONVEYOR_TILE_CAPACITY } from "../../../constants/conveyor";
 import { SMELTING_RECIPES, getSmeltingRecipe } from "../../../../simulation/recipes";
 import { getCraftingSourceInventory } from "../../../../crafting/crafting-sources";
 import {
@@ -12,6 +14,11 @@ import {
 } from "../../../smelter-decisions";
 import { consumeAutoSmelterPendingOutput } from "../../../smelter-mutations";
 import type { ConveyorItem } from "../../../types";
+import { getAutoSmelterIoCells } from "../../../asset-geometry";
+import { resolveBuildingSource } from "../../../building-source";
+import { addResources } from "../../../inventory-ops";
+import { getBoostMultiplier } from "../../../machine-priority";
+import { areAutoSmelterEntriesEqual } from "../../../smelter-equality";
 import {
   applySourceInventory,
   getLiveLogisticsState,
@@ -28,8 +35,7 @@ let _smelterRecipesLogged = false;
 // Phase 4: Auto-smelter belt input, processing, output flush, status update.
 // ------------------------------------------------------------
 export function runAutoSmelterPhase(ctx: LogisticsTickContext): void {
-  const { state, deps } = ctx;
-  const LOGISTICS_TICK_MS = deps.LOGISTICS_TICK_MS ?? LOGISTICS_TICK_MS_DEFAULT;
+  const { state } = ctx;
 
   for (const [smelterId, smelterState] of Object.entries(state.autoSmelters ?? {})) {
     const entryDecision = decideAutoSmelterTickEntryEligibility({
@@ -55,7 +61,7 @@ export function runAutoSmelterPhase(ctx: LogisticsTickContext): void {
       }
 
       const nextSmelter = { ...smelterState, status: "MISCONFIGURED" as const };
-      if (!deps.areAutoSmelterEntriesEqual(nextSmelter, smelterState)) {
+      if (!areAutoSmelterEntriesEqual(nextSmelter, smelterState)) {
         ctx.newAutoSmeltersL =
           ctx.newAutoSmeltersL === state.autoSmelters
             ? { ...state.autoSmelters }
@@ -69,10 +75,10 @@ export function runAutoSmelterPhase(ctx: LogisticsTickContext): void {
     const { smelterAsset, selectedRecipe } = entryDecision;
     const nextSmelter = { ...smelterState };
 
-    const source = deps.resolveBuildingSource(getLiveLogisticsState(ctx), smelterId);
+    const source = resolveBuildingSource(getLiveLogisticsState(ctx), smelterId);
     let sourceInv = getCraftingSourceInventory(getLiveLogisticsState(ctx), source);
     const sourceCapacity = getSourceCapacity(ctx, getLiveLogisticsState(ctx), source);
-    const smelterIo = deps.getAutoSmelterIoCells(smelterAsset);
+    const smelterIo = getAutoSmelterIoCells(smelterAsset);
 
     // Belt-only input: pull 1 matching item per tick from the adjacent input conveyor.
     // No inventory fallback — the auto-smelter is exclusively belt-fed.
@@ -81,7 +87,7 @@ export function runAutoSmelterPhase(ctx: LogisticsTickContext): void {
       const inY = smelterIo.input.y;
       if (import.meta.env.DEV) {
         console.log(
-          `[AutoSmelter:${smelterId}] input check at tile (${inX},${inY}), buffer=${nextSmelter.inputBuffer.length}/${deps.AUTO_SMELTER_BUFFER_CAPACITY}`,
+          `[AutoSmelter:${smelterId}] input check at tile (${inX},${inY}), buffer=${nextSmelter.inputBuffer.length}/${AUTO_SMELTER_BUFFER_CAPACITY}`,
         );
       }
       const inputDecision = decideAutoSmelterInputBeltEligibility({
@@ -92,7 +98,7 @@ export function runAutoSmelterPhase(ctx: LogisticsTickContext): void {
         inputY: inY,
         expectedInputItem: selectedRecipe.inputItem as ConveyorItem,
         inputBufferLength: nextSmelter.inputBuffer.length,
-        inputBufferCapacity: deps.AUTO_SMELTER_BUFFER_CAPACITY,
+        inputBufferCapacity: AUTO_SMELTER_BUFFER_CAPACITY,
       });
 
       if (inputDecision.kind === "eligible") {
@@ -167,7 +173,7 @@ export function runAutoSmelterPhase(ctx: LogisticsTickContext): void {
             ? state.conveyors[outAssetId]
             : ctx.newConveyorsL[outAssetId];
         const outQueue = outConv?.queue ?? [];
-        if (outQueue.length >= deps.CONVEYOR_TILE_CAPACITY) {
+        if (outQueue.length >= CONVEYOR_TILE_CAPACITY) {
           break;
         }
         ctx.newConveyorsL =
@@ -184,7 +190,7 @@ export function runAutoSmelterPhase(ctx: LogisticsTickContext): void {
         continue;
       }
 
-      const added = deps.addResources(sourceInv, {
+      const added = addResources(sourceInv, {
         [outputDecision.outputKey]: outputDecision.outputAmount,
       });
       applySourceInventory(ctx, source, added);
@@ -232,7 +238,7 @@ export function runAutoSmelterPhase(ctx: LogisticsTickContext): void {
     // Ab hier gilt powerRatio === 1 (volle Versorgung). Produktion läuft mit voller Geschwindigkeit
     // oder — bei Unterstrom — wurde oben bereits per `continue` komplett gestoppt.
     if (nextSmelter.processing) {
-      const smelterBoost = deps.getBoostMultiplier(smelterAsset);
+      const smelterBoost = getBoostMultiplier(smelterAsset);
       nextSmelter.processing = {
         ...nextSmelter.processing,
         progressMs: nextSmelter.processing.progressMs + LOGISTICS_TICK_MS * smelterBoost,
@@ -277,7 +283,7 @@ export function runAutoSmelterPhase(ctx: LogisticsTickContext): void {
       nextSmelter.status = nonPendingStatusDecision.nextStatus;
     }
 
-    if (!deps.areAutoSmelterEntriesEqual(nextSmelter, smelterState)) {
+    if (!areAutoSmelterEntriesEqual(nextSmelter, smelterState)) {
       ctx.newAutoSmeltersL =
         ctx.newAutoSmeltersL === state.autoSmelters
           ? { ...state.autoSmelters }

@@ -1,33 +1,28 @@
-import { droneTravelTicks } from "../drone-movement";
+import { droneTravelTicks, moveDroneToward, nudgeAwayFromDrones } from "../drone-movement";
 import { DRONE_SPEED_TILES_PER_TICK } from "../../store/constants/drone-config";
 import {
   decideReturningToDockWorkbenchUrgentRoute,
   type WorkbenchTaskNodeId,
 } from "../utils/drone-utils";
 import { runIdleHubSelfHeal } from "./drone-preflight";
-import type { TickOneDroneDeps } from "./tick-one-drone";
+import { applyDroneUpdate } from "../drone-state-helpers";
+import { getDroneHomeDock } from "../drone-dock";
+import { selectDroneTask } from "../selection/select-drone-task-bindings";
+import {
+  getCraftingJobById,
+  getCraftingReservationById,
+  parseWorkbenchTaskNodeId,
+} from "../../store/workbench-task-utils";
+import { resolveWorkbenchInputPickup } from "../../store/workbench-input-pickup";
+import { finalizeWorkbenchDelivery } from "./workbench-finalizer-bindings";
+import type { TickOneDroneIoDeps } from "./tick-one-drone";
 import type {
   CollectionNode,
   GameState,
   StarterDroneState,
 } from "../../store/types";
 
-type DroneTaskTransitionDeps = Pick<
-  TickOneDroneDeps,
-  | "applyDroneUpdate"
-  | "createEmptyHubInventory"
-  | "createDefaultProtoHubTargetStock"
-  | "selectDroneTask"
-  | "getDroneHomeDock"
-  | "parseWorkbenchTaskNodeId"
-  | "getCraftingJobById"
-  | "getCraftingReservationById"
-  | "resolveWorkbenchInputPickup"
-  | "finalizeWorkbenchDelivery"
-  | "moveDroneToward"
-  | "nudgeAwayFromDrones"
-  | "debugLog"
->;
+type DroneTaskTransitionDeps = TickOneDroneIoDeps;
 
 export function handleIdleStatus(
   state: GameState,
@@ -35,24 +30,10 @@ export function handleIdleStatus(
   drone: StarterDroneState,
   deps: DroneTaskTransitionDeps,
 ): GameState {
-  const {
-    applyDroneUpdate,
-    createEmptyHubInventory,
-    createDefaultProtoHubTargetStock,
-    selectDroneTask,
-    getDroneHomeDock,
-    parseWorkbenchTaskNodeId,
-    getCraftingJobById,
-    getCraftingReservationById,
-    resolveWorkbenchInputPickup,
-    finalizeWorkbenchDelivery,
-    debugLog,
-  } = deps;
+  const { debugLog } = deps;
 
   // Self-heal: if hubId points to a valid hub asset but serviceHubs entry is missing, recreate it
   const currentState = runIdleHubSelfHeal(state, drone, {
-    createEmptyHubInventory,
-    createDefaultProtoHubTargetStock,
     debugLog,
   });
 
@@ -207,18 +188,7 @@ export function handleReturningToDockStatus(
   drone: StarterDroneState,
   deps: DroneTaskTransitionDeps,
 ): GameState {
-  const {
-    applyDroneUpdate,
-    selectDroneTask,
-    getDroneHomeDock,
-    parseWorkbenchTaskNodeId,
-    getCraftingJobById,
-    getCraftingReservationById,
-    resolveWorkbenchInputPickup,
-    moveDroneToward,
-    nudgeAwayFromDrones,
-    debugLog,
-  } = deps;
+  const { debugLog } = deps;
 
   const dock = getDroneHomeDock(drone, state);
   if (!dock) {

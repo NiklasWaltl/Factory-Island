@@ -20,6 +20,13 @@ import {
   decideCollectionNodePickupPlan,
   decideSourceInventoryPickupEligibility,
 } from "../../utils/drone-utils";
+import { applyDroneUpdate } from "../../drone-state-helpers";
+import {
+  getCraftingJobById,
+  parseWorkbenchTaskNodeId,
+} from "../../../store/workbench-task-utils";
+import { commitWorkbenchInputReservation } from "../../../store/workbench-input-pickup";
+import { resolveDroneDropoff } from "../../resolve-drone-dropoff";
 import type { DroneFinalizationDeps } from "./types";
 
 export function handleCollectingStatus(
@@ -28,14 +35,7 @@ export function handleCollectingStatus(
   drone: StarterDroneState,
   deps: DroneFinalizationDeps,
 ): GameState {
-  const {
-    applyDroneUpdate,
-    parseWorkbenchTaskNodeId,
-    getCraftingJobById,
-    commitWorkbenchInputReservation,
-    resolveDroneDropoff,
-    debugLog,
-  } = deps;
+  const { debugLog } = deps;
 
   const rem = drone.ticksRemaining - 1;
   if (rem > 0) return applyDroneUpdate(state, droneId, { ...drone, ticksRemaining: rem });

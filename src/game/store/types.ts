@@ -10,10 +10,6 @@
 // `import type` is fine (erased at compile time).
 // ============================================================
 
-// Type-only forward reference into reducer.ts. ProductionZone is still
-// declared there because it lives next to the runtime helpers that own
-// MAX_ZONES / resolveCraftingSource. Erased at runtime → no cycle.
-import type { ProductionZone } from "./reducer";
 import type {
   RecipeAutomationPolicyEntry,
   RecipeAutomationPolicyMap,
@@ -410,6 +406,12 @@ export interface KeepStockTargetEntry {
 
 /** Keep-in-stock config map: workbenchId -> recipeId -> target entry. */
 export type KeepStockByWorkbench = Record<string, Record<string, KeepStockTargetEntry>>;
+
+/** A production zone groups warehouses and crafting buildings into a shared local resource pool. */
+export interface ProductionZone {
+  id: string;
+  name: string;
+}
 
 export interface GameState {
   mode: GameMode;

@@ -6,6 +6,11 @@ import {
 } from "../../../conveyor-decisions";
 import type { CraftingSource } from "../../../reducer";
 import type { ConveyorItem, Inventory } from "../../../types";
+import { resolveBuildingSource } from "../../../building-source";
+import { addResources } from "../../../inventory-ops";
+import { CONVEYOR_TILE_CAPACITY } from "../../../constants/conveyor";
+import { getWarehouseCapacity } from "../../../warehouse-capacity";
+import { isValidWarehouseInput } from "../../../warehouse-input";
 import {
   applySourceInventory,
   getLiveLogisticsState,
@@ -69,7 +74,7 @@ export function runConveyorPhase(ctx: LogisticsTickContext): void {
     wbSourceInv: Inventory,
   ): void => {
     const resKey = currentItem as keyof Inventory;
-    applySourceInventory(ctx, wbSource, deps.addResources(wbSourceInv, { [resKey]: 1 }));
+    applySourceInventory(ctx, wbSource, addResources(wbSourceInv, { [resKey]: 1 }));
     ctx.newNotifsL = deps.addNotification(ctx.newNotifsL, currentItem, 1);
     dequeueConveyorFrontItemAndMarkChanged(convId, activeQueue);
   };
@@ -118,11 +123,11 @@ export function runConveyorPhase(ctx: LogisticsTickContext): void {
           : ctx.newWarehouseInventoriesL,
       smithy: ctx.newSmithyL,
       movedThisTick,
-      isValidWarehouseInput: deps.isValidWarehouseInput,
-      resolveBuildingSource: deps.resolveBuildingSource,
+      isValidWarehouseInput,
+      resolveBuildingSource,
       getCraftingSourceInventory,
       getSourceCapacity: (live, source) => getSourceCapacity(ctx, live, source),
-      getWarehouseCapacity: deps.getWarehouseCapacity,
+      getWarehouseCapacity,
     });
 
     if (routingDecision.kind === "no_target") continue;
@@ -158,7 +163,7 @@ export function runConveyorPhase(ctx: LogisticsTickContext): void {
           ? state.conveyors[nextConveyorId]
           : ctx.newConveyorsL[nextConveyorId];
       const nextQueue = nextConv?.queue ?? [];
-      if (nextQueue.length < deps.CONVEYOR_TILE_CAPACITY) {
+      if (nextQueue.length < CONVEYOR_TILE_CAPACITY) {
         commitConveyorToNextConveyor(
           convId,
           activeQueue,
@@ -184,7 +189,7 @@ export function runConveyorPhase(ctx: LogisticsTickContext): void {
 
     if (routingDecision.targetType === "workbench") {
       const liveForWb = getLiveLogisticsState(ctx);
-      const wbSource = deps.resolveBuildingSource(liveForWb, routingDecision.targetId);
+      const wbSource = resolveBuildingSource(liveForWb, routingDecision.targetId);
       const wbSourceInv = getCraftingSourceInventory(liveForWb, wbSource);
       const wbCap = getSourceCapacity(ctx, liveForWb, wbSource);
       const resKey = currentItem as keyof Inventory;

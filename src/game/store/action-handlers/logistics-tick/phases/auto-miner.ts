@@ -1,4 +1,4 @@
-import { AUTO_MINER_PRODUCE_TICKS as AUTO_MINER_PRODUCE_TICKS_DEFAULT } from "../../../constants/drone-config";
+import { AUTO_MINER_PRODUCE_TICKS } from "../../../constants/drone-config";
 import {
   getCraftingSourceInventory,
 } from "../../../../crafting/crafting-sources";
@@ -7,6 +7,10 @@ import {
   decideAutoMinerOutputTarget,
   decideAutoMinerTickEligibility,
 } from "../../../auto-miner-decisions";
+import { resolveBuildingSource } from "../../../building-source";
+import { directionOffset } from "../../../direction";
+import { addResources } from "../../../inventory-ops";
+import { getBoostMultiplier } from "../../../machine-priority";
 import {
   applySourceInventory,
   getLiveLogisticsState,
@@ -20,8 +24,6 @@ import {
 // ------------------------------------------------------------
 export function runAutoMinerPhase(ctx: LogisticsTickContext): void {
   const { state, deps } = ctx;
-  const AUTO_MINER_PRODUCE_TICKS =
-    deps.AUTO_MINER_PRODUCE_TICKS ?? AUTO_MINER_PRODUCE_TICKS_DEFAULT;
 
   for (const [minerId, miner] of Object.entries(state.autoMiners)) {
     const minerTickEligibility = decideAutoMinerTickEligibility({
@@ -37,17 +39,17 @@ export function runAutoMinerPhase(ctx: LogisticsTickContext): void {
 
     const { minerAsset } = minerTickEligibility;
 
-    const minerBoost = deps.getBoostMultiplier(minerAsset);
+    const minerBoost = getBoostMultiplier(minerAsset);
     let progress = miner.progress + minerBoost;
     if (progress >= AUTO_MINER_PRODUCE_TICKS) {
       const dir = minerAsset.direction ?? "east";
-      const [ox, oy] = deps.directionOffset(dir);
+      const [ox, oy] = directionOffset(dir);
       const outX = minerAsset.x + ox;
       const outY = minerAsset.y + oy;
       let outputDone = false;
 
       const liveState = getLiveLogisticsState(ctx);
-      const source = deps.resolveBuildingSource(liveState, minerId);
+      const source = resolveBuildingSource(liveState, minerId);
       const sourceInv = getCraftingSourceInventory(liveState, source);
       const sourceCapacity = getSourceCapacity(ctx, liveState, source);
       const outputDecision = decideAutoMinerOutputTarget({
@@ -90,7 +92,7 @@ export function runAutoMinerPhase(ctx: LogisticsTickContext): void {
         outputDecision.kind === "target" &&
         outputDecision.targetType === "source_fallback"
       ) {
-        const newSourceInv = deps.addResources(sourceInv, {
+        const newSourceInv = addResources(sourceInv, {
           [outputDecision.outputKey]: 1,
         });
         applySourceInventory(ctx, source, newSourceInv);

@@ -16,6 +16,7 @@
     "lint": "eslint --quiet --ext .tsx,.ts .",
     "format": "npm run lint -- --fix",
     "test": "jest",
+    "test:silent": "jest --silent --runInBand",
     "prepare": "husky install"
   },
   "browserslist": [

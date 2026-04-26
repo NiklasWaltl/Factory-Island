@@ -1,7 +1,16 @@
-import { finalizeHubTier2Upgrade } from "../../../buildings/service-hub/hub-upgrade-workflow";
+import { finalizeHubTier2Upgrade, createEmptyHubInventory } from "../../../buildings/service-hub/hub-upgrade-workflow";
+import { createDefaultProtoHubTargetStock } from "../../../store/constants/hub/hub-target-stock";
+import { isHubUpgradeDeliverySatisfied } from "../../../buildings/service-hub/hub-upgrade-status";
 import { computeConnectedAssetIds } from "../../../logistics/connectivity";
 import { getBuildingInputConfig } from "../../../store/constants/buildings";
 import { getMaxDrones } from "../../../store/hub-tier-selectors";
+import { addResources } from "../../../store/inventory-ops";
+import { syncDrones, applyDroneUpdate } from "../../drone-state-helpers";
+import { parseWorkbenchTaskNodeId } from "../../../store/workbench-task-utils";
+import {
+  finalizeWorkbenchDelivery,
+  finalizeWorkbenchInputDelivery,
+} from "../workbench-finalizer-bindings";
 import type {
   ConstructionSite,
   DroneCargoItem,
@@ -20,20 +29,7 @@ export function handleDepositingStatus(
   drone: StarterDroneState,
   deps: DroneFinalizationDeps,
 ): GameState {
-  const {
-    applyDroneUpdate,
-    parseWorkbenchTaskNodeId,
-    addResources,
-    makeId,
-    addNotification,
-    syncDrones,
-    isHubUpgradeDeliverySatisfied,
-    finalizeWorkbenchInputDelivery,
-    finalizeWorkbenchDelivery,
-    createEmptyHubInventory,
-    createDefaultProtoHubTargetStock,
-    debugLog,
-  } = deps;
+  const { makeId, addNotification, debugLog } = deps;
 
   const rem = drone.ticksRemaining - 1;
   if (rem > 0) return applyDroneUpdate(state, droneId, { ...drone, ticksRemaining: rem });

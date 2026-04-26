@@ -13,6 +13,7 @@ import { computeConnectedAssetIds } from "../logistics/connectivity";
 import { createEmptyHubInventory } from "../buildings/service-hub/hub-upgrade-workflow";
 import { createEmptyNetworkSlice } from "../inventory/reservationTypes";
 import { createEmptyCraftingQueue } from "../crafting/queue";
+import { createInitialHotbar } from "./helpers/hotbar";
 import type {
   AssetType,
   AutoMinerEntry,
@@ -36,7 +37,6 @@ import {
   cellKey,
   createDefaultProtoHubTargetStock,
   createEmptyInventory,
-  createInitialHotbar,
   getAutoSmelterIoCells,
   isEnergyConsumerType,
   makeId,

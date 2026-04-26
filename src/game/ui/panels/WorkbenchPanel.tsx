@@ -16,7 +16,7 @@ import {
   computeIngredientLines,
   summarizeAvailability,
   type IngredientLine,
-} from "./workbenchPanelHelpers";
+} from "./helpers";
 
 interface WorkbenchPanelProps {
   state: GameState;

@@ -10,7 +10,7 @@ import {
   isPlayerGearRecipe,
   scopeKeyForSource,
   summarizeAvailability,
-} from "../workbenchPanelHelpers";
+} from "../helpers";
 import { getWorkbenchRecipe } from "../../../simulation/recipes";
 
 function baseState(): GameState {

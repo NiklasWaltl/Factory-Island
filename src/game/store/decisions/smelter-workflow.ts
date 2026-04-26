@@ -6,7 +6,7 @@
 // ============================================================
 
 import { getSmeltingRecipe } from "../../simulation/recipes";
-import { CONVEYOR_TILE_CAPACITY } from "../constants/buildings";
+import { CONVEYOR_TILE_CAPACITY } from "../constants/conveyor";
 import type {
   AutoSmelterEntry,
   AutoSmelterStatus,

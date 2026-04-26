@@ -1,7 +1,7 @@
 import {
   checkRecipeAutomationPolicy,
   type RecipeAutomationPolicyMap,
-} from "../policies";
+} from "../policies/policies";
 
 const ALLOWED: RecipeAutomationPolicyMap = {};
 const MANUAL_ONLY: RecipeAutomationPolicyMap = {

@@ -22,9 +22,6 @@ import type {
  */
 export const GENERATOR_MAX_FUEL = 70;
 
-/** Maximum number of items a single conveyor tile can queue. */
-export const CONVEYOR_TILE_CAPACITY = 4;
-
 export const BUILDING_COSTS: Record<
   BuildingType,
   Partial<Record<keyof Inventory, number>>

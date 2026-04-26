@@ -13,18 +13,18 @@
 // `crafting/keepStockDecision.ts` — both layers will follow.
 // ============================================================
 
-import { sortByPriorityFifo } from "../../crafting/queue";
-import type { CraftingInventorySource, CraftingJob } from "../../crafting/types";
 import {
   isKeepStockTrackedJob,
   isOpenCraftingJob,
-} from "../../crafting/jobStatus";
+  sortByPriorityFifo,
+} from "../../crafting/queue";
+import type { CraftingInventorySource, CraftingJob } from "../../crafting/types";
 import {
   evaluateKeepStockTarget,
   listConfiguredKeepStockTargets,
   type KeepStockDecisionResult,
   type KeepStockEvaluationDeps,
-} from "../../crafting/keepStockDecision";
+} from "../../crafting/policies";
 import { isKnownItemId, getItemDef } from "../../items/registry";
 import type { CollectableItemType, CraftingSource, GameState } from "../../store/reducer";
 import {
@@ -37,7 +37,7 @@ import {
   resolveBuildingSource,
 } from "../../store/reducer";
 import { getWorkbenchRecipe } from "../../simulation/recipes";
-import { computeIngredientLines } from "../panels/workbenchPanelHelpers";
+import { computeIngredientLines } from "../panels/helpers";
 
 export type TransparencyJobType =
   | "player-craft"

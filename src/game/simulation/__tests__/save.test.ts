@@ -11,7 +11,13 @@ import {
   type SaveGameV1,
   type SaveGameLatest,
 } from "../save";
-import { createInitialState, type GameState } from "../../store/reducer";
+import {
+  createInitialState,
+  gameReducer,
+  type GameState,
+  type Inventory,
+  type PlacedAsset,
+} from "../../store/reducer";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -390,6 +396,70 @@ describe("round-trip", () => {
     expect(loaded.inventory.ironIngot).toBe(0);
     expect(loaded.generators["rt-gen-1"].fuel).toBe(5);
     expect(loaded.mode).toBe("release");
+  });
+
+  it("preserves crafting/network reservation linkage across save/load", () => {
+    const workbenchId = "wb-rt";
+    const warehouseId = "wh-rt";
+
+    let original = createInitialState("release");
+    const workbench: PlacedAsset = { id: workbenchId, type: "workbench", x: 8, y: 8, size: 1 };
+    const warehouse: PlacedAsset = { id: warehouseId, type: "warehouse", x: 6, y: 6, size: 2 };
+    const warehouseInventory: Inventory = { ...original.inventory, wood: 5 };
+
+    original = {
+      ...original,
+      assets: {
+        ...original.assets,
+        [workbenchId]: workbench,
+        [warehouseId]: warehouse,
+      },
+      warehouseInventories: {
+        ...original.warehouseInventories,
+        [warehouseId]: warehouseInventory,
+      },
+      buildingSourceWarehouseIds: {
+        ...original.buildingSourceWarehouseIds,
+        [workbenchId]: warehouseId,
+      },
+    };
+
+    original = gameReducer(original, {
+      type: "JOB_ENQUEUE",
+      recipeId: "wood_pickaxe",
+      workbenchId,
+      priority: "high",
+      source: "player",
+    });
+    original = gameReducer(original, { type: "JOB_TICK" });
+
+    const originalJob = original.crafting.jobs[0];
+    expect(originalJob?.status).toBe("reserved");
+    expect(original.network.reservations).toHaveLength(1);
+    if (!originalJob) {
+      throw new Error("Expected reserved workbench job before roundtrip.");
+    }
+
+    const json = JSON.stringify(serializeState(original));
+    const parsed = JSON.parse(json);
+    const loaded = loadAndHydrate(parsed, "release");
+
+    const loadedJob = loaded.crafting.jobs.find((job) => job.id === originalJob.id);
+    expect(loadedJob).toBeDefined();
+    expect(loadedJob?.status).toBe("reserved");
+
+    const expectedWood =
+      loadedJob?.ingredients.find((ingredient) => ingredient.itemId === "wood")?.count ?? 0;
+    const ownerReservations = loaded.network.reservations.filter(
+      (reservation) =>
+        reservation.ownerKind === "crafting_job" &&
+        reservation.ownerId === loadedJob?.reservationOwnerId &&
+        reservation.itemId === "wood",
+    );
+
+    expect(ownerReservations).toHaveLength(1);
+    expect(ownerReservations[0].amount).toBeGreaterThan(0);
+    expect(ownerReservations[0].amount).toBe(expectedWood);
   });
 
   it("debug state survives full save/load cycle", () => {

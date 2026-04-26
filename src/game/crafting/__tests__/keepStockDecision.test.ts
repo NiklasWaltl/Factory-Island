@@ -2,7 +2,7 @@ import {
   evaluateKeepStockTarget,
   type KeepStockEvaluationDeps,
   type KeepStockTargetConfig,
-} from "../keepStockDecision";
+} from "../policies/keepStockDecision";
 import type { CraftingJob } from "../types";
 import type { GameState } from "../../store/types";
 

@@ -8,6 +8,7 @@
 
 import type { GameAction } from "../reducer";
 import { MAX_ZONES } from "../constants/buildings";
+import { makeId } from "../make-id";
 import type { GameState } from "../types";
 import { hasAsset, isBuildingZoneStateConsistent } from "../utils/asset-guards";
 
@@ -25,16 +26,6 @@ export function isZoneAction(
   return HANDLED_ACTION_TYPES.has(action.type);
 }
 
-/**
- * Minimal DI surface — `makeId` lives in reducer.ts as a module-scoped
- * counter and must share state with the rest of the reducer, so we
- * inject it instead of value-importing from `../reducer` (avoids a
- * circular value import).
- */
-export interface ZoneActionDeps {
-  makeId(): string;
-}
-
 function logZoneInvariantIfInvalid(state: GameState, actionType: string): void {
   if (!import.meta.env.DEV) return;
   if (isBuildingZoneStateConsistent(state)) return;
@@ -49,12 +40,11 @@ function logZoneInvariantIfInvalid(state: GameState, actionType: string): void {
 export function handleZoneAction(
   state: GameState,
   action: GameAction,
-  deps: ZoneActionDeps,
 ): GameState | null {
   switch (action.type) {
     case "CREATE_ZONE": {
       if (Object.keys(state.productionZones).length >= MAX_ZONES) return state;
-      const zoneId = deps.makeId();
+      const zoneId = makeId();
       const idx = Object.keys(state.productionZones).length + 1;
       const name = action.name || `Zone ${idx}`;
       const nextState = {

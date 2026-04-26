@@ -12,7 +12,7 @@ import {
   sortByPriorityFifo,
   assertTransition,
   createEmptyCraftingQueue,
-} from "../queue";
+} from "../queue/queue";
 import type { CraftingJob } from "../types";
 import type { PlacedAsset } from "../../store/reducer";
 import { WORKBENCH_RECIPES } from "../../simulation/recipes";

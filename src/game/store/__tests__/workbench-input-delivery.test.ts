@@ -176,6 +176,19 @@ function getJob(state: GameState) {
   return job;
 }
 
+function getReservedAmountForOwnerItem(
+  state: GameState,
+  ownerId: string,
+  itemId: string,
+): number {
+  return state.network.reservations.reduce((sum, reservation) => {
+    if (reservation.ownerKind !== "crafting_job") return sum;
+    if (reservation.ownerId !== ownerId) return sum;
+    if (reservation.itemId !== itemId) return sum;
+    return sum + reservation.amount;
+  }, 0);
+}
+
 describe("workbench input delivery", () => {
   it("does not craft directly from inventory", () => {
     let state = buildState({ warehouseWood: 0, globalWood: 5 });
@@ -209,6 +222,67 @@ describe("workbench input delivery", () => {
     expect(getJob(state).inputBuffer).toEqual([{ itemId: "wood", count: 5 }]);
     expect(state.network.reservations).toEqual([]);
     expect(state.warehouseInventories[WH].wood).toBe(0);
+  });
+
+  it("keeps reservation sums consistent from reserve to committed input delivery", () => {
+    let state = buildState({ warehouseWood: 5 });
+    state = enqueue(state);
+    state = jobTick(state);
+
+    const reservedJob = getJob(state);
+    const requiredWood =
+      reservedJob.ingredients.find((ingredient) => ingredient.itemId === "wood")?.count ?? 0;
+
+    expect(reservedJob.status).toBe("reserved");
+    expect(requiredWood).toBeGreaterThan(0);
+    expect(state.network.reservations.every((reservation) => reservation.amount > 0)).toBe(true);
+    expect(getReservedAmountForOwnerItem(state, reservedJob.reservationOwnerId, "wood")).toBe(requiredWood);
+
+    const warehouseWoodBeforeCommit = state.warehouseInventories[WH].wood;
+
+    state = droneTickUntil(
+      state,
+      (current) => {
+        const deliveredWood =
+          getJob(current).inputBuffer?.find((stack) => stack.itemId === "wood")?.count ?? 0;
+        return deliveredWood === requiredWood && current.starterDrone.status === "idle";
+      },
+    );
+
+    expect(getReservedAmountForOwnerItem(state, reservedJob.reservationOwnerId, "wood")).toBe(0);
+    expect(state.warehouseInventories[WH].wood).toBe(warehouseWoodBeforeCommit - requiredWood);
+    expect(state.network.reservations).toEqual([]);
+  });
+
+  it("does not double-debit stock after input reservation commit", () => {
+    let state = buildState({ warehouseWood: 5 });
+    state = enqueue(state);
+    state = jobTick(state);
+
+    const requiredWood =
+      getJob(state).ingredients.find((ingredient) => ingredient.itemId === "wood")?.count ?? 0;
+
+    state = droneTickUntil(
+      state,
+      (current) => {
+        const deliveredWood =
+          getJob(current).inputBuffer?.find((stack) => stack.itemId === "wood")?.count ?? 0;
+        return deliveredWood === requiredWood && current.starterDrone.status === "idle";
+      },
+    );
+
+    const committedWarehouseWood = state.warehouseInventories[WH].wood;
+    const committedBufferWood =
+      getJob(state).inputBuffer?.find((stack) => stack.itemId === "wood")?.count ?? 0;
+
+    state = gameReducer(state, { type: "DRONE_TICK" });
+    state = gameReducer(state, { type: "DRONE_TICK" });
+
+    expect(state.warehouseInventories[WH].wood).toBe(committedWarehouseWood);
+    expect(
+      getJob(state).inputBuffer?.find((stack) => stack.itemId === "wood")?.count ?? 0,
+    ).toBe(committedBufferWood);
+    expect(state.network.reservations).toEqual([]);
   });
 
   it("crafting begins only after a successful delivery", () => {

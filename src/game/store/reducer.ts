@@ -14,6 +14,7 @@ import {
   STACKABLE_BUILDINGS,
   getBuildingInputConfig,
 } from "./constants/buildings";
+import { CONVEYOR_TILE_CAPACITY } from "./constants/conveyor";
 import {
   getManualAssemblerRecipe,
   getWorkbenchRecipe,
@@ -55,7 +56,7 @@ import {
   releaseJobReservations,
   tickCraftingJobs,
 } from "../crafting/tick";
-import { resolveOutputDestination, routeOutput } from "../crafting/output";
+import { routeOutput } from "../crafting/output";
 import {
   applyCraftingSourceInventory,
   getCraftingSourceInventory,
@@ -82,36 +83,21 @@ import {
   consumeFromPhysicalStorage,
   hasResourcesInPhysicalStorage,
 } from "../buildings/warehouse/warehouse-storage";
-import { gatherConstructionSupplyCandidates } from "../drones/candidates/construction-supply-candidates";
-import { gatherGroundBuildingSupplyCandidates } from "../drones/candidates/ground-building-supply-candidates";
-import { gatherHubBuildingSupplyCandidates } from "../drones/candidates/hub-building-supply-candidates";
-import { gatherHubDispatchCandidates } from "../drones/candidates/hub-dispatch-candidates";
-import { gatherHubRestockCandidates } from "../drones/candidates/hub-restock-candidates";
 import {
-  DRONE_DEMAND_BONUS_MAX,
   DRONE_NEARBY_WAREHOUSE_LIMIT,
-  DRONE_ROLE_BONUS,
-  DRONE_SPREAD_PENALTY_PER_DRONE,
-  DRONE_STICKY_BONUS,
-  DRONE_URGENCY_BONUS_MAX,
   DRONE_WAREHOUSE_PRIORITY_BONUS,
-} from "../drones/candidates/scoring-constants";
-import { scoreDroneTask } from "../drones/candidates/score-drone-task";
+  scoreDroneTask,
+} from "../drones/candidates/scoring";
 export {
   DRONE_NEARBY_WAREHOUSE_LIMIT,
   scoreDroneTask,
   DRONE_WAREHOUSE_PRIORITY_BONUS,
 };
-import { gatherWarehouseBuildingSupplyCandidates } from "../drones/candidates/building-supply-warehouse-source-candidates";
-import { gatherWarehouseConstructionCandidates } from "../drones/candidates/warehouse-construction-candidates";
-import { gatherWorkbenchInputCandidates } from "../drones/candidates/workbench-input-candidates";
-import { gatherWorkbenchOutputDeliveryCandidates } from "../drones/candidates/workbench-output-delivery-candidates";
 import {
   selectDroneTask as selectDroneTaskDecision,
   type SelectDroneTaskDeps,
 } from "../drones/selection/select-drone-task";
 import {
-  type NeedSlotResolverDeps,
   getAssignedBuildingSupplyDroneCount as getAssignedBuildingSupplyDroneCountResolver,
   getAssignedConstructionDroneCount as getAssignedConstructionDroneCountResolver,
   getAssignedWorkbenchDeliveryDroneCount as getAssignedWorkbenchDeliveryDroneCountResolver,
@@ -140,10 +126,6 @@ import {
   finalizeWorkbenchInputDelivery as finalizeWorkbenchInputDeliveryExecution,
   type FinalizerDeps,
 } from "../drones/execution/workbench-finalizers";
-import {
-  tickAllDrones,
-  type TickAllDronesDeps,
-} from "../drones/orchestration/tick-all-drones";
 import { droneTravelTicks } from "../drones/drone-movement";
 import { getDroneDockOffset } from "../drones/drone-dock-geometry";
 import { computeConnectedAssetIds } from "../logistics/connectivity";
@@ -151,15 +133,13 @@ import {
   areZonesTransportCompatible,
   getConveyorZone,
 } from "../logistics/conveyor-zone";
+import { getConveyorZoneStatus } from "./selectors/conveyor-zone-status";
 import { decideHubDispatchExecutionAction } from "./workflows/hub-dispatch-execution";
 import {
   handleCraftingQueueAction,
   type CraftingQueueActionDeps,
 } from "./action-handlers/crafting-queue-actions";
-import {
-  handleZoneAction,
-  type ZoneActionDeps,
-} from "./action-handlers/zone-actions";
+import { handleZoneAction } from "./action-handlers/zone-actions";
 import { handleUiAction } from "./action-handlers/ui-actions";
 import {
   handleBuildingPlacementAction,
@@ -173,6 +153,79 @@ import {
   handleUiCellPrelude,
   type UiCellPreludeDeps,
 } from "./action-handlers/ui-cell-prelude";
+import {
+  handleMachineAction,
+  type MachineActionDeps,
+} from "./action-handlers/machine-actions";
+import {
+  handleClickCellToolAction,
+  type ClickCellToolActionDeps,
+} from "./action-handlers/click-cell-tools";
+import {
+  handleWarehouseHotbarAction,
+  type WarehouseHotbarActionDeps,
+} from "./action-handlers/warehouse-hotbar-actions";
+import {
+  handleManualAssemblerAction,
+  type ManualAssemblerActionDeps,
+} from "./action-handlers/manual-assembler-actions";
+import {
+  handleFloorPlacementAction,
+  type FloorPlacementActionDeps,
+} from "./action-handlers/floor-placement";
+import {
+  handleShopAction,
+  type ShopActionDeps,
+} from "./action-handlers/shop";
+import { handleMachineConfigAction } from "./action-handlers/machine-config";
+import {
+  handleDroneAssignmentAction,
+  type DroneAssignmentActionDeps,
+} from "./action-handlers/drone-assignment";
+import {
+  handleLogisticsTickAction,
+  type LogisticsTickActionDeps,
+} from "./action-handlers/logistics-tick";
+import {
+  decideInitialWarehousePlacement,
+  deriveDebugBootstrapLayout,
+} from "./helpers/initialState";
+import {
+  checkFloorPlacementEligibility,
+  mapFloorPlacementError,
+} from "./helpers/floorPlacement";
+import { validateDroneHubAssignment } from "./helpers/droneAssignment";
+import { tryTogglePanelFromAsset } from "./helpers/ui-panel-toggle";
+import {
+  getActiveSmithyAsset,
+  getSelectedCraftingAsset,
+} from "./helpers/crafting-asset-lookup";
+import { resolveShopItemTarget } from "./helpers/shop";
+import { runEnergyNetTick } from "./energy-net-tick";
+import {
+  decideAutoSmelterTickEntryEligibility,
+  decideAutoSmelterInputBeltEligibility,
+  decideAutoSmelterNonPendingStatus,
+  decideAutoSmelterOutputTarget,
+  decideAutoSmelterPendingOutputStatus,
+  decideAutoSmelterStartProcessingEligibility,
+} from "./smelter-decisions";
+import { consumeAutoSmelterPendingOutput } from "./smelter-mutations";
+import {
+  decideConveyorTickEligibility,
+  decideConveyorTargetSelection,
+} from "./conveyor-decisions";
+import {
+  decideAutoMinerOutputTarget,
+  decideAutoMinerTickEligibility,
+} from "./auto-miner-decisions";
+import { decideBuildingPlacementEligibility } from "./build-placement-eligibility";
+import { decideAutoMinerPlacementEligibility } from "./build-auto-miner-placement-eligibility";
+import { getDroneStatusDetail as getDroneStatusDetailClassifier } from "./drone-status-detail";
+import {
+  resolveDroneDropoffDecision,
+  type DroneDropoffFallbackEvent,
+} from "./drone-dropoff-decision";
 import type {
   CraftingAction,
   CraftingInventorySource,
@@ -275,7 +328,9 @@ export function isUnderConstruction(state: Pick<GameState, "constructionSites">,
 // CONSTANTS
 // ============================================================
 
-export const CONVEYOR_TILE_CAPACITY = 4;
+// Conveyor constants live in ./constants/conveyor.
+// Imported for internal use and re-exported for backward compatibility.
+export { CONVEYOR_TILE_CAPACITY } from "./constants/conveyor";
 export { GRID_W, GRID_H, CELL_PX };
 
 // Building constants & input-buffer configuration live in ./constants/buildings.
@@ -304,7 +359,6 @@ import {
   LOGISTICS_TICK_MS,
   NATURAL_SPAWN_CAP,
   NATURAL_SPAWN_CHANCE,
-  SAPLING_DROP_CHANCE,
   SAPLING_GROW_MS,
 } from "./constants/timing";
 export * from "./constants/timing";
@@ -329,8 +383,7 @@ import {
 export * from "./constants/energy/energy-smelter";
 
 // Energy balance constants live in ./constants/energy-balance.
-// Imported for internal use and re-exported for backward compatibility.
-import { ENERGY_DRAIN } from "./constants/energy/energy-balance";
+// Re-exported for backward compatibility.
 export * from "./constants/energy/energy-balance";
 
 // Generator constants live in ./constants/generator.
@@ -457,18 +510,6 @@ const POWER_POLE_RANGE_TYPES = new Set<AssetType>([
   "auto_smelter",
 ]);
 
-/**
- * Tie-break order for machines with the same user priority.
- * Lower rank is served first so transport stays alive before downstream processing.
- */
-const ENERGY_ALLOCATION_RANK: Partial<Record<AssetType, number>> = {
-  conveyor: 0,
-  conveyor_corner: 0,
-  auto_miner: 1,
-  smithy: 2,
-  auto_smelter: 3,
-};
-
 export function isPowerCableConductorType(type: AssetType): boolean {
   return POWER_CABLE_CONDUCTOR_TYPES.has(type);
 }
@@ -477,19 +518,8 @@ export function isPowerPoleRangeType(type: AssetType): boolean {
   return POWER_POLE_RANGE_TYPES.has(type);
 }
 
-function clampMachinePriority(priority: number | undefined): MachinePriority {
-  const raw = Number.isFinite(priority) ? Math.round(priority as number) : DEFAULT_MACHINE_PRIORITY;
-  const clamped = Math.max(1, Math.min(5, raw));
-  return clamped as MachinePriority;
-}
-
-export function isEnergyConsumerType(type: AssetType): boolean {
-  return ENERGY_DRAIN[type] != null;
-}
-
-function getEnergyAllocationRank(type: AssetType): number {
-  return ENERGY_ALLOCATION_RANK[type] ?? 4;
-}
+import { clampMachinePriority, isEnergyConsumerType } from "./machine-priority";
+export { isEnergyConsumerType };
 export {
   getConnectedConsumerDrainEntries,
   getEnergyProductionPerPeriod,
@@ -509,8 +539,10 @@ export {
 export {
   computeConnectedAssetIds,
   getConveyorZone,
+  getConveyorZoneStatus,
   areZonesTransportCompatible,
 };
+export type { ConveyorZoneStatus } from "./selectors/conveyor-zone-status";
 export {
   resolveCraftingSource,
   getCraftingSourceInventory,
@@ -529,7 +561,7 @@ export function getConnectedDemandPerPeriod(
   return getConnectedConsumerDrainEntries(state).reduce((sum, entry) => sum + entry.drain, 0);
 }
 
-function withDefaultMachinePriority(type: AssetType): Pick<PlacedAsset, "priority"> | {} {
+export function withDefaultMachinePriority(type: AssetType): Pick<PlacedAsset, "priority"> | {} {
   if (!isEnergyConsumerType(type)) return {};
   return { priority: DEFAULT_MACHINE_PRIORITY };
 }
@@ -608,61 +640,7 @@ export function getDroneDockSlotIndex(
 
 /** Produce a human-readable status detail for a drone (for UI display). */
 export function getDroneStatusDetail(state: GameState, drone: StarterDroneState): { label: string; taskGoal?: string } {
-  switch (drone.status) {
-    case "idle":
-      return { label: "Bereit" };
-    case "moving_to_collect": {
-      // hub_dispatch: en route to hub to pick up stock
-      if (drone.currentTaskType === "hub_dispatch" && drone.targetNodeId?.startsWith("hub:")) {
-        const resource = drone.targetNodeId.split(":")[2];
-        return { label: "Unterwegs zum Hub", taskGoal: resource ? `${resource} abholen` : undefined };
-      }
-      const workbenchTask = parseWorkbenchTaskNodeId(drone.targetNodeId);
-      if (drone.currentTaskType === "workbench_delivery" && workbenchTask?.kind === "input") {
-        const job = getCraftingJobById(state.crafting, workbenchTask.jobId);
-        const reservation = getCraftingReservationById(state.network, workbenchTask.reservationId);
-        return {
-          label: "Unterwegs zum Lager",
-          taskGoal: reservation && job ? `${reservation.amount}× ${reservation.itemId} für ${job.recipeId}` : undefined,
-        };
-      }
-      if (drone.currentTaskType === "workbench_delivery" && drone.craftingJobId) {
-        const job = getCraftingJobById(state.crafting, drone.craftingJobId);
-        return {
-          label: "Unterwegs zur Werkbank",
-          taskGoal: job ? `${job.output.count}× ${job.output.itemId} abholen` : undefined,
-        };
-      }
-      const node = drone.targetNodeId ? state.collectionNodes[drone.targetNodeId] : null;
-      return { label: "Unterwegs zum Sammeln", taskGoal: node ? `${node.itemType} (${node.amount})` : undefined };
-    }
-    case "collecting":
-      if (drone.currentTaskType === "workbench_delivery" && parseWorkbenchTaskNodeId(drone.targetNodeId)?.kind === "input") {
-        return { label: "Holt Werkbank-Input…" };
-      }
-      if (drone.currentTaskType === "workbench_delivery") return { label: "Holt Werkbank-Output…" };
-      if (drone.currentTaskType === "hub_dispatch") return { label: "Entnimmt Hub-Lager…" };
-      return { label: "Sammelt ein…" };
-    case "moving_to_dropoff":
-      if (drone.currentTaskType === "workbench_delivery" && parseWorkbenchTaskNodeId(drone.targetNodeId)?.kind === "input") {
-        return {
-          label: "Liefert Werkbank-Input",
-          taskGoal: drone.cargo ? `${drone.cargo.amount}× ${drone.cargo.itemType}` : undefined,
-        };
-      }
-      if (drone.currentTaskType === "workbench_delivery" && drone.craftingJobId) {
-        const job = getCraftingJobById(state.crafting, drone.craftingJobId);
-        return {
-          label: "Liefert Werkzeug aus",
-          taskGoal: job ? `${job.output.count}× ${job.output.itemId}` : undefined,
-        };
-      }
-      return { label: "Rückflug", taskGoal: drone.cargo ? `${drone.cargo.amount}× ${drone.cargo.itemType}` : undefined };
-    case "depositing":
-      return { label: "Liefert ab…" };
-    default:
-      return { label: String(drone.status) };
-  }
+  return getDroneStatusDetailClassifier(state, drone);
 }
 
 /** Helper: set a single drone in the drones record. */
@@ -1051,38 +1029,7 @@ function getAssignedWorkbenchInputDroneCount(
  * Tie-break: ascending nodeId string — deterministic, stable across ticks.
  * Returns null if no valid task exists.
  */
-const needSlotResolverDeps: NeedSlotResolverDeps = {
-  getOpenConstructionDroneSlots,
-  getAssignedConstructionDroneCount,
-  getRemainingConstructionNeed,
-  getRemainingHubRestockNeed,
-  getOpenHubRestockDroneSlots,
-  getRemainingBuildingInputDemand,
-  getOpenBuildingSupplyDroneSlots,
-  getAssignedBuildingSupplyDroneCount,
-  getWorkbenchJobInputAmount,
-  getAssignedWorkbenchInputDroneCount,
-  getAssignedWorkbenchDeliveryDroneCount,
-};
-
 const selectDroneTaskDeps: SelectDroneTaskDeps = {
-  roleBonus: DRONE_ROLE_BONUS,
-  stickyBonus: DRONE_STICKY_BONUS,
-  urgencyBonusMax: DRONE_URGENCY_BONUS_MAX,
-  demandBonusMax: DRONE_DEMAND_BONUS_MAX,
-  spreadPenaltyPerDrone: DRONE_SPREAD_PENALTY_PER_DRONE,
-  warehousePriorityBonus: DRONE_WAREHOUSE_PRIORITY_BONUS,
-  gatherConstructionSupplyCandidates,
-  gatherHubRestockCandidates,
-  gatherHubDispatchCandidates,
-  gatherWarehouseConstructionCandidates,
-  gatherGroundBuildingSupplyCandidates,
-  gatherHubBuildingSupplyCandidates,
-  gatherWarehouseBuildingSupplyCandidates,
-  gatherWorkbenchInputCandidates,
-  gatherWorkbenchOutputDeliveryCandidates,
-  scoreDroneTask,
-  ...needSlotResolverDeps,
   getAvailableHubDispatchSupply,
   getNearbyWarehousesForDispatch,
   getBuildingInputTargets,
@@ -1109,9 +1056,7 @@ export const AUTO_SMELTER_BUFFER_CAPACITY = 5;
 export const AUTO_MINER_BOOST_MULTIPLIER = 2;
 export const AUTO_SMELTER_BOOST_MULTIPLIER = 2;
 
-export function isBoostSupportedType(type: AssetType): boolean {
-  return type === "auto_miner" || type === "auto_smelter";
-}
+export { isBoostSupportedType } from "./machine-priority";
 
 /** Effektiver Boost-Multiplikator für ein Asset. 1 wenn nicht boosted oder nicht unterstützt. */
 export function getBoostMultiplier(asset: Pick<PlacedAsset, "type" | "boosted">): number {
@@ -1136,7 +1081,7 @@ export const BATTERY_CAPACITY = 1000;
 /** Chebyshev range (cells) in which a power_pole connects to neighbouring conductors */
 export const POWER_POLE_RANGE = 3;
 
-function createEmptyInventory(): Inventory {
+export function createEmptyInventory(): Inventory {
   return {
     coins: 0,
     wood: 0,
@@ -1452,59 +1397,6 @@ export function getZoneItemCapacity(state: GameState, zoneId: string): number {
   return count * WAREHOUSE_CAPACITY;
 }
 
-// ============================================================
-// CONVEYOR ZONE HELPERS
-// Pure helpers for zone-aware belt transport checks.
-// ============================================================
-
-export interface ConveyorZoneStatus {
-  /** Zone assigned to this belt (null = unzoned / global). */
-  zone: string | null;
-  /** Human-readable zone name (null if unzoned). */
-  zoneName: string | null;
-  /** Zone of the next tile this belt is pointing at (null = unzoned or no next asset). */
-  nextTileZone: string | null;
-  /** True when both this belt and the next tile have differing explicit zones. */
-  hasConflict: boolean;
-  /** Human-readable conflict reason, or null when no conflict. */
-  conflictReason: string | null;
-}
-
-/**
- * Derive zone/conflict status for a conveyor belt.
- * Pure function — safe to call from any UI component.
- */
-export function getConveyorZoneStatus(state: GameState, conveyorId: string): ConveyorZoneStatus {
-  const convAsset = state.assets[conveyorId];
-  const zone = state.buildingZoneIds[conveyorId] ?? null;
-  const zoneName = zone ? (state.productionZones[zone]?.name ?? zone) : null;
-
-  let nextTileZone: string | null = null;
-  let hasConflict = false;
-  let conflictReason: string | null = null;
-
-  if (convAsset) {
-    const dir = convAsset.direction ?? "east";
-    const [ox, oy] = directionOffset(dir);
-    const nextX = convAsset.x + ox;
-    const nextY = convAsset.y + oy;
-    if (nextX >= 0 && nextX < GRID_W && nextY >= 0 && nextY < GRID_H) {
-      const nextId = state.cellMap[cellKey(nextX, nextY)];
-      if (nextId) {
-        nextTileZone = state.buildingZoneIds[nextId] ?? null;
-        if (!areZonesTransportCompatible(zone, nextTileZone)) {
-          hasConflict = true;
-          const thisName = zoneName ?? zone ?? "Global";
-          const nextName = nextTileZone ? (state.productionZones[nextTileZone]?.name ?? nextTileZone) : "Global";
-          conflictReason = `Ziel-Zone mismatch: ${thisName} → ${nextName}`;
-        }
-      }
-    }
-  }
-
-  return { zone, zoneName, nextTileZone, hasConflict, conflictReason };
-}
-
 // Backward-compatible aliases (used by existing workbench code & tests)
 /** @deprecated Use CraftingSource */
 export type WorkbenchSource = CraftingSource;
@@ -1543,23 +1435,6 @@ function getFirstCraftingAssetOfType(
   return Object.values(state.assets).find((asset) => asset.type === assetType) ?? null;
 }
 
-function getCraftingAssetById(
-  state: Pick<GameState, "assets">,
-  assetId: string | null | undefined,
-  assetType: CraftingBuildingAssetType,
-): PlacedAsset | null {
-  if (!assetId) return null;
-  const asset = state.assets[assetId];
-  return asset && asset.type === assetType ? asset : null;
-}
-
-function getSelectedCraftingAsset(
-  state: Pick<GameState, "assets" | "selectedCraftingBuildingId">,
-  assetType: CraftingBuildingAssetType,
-): PlacedAsset | null {
-  return getCraftingAssetById(state, state.selectedCraftingBuildingId, assetType);
-}
-
 function logCraftingSelectionComparison(
   state: Pick<GameState, "assets" | "selectedCraftingBuildingId">,
   assetType: CraftingBuildingAssetType,
@@ -1571,13 +1446,6 @@ function logCraftingSelectionComparison(
   if (resolvedSelectedId === firstId) return;
   const logger = assetType === "smithy" ? debugLog.smithy : debugLog.general;
   logger(`Selected: ${assetType}[${resolvedSelectedId}], first would have been [${firstId}]`);
-}
-
-function getActiveSmithyAsset(
-  state: Pick<GameState, "assets" | "selectedCraftingBuildingId" | "smithy">,
-): PlacedAsset | null {
-  return getCraftingAssetById(state, state.smithy.buildingId, "smithy")
-    ?? getSelectedCraftingAsset(state, "smithy");
 }
 
 // ============================================================
@@ -1710,11 +1578,12 @@ export function hasStaleWarehouseAssignment(state: GameState, buildingId: string
 // HELPERS
 // ============================================================
 
-let _idCounter = 0;
-let _smelterRecipesLogged = false;
-export function makeId(): string {
-  return `a${Date.now()}_${_idCounter++}`;
-}
+// _smelterRecipesLogged moved into action-handlers/logistics-tick.ts together with the smelter phase.
+// makeId lives in ./make-id (extracted so handler modules can value-import it
+// directly without an ESM cycle through this file). Re-exported for backward
+// compatibility with `from "../store/reducer"` consumers.
+export { makeId } from "./make-id";
+import { makeId } from "./make-id";
 
 /**
  * Move a drone one step toward (toX, toY) by up to `maxStep` tiles (Chebyshev).
@@ -1937,12 +1806,28 @@ function commitWorkbenchInputReservation(
     const warehouseId = decision.source.warehouseId;
     const warehouseInventory = state.warehouseInventories[warehouseId];
     if (!warehouseInventory) return null;
+    const beforeAmount = (warehouseInventory as unknown as Record<string, number>)[reservation.itemId] ?? 0;
     const scoped = { [warehouseId]: warehouseInventory };
     const result = applyNetworkAction(scoped, state.network, {
       type: "NETWORK_COMMIT_RESERVATION",
       reservationId,
     });
     if (result.network.lastError) return null;
+    if (import.meta.env.DEV) {
+      const afterInventory = result.warehouseInventories[warehouseId] ?? warehouseInventory;
+      const afterAmount = (afterInventory as unknown as Record<string, number>)[reservation.itemId] ?? 0;
+      if (beforeAmount - afterAmount !== reservation.amount) {
+        throw new Error(
+          `[workbench] Invariant violated: commit ${reservation.id} debited ${beforeAmount - afterAmount} ` +
+            `of ${reservation.itemId}, expected ${reservation.amount}.`,
+        );
+      }
+      if (result.network.reservations.some((entry) => entry.id === reservation.id)) {
+        throw new Error(
+          `[workbench] Invariant violated: reservation ${reservation.id} still present after commit.`,
+        );
+      }
+    }
     return {
       nextState: {
         ...state,
@@ -1966,12 +1851,27 @@ function commitWorkbenchInputReservation(
   const scoped: Record<string, Inventory> = {
     [pseudoWarehouseId]: hubInventoryToInventoryView(hubEntry.inventory),
   };
+  const beforeAmount = (scoped[pseudoWarehouseId] as unknown as Record<string, number>)[reservation.itemId] ?? 0;
   const result = applyNetworkAction(scoped, state.network, {
     type: "NETWORK_COMMIT_RESERVATION",
     reservationId,
   });
   if (result.network.lastError) return null;
   const committedHubView = result.warehouseInventories[pseudoWarehouseId] ?? scoped[pseudoWarehouseId];
+  if (import.meta.env.DEV) {
+    const afterAmount = (committedHubView as unknown as Record<string, number>)[reservation.itemId] ?? 0;
+    if (beforeAmount - afterAmount !== reservation.amount) {
+      throw new Error(
+        `[workbench] Invariant violated: hub commit ${reservation.id} debited ${beforeAmount - afterAmount} ` +
+          `of ${reservation.itemId}, expected ${reservation.amount}.`,
+      );
+    }
+    if (result.network.reservations.some((entry) => entry.id === reservation.id)) {
+      throw new Error(
+        `[workbench] Invariant violated: reservation ${reservation.id} still present after hub commit.`,
+      );
+    }
+  }
   const nextHubInventory = inventoryViewToHubInventory(hubEntry.inventory, committedHubView);
   return {
     nextState: {
@@ -1992,36 +1892,18 @@ function commitWorkbenchInputReservation(
   };
 }
 
-function resolveWorkbenchDeliveryDropoff(
-  job: CraftingJob,
-  assets: Record<string, PlacedAsset>,
-  warehouseInventories: Record<string, Inventory>,
-  serviceHubs: Record<string, ServiceHubEntry>,
-): { x: number; y: number } {
-  const destination = resolveOutputDestination({
-    source: job.inventorySource,
-    stackItemId: job.output.itemId,
-    warehouseInventories,
-    serviceHubs,
-    assets,
-    preferredFromAssetId: job.workbenchId,
-  });
-
-  if (destination.kind === "warehouse") {
-    const targetAsset = assets[destination.id];
-    if (targetAsset?.type === "warehouse") {
-      return { x: targetAsset.x, y: targetAsset.y };
-    }
+function logDroneDropoffFallbackEvent(event: DroneDropoffFallbackEvent): void {
+  if (event.kind === "construction_site_missing") {
+    debugLog.inventory(`[Drone] Construction site asset ${event.targetId} gone — falling back`);
+    return;
   }
 
-  if (destination.kind === "hub") {
-    const targetAsset = assets[destination.id];
-    if (targetAsset?.type === "service_hub") {
-      return { x: targetAsset.x, y: targetAsset.y };
-    }
+  if (event.kind === "building_target_missing") {
+    debugLog.inventory(`[Drone] Building input target ${event.targetId} gone — falling back`);
+    return;
   }
 
-  return { x: MAP_SHOP_POS.x, y: MAP_SHOP_POS.y };
+  debugLog.inventory(`[Drone] Hub asset ${event.targetId} gone — falling back to start module`);
 }
 
 /**
@@ -2042,61 +1924,22 @@ function resolveDroneDropoff(
   warehouseInventories?: Record<string, Inventory>,
   crafting?: Pick<GameState, "crafting">["crafting"],
 ): { x: number; y: number } {
-  // Construction supply: target is the construction site asset + per-drone offset
-  if (drone.currentTaskType === "construction_supply" && drone.deliveryTargetId) {
-    const siteAsset = assets[drone.deliveryTargetId];
-    if (siteAsset) {
-      const off = DELIVERY_OFFSETS[droneDeliverySlot(drone.droneId)];
-      return { x: siteAsset.x + off.dx, y: siteAsset.y + off.dy };
-    }
-    // Site was removed during flight — fall through to hub or MAP_SHOP
-    debugLog.inventory(`[Drone] Construction site asset ${drone.deliveryTargetId} gone — falling back`);
+  const decision = resolveDroneDropoffDecision({
+    drone,
+    assets,
+    serviceHubs,
+    warehouseInventories,
+    crafting,
+    mapShopPos: MAP_SHOP_POS,
+    getDeliveryOffset: (droneId) => DELIVERY_OFFSETS[droneDeliverySlot(droneId)],
+    getDroneHomeDock,
+  });
+
+  for (const fallbackEvent of decision.fallbackEvents ?? []) {
+    logDroneDropoffFallbackEvent(fallbackEvent);
   }
 
-  // Building supply: target is the building asset hosting the input buffer
-  if (drone.currentTaskType === "building_supply" && drone.deliveryTargetId) {
-    const targetAsset = assets[drone.deliveryTargetId];
-    if (targetAsset) {
-      const off = DELIVERY_OFFSETS[droneDeliverySlot(drone.droneId)];
-      return { x: targetAsset.x + off.dx, y: targetAsset.y + off.dy };
-    }
-    debugLog.inventory(`[Drone] Building input target ${drone.deliveryTargetId} gone — falling back`);
-  }
-
-  if (drone.currentTaskType === "workbench_delivery" && crafting) {
-    const task = parseWorkbenchTaskNodeId(drone.targetNodeId);
-    if (task?.kind === "input") {
-      const workbenchAsset = assets[task.workbenchId];
-      if (workbenchAsset?.type === "workbench") {
-        return { x: workbenchAsset.x, y: workbenchAsset.y };
-      }
-    }
-    const job = getCraftingJobById(crafting, drone.craftingJobId ?? task?.jobId ?? null);
-    if (job) {
-      return resolveWorkbenchDeliveryDropoff(
-        job,
-        assets,
-        warehouseInventories ?? {},
-        serviceHubs ?? {},
-      );
-    }
-  }
-
-  // Hub restock (or construction fallback): use dock slot so each drone targets its own tile
-  if (drone.hubId) {
-    if (serviceHubs) {
-      const dock = getDroneHomeDock(drone, { assets, serviceHubs });
-      if (dock) return dock;
-    }
-    // Fallback when serviceHubs not provided (backward-compat path)
-    const hubAsset = assets[drone.hubId];
-    if (hubAsset) return { x: hubAsset.x, y: hubAsset.y };
-    // Hub asset removed during flight — fall through to MAP_SHOP
-    debugLog.inventory(`[Drone] Hub asset ${drone.hubId} gone — falling back to start module`);
-  }
-
-  // Legacy / no hub: deliver to start module
-  return { x: MAP_SHOP_POS.x, y: MAP_SHOP_POS.y };
+  return { x: decision.x, y: decision.y };
 }
 
 /**
@@ -2117,7 +1960,7 @@ export function addToCollectionNodeAt(
       return { ...nodes, [node.id]: { ...node, amount: node.amount + amount } };
     }
   }
-  const id = `cn${Date.now()}_${_idCounter++}`;
+  const id = makeId("cn");
   return {
     ...nodes,
     [id]: { id, itemType, amount, tileX, tileY, collectable: true, createdAt: Date.now(), reservedByDroneId: null },
@@ -2138,15 +1981,15 @@ export function directionOffset(dir: Direction): [number, number] {
   }
 }
 
-function assetWidth(asset: PlacedAsset): number {
+export function assetWidth(asset: PlacedAsset): number {
   return asset.width ?? asset.size;
 }
 
-function assetHeight(asset: PlacedAsset): number {
+export function assetHeight(asset: PlacedAsset): number {
   return asset.height ?? asset.size;
 }
 
-function getAutoSmelterIoCells(asset: PlacedAsset): { input: { x: number; y: number }; output: { x: number; y: number } } {
+export function getAutoSmelterIoCells(asset: PlacedAsset): { input: { x: number; y: number }; output: { x: number; y: number } } {
   const dir = asset.direction ?? "east";
   const w = assetWidth(asset);
   const h = assetHeight(asset);
@@ -2234,69 +2077,6 @@ function removeAsset(
   return { assets: newAssets, cellMap: newCellMap, saplingGrowAt: newGrow };
 }
 
-function tryTogglePanelFromAsset(state: GameState, asset: PlacedAsset | null): GameState | null {
-  if (!asset) return null;
-  if (isUnderConstruction(state, asset.id)) return null;
-
-  if ((["workbench", "warehouse", "smithy", "generator", "battery", "power_pole", "manual_assembler", "service_hub"] as string[]).includes(asset.type)) {
-    const panel = asset.type as UIPanel;
-    if (asset.type === "warehouse") {
-      const newPanel = state.openPanel === panel && state.selectedWarehouseId === asset.id ? null : panel;
-      return { ...state, openPanel: newPanel, selectedWarehouseId: newPanel ? asset.id : null };
-    }
-    if (asset.type === "power_pole") {
-      const newPanel = state.openPanel === panel ? null : panel;
-      return { ...state, openPanel: newPanel, selectedPowerPoleId: newPanel ? asset.id : state.selectedPowerPoleId };
-    }
-    // Crafting buildings: track which specific instance is open
-    if (asset.type === "workbench" || asset.type === "smithy" || asset.type === "manual_assembler") {
-      const opening = state.openPanel !== panel || state.selectedCraftingBuildingId !== asset.id;
-      return {
-        ...state,
-        openPanel: opening ? panel : null,
-        selectedCraftingBuildingId: opening ? asset.id : null,
-      };
-    }
-    if (asset.type === "generator") {
-      const opening = state.openPanel !== panel || state.selectedGeneratorId !== asset.id;
-      return {
-        ...state,
-        openPanel: opening ? panel : null,
-        selectedGeneratorId: opening ? asset.id : null,
-      };
-    }
-    if (asset.type === "service_hub") {
-      const opening = state.openPanel !== panel || state.selectedServiceHubId !== asset.id;
-      return {
-        ...state,
-        openPanel: opening ? panel : null,
-        selectedServiceHubId: opening ? asset.id : null,
-      };
-    }
-    return { ...state, openPanel: state.openPanel === panel ? null : panel };
-  }
-
-  if (asset.type === "auto_miner") {
-    const opening = state.openPanel !== "auto_miner" || state.selectedAutoMinerId !== asset.id;
-    return {
-      ...state,
-      openPanel: opening ? "auto_miner" : null,
-      selectedAutoMinerId: opening ? asset.id : null,
-    };
-  }
-
-  if (asset.type === "auto_smelter") {
-    const opening = state.openPanel !== "auto_smelter" || state.selectedAutoSmelterId !== asset.id;
-    return {
-      ...state,
-      openPanel: opening ? "auto_smelter" : null,
-      selectedAutoSmelterId: opening ? asset.id : null,
-    };
-  }
-
-  return null;
-}
-
 function areConveyorItemsEqual(a: ConveyorItem[], b: ConveyorItem[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
@@ -2337,7 +2117,7 @@ function areAutoSmelterEntriesEqual(a: AutoSmelterEntry, b: AutoSmelterEntry): b
   );
 }
 
-function placeAsset(
+export function placeAsset(
   assets: Record<string, PlacedAsset>,
   cellMap: Record<string, string>,
   type: AssetType,
@@ -2530,385 +2310,7 @@ export function hotbarDecrement(slots: HotbarSlot[], idx: number): HotbarSlot[] 
 // INITIAL STATE
 // ============================================================
 
-export function createInitialState(mode: GameMode): GameState {
-  const assets: Record<string, PlacedAsset> = {};
-  const cellMap: Record<string, string> = {};
-
-  function tryPlace(type: AssetType, x: number, y: number, size: 1 | 2, fixed?: boolean): string | undefined {
-    if (x + size > GRID_W || y + size > GRID_H) return;
-    for (let dy = 0; dy < size; dy++) {
-      for (let dx = 0; dx < size; dx++) {
-        if (cellMap[cellKey(x + dx, y + dy)]) return;
-      }
-    }
-    const id = makeId();
-    assets[id] = {
-      id,
-      type,
-      x,
-      y,
-      size,
-      ...(fixed ? { fixed: true } : {}),
-      ...withDefaultMachinePriority(type),
-    } as PlacedAsset;
-    for (let dy = 0; dy < size; dy++) {
-      for (let dx = 0; dx < size; dx++) {
-        cellMap[cellKey(x + dx, y + dy)] = id;
-      }
-    }
-    return id;
-  }
-
-  // Place fixed map shop (2x2) near center
-  tryPlace("map_shop", MAP_SHOP_POS.x, MAP_SHOP_POS.y, 2, true);
-
-  // Place fixed proto-hub (2x2) next to map shop
-  const protoHubId = tryPlace("service_hub", MAP_SHOP_POS.x + 3, MAP_SHOP_POS.y, 2, true);
-
-  // Place fixed 2\u00d72 resource deposits at predetermined positions
-  for (const dp of DEPOSIT_POSITIONS) {
-    tryPlace(dp.type, dp.x, dp.y, 2, true);
-  }
-
-  // Place starting warehouse (2x2) at the nearest free spot within 10 cells of map_shop
-  {
-    const shopX = MAP_SHOP_POS.x;
-    const shopY = MAP_SHOP_POS.y;
-    const candidates: { x: number; y: number; dist: number }[] = [];
-    for (let dy = -10; dy <= 10; dy++) {
-      for (let dx = -10; dx <= 10; dx++) {
-        const wx = shopX + dx;
-        const wy = shopY + dy;
-        if (wx < 0 || wy < 0 || wx + 2 > GRID_W || wy + 2 > GRID_H) continue;
-        candidates.push({ x: wx, y: wy, dist: Math.abs(dx) + Math.abs(dy) });
-      }
-    }
-    candidates.sort((a, b) => a.dist - b.dist);
-    for (const { x, y } of candidates) {
-      if (
-        !cellMap[cellKey(x, y)] &&
-        !cellMap[cellKey(x + 1, y)] &&
-        !cellMap[cellKey(x, y + 1)] &&
-        !cellMap[cellKey(x + 1, y + 1)]
-      ) {
-        tryPlace("warehouse", x, y, 2);
-        break;
-      }
-    }
-  }
-
-  // Place resources randomly
-  for (let i = 0; i < 40; i++) {
-    const x = Math.floor(Math.random() * GRID_W);
-    const y = Math.floor(Math.random() * GRID_H);
-    tryPlace("tree", x, y, 1);
-  }
-  for (let i = 0; i < 20; i++) {
-    const x = Math.floor(Math.random() * GRID_W);
-    const y = Math.floor(Math.random() * GRID_H);
-    tryPlace("stone", x, y, 1);
-  }
-  for (let i = 0; i < 15; i++) {
-    const x = Math.floor(Math.random() * GRID_W);
-    const y = Math.floor(Math.random() * GRID_H);
-    tryPlace("iron", x, y, 1);
-  }
-  for (let i = 0; i < 15; i++) {
-    const x = Math.floor(Math.random() * GRID_W);
-    const y = Math.floor(Math.random() * GRID_H);
-    tryPlace("copper", x, y, 1);
-  }
-
-  const isDebug = mode === "debug";
-  const floorMap: Record<string, "stone_floor"> = {};
-  const autoMiners: Record<string, AutoMinerEntry> = {};
-  const conveyors: Record<string, ConveyorState> = {};
-  const autoSmelters: Record<string, AutoSmelterEntry> = {};
-  let selectedPowerPoleId: string | null = null;
-
-  function removeNonFixedAssetAtCell(x: number, y: number) {
-    const id = cellMap[cellKey(x, y)];
-    if (!id) return;
-    const a = assets[id];
-    if (!a || a.fixed) return;
-    delete assets[id];
-    for (let dy = 0; dy < assetHeight(a); dy++) {
-      for (let dx = 0; dx < assetWidth(a); dx++) {
-        const k = cellKey(a.x + dx, a.y + dy);
-        if (cellMap[k] === id) delete cellMap[k];
-      }
-    }
-  }
-
-  function clearAreaForDebug(x: number, y: number, size: 1 | 2) {
-    for (let dy = 0; dy < size; dy++) {
-      for (let dx = 0; dx < size; dx++) {
-        removeNonFixedAssetAtCell(x + dx, y + dy);
-      }
-    }
-  }
-
-  function placeDirectedForDebug(type: AssetType, x: number, y: number, direction: Direction) {
-    clearAreaForDebug(x, y, 1);
-    const placedId = tryPlace(type, x, y, 1);
-    if (!placedId) return null;
-    assets[placedId] = { ...assets[placedId], direction };
-    return placedId;
-  }
-
-  if (isDebug) {
-    // Deterministisches Debug-Setup:
-    // Auto-Miner (Eisen) -> 3 Förderbänder -> Auto Smelter -> 3 Förderbänder -> Lagerhaus,
-    // plus 2 Generatoren + Stromknoten für stabile Vollversorgung.
-    const ironDeposit = Object.values(assets).find((a) => a.type === "iron_deposit") ?? null;
-    if (ironDeposit) {
-      const minerPos = { x: ironDeposit.x, y: ironDeposit.y, dir: "west" as Direction };
-      const autoSmelterPos = {
-        x: Math.max(2, minerPos.x - 5),
-        y: minerPos.y,
-      };
-      const warehousePos = {
-        x: Math.max(1, minerPos.x - 8),
-        y: Math.max(0, minerPos.y - 2),
-      };
-      const generatorA = {
-        x: Math.max(0, autoSmelterPos.x - 2),
-        y: Math.min(GRID_H - 2, autoSmelterPos.y + 3),
-      };
-      const generatorB = {
-        x: Math.min(GRID_W - 2, autoSmelterPos.x + 1),
-        y: Math.min(GRID_H - 2, autoSmelterPos.y + 3),
-      };
-      const polePositions = [
-        { x: autoSmelterPos.x + 1, y: autoSmelterPos.y + 2 },
-        { x: autoSmelterPos.x - 1, y: autoSmelterPos.y + 2 },
-        { x: warehousePos.x + 1, y: warehousePos.y + 2 },
-        // Bridge pole so the auto-miner tile is within POWER_POLE_RANGE in debug setup.
-        { x: minerPos.x - 3, y: minerPos.y + 1 },
-      ].filter((p) => p.x >= 0 && p.x < GRID_W && p.y >= 0 && p.y < GRID_H);
-
-      const inputBelts = [
-        { x: minerPos.x - 1, y: minerPos.y, dir: "west" as Direction },
-        { x: minerPos.x - 2, y: minerPos.y, dir: "west" as Direction },
-        { x: minerPos.x - 3, y: minerPos.y, dir: "west" as Direction },
-      ];
-      const outputBelts = [
-        { x: autoSmelterPos.x - 1, y: autoSmelterPos.y, dir: "west" as Direction },
-        { x: autoSmelterPos.x - 2, y: autoSmelterPos.y, dir: "west" as Direction },
-        { x: autoSmelterPos.x - 3, y: autoSmelterPos.y, dir: "west" as Direction },
-      ];
-
-      clearAreaForDebug(warehousePos.x, warehousePos.y, 2);
-      clearAreaForDebug(autoSmelterPos.x, autoSmelterPos.y, 2);
-      clearAreaForDebug(generatorA.x, generatorA.y, 2);
-      clearAreaForDebug(generatorB.x, generatorB.y, 2);
-      for (const p of polePositions) clearAreaForDebug(p.x, p.y, 1);
-      for (const belt of [...inputBelts, ...outputBelts]) clearAreaForDebug(belt.x, belt.y, 1);
-
-      for (const g of [generatorA, generatorB]) {
-        for (let dy = 0; dy < 2; dy++) {
-          for (let dx = 0; dx < 2; dx++) {
-            floorMap[cellKey(g.x + dx, g.y + dy)] = "stone_floor";
-          }
-        }
-      }
-
-      tryPlace("warehouse", warehousePos.x, warehousePos.y, 2);
-      tryPlace("generator", generatorA.x, generatorA.y, 2);
-      tryPlace("generator", generatorB.x, generatorB.y, 2);
-
-      for (const p of polePositions) {
-        const poleId = placeDirectedForDebug("power_pole", p.x, p.y, "north");
-        if (!selectedPowerPoleId && poleId) selectedPowerPoleId = poleId;
-      }
-
-      const depositCellId = cellMap[cellKey(minerPos.x, minerPos.y)];
-      const depositAsset = depositCellId ? assets[depositCellId] : null;
-      let minerId: string | null = null;
-      if (depositAsset && depositAsset.type === "iron_deposit") {
-        minerId = makeId();
-        assets[minerId] = {
-          id: minerId,
-          type: "auto_miner",
-          x: minerPos.x,
-          y: minerPos.y,
-          size: 1,
-          direction: minerPos.dir,
-          priority: DEFAULT_MACHINE_PRIORITY,
-        };
-        cellMap[cellKey(minerPos.x, minerPos.y)] = minerId;
-        autoMiners[minerId] = {
-          depositId: depositCellId,
-          resource: "iron",
-          progress: 0,
-        };
-      }
-
-      for (const belt of [...inputBelts, ...outputBelts]) {
-        const convId = placeDirectedForDebug("conveyor", belt.x, belt.y, belt.dir);
-        if (convId) conveyors[convId] = { queue: [] };
-      }
-
-      const smelterPlaced = placeAsset(assets, cellMap, "auto_smelter", autoSmelterPos.x, autoSmelterPos.y, 2, 2, 1);
-      if (smelterPlaced) {
-        Object.assign(assets, smelterPlaced.assets);
-        assets[smelterPlaced.id] = {
-          ...smelterPlaced.assets[smelterPlaced.id],
-          direction: "west",
-          priority: DEFAULT_MACHINE_PRIORITY,
-        };
-        for (const [k, v] of Object.entries(smelterPlaced.cellMap)) {
-          cellMap[k] = v;
-        }
-        autoSmelters[smelterPlaced.id] = {
-          inputBuffer: [],
-          processing: null,
-          pendingOutput: [],
-          status: "IDLE",
-          lastRecipeInput: null,
-          lastRecipeOutput: null,
-          throughputEvents: [],
-          selectedRecipe: "iron",
-        };
-
-        const io = getAutoSmelterIoCells(assets[smelterPlaced.id]);
-        const inputNeighborId = cellMap[cellKey(io.input.x, io.input.y)];
-        const outputNeighborId = cellMap[cellKey(io.output.x, io.output.y)];
-        const inputNeighbor = inputNeighborId ? assets[inputNeighborId] : null;
-        const outputNeighbor = outputNeighborId ? assets[outputNeighborId] : null;
-        const beltFound =
-          (inputNeighbor?.type === "conveyor" || inputNeighbor?.type === "conveyor_corner") &&
-          (outputNeighbor?.type === "conveyor" || outputNeighbor?.type === "conveyor_corner");
-
-        console.log("[DebugSetup] Auto-Miner:", minerId ? assets[minerId] : null);
-        console.log("[DebugSetup] Auto-Smelter:", assets[smelterPlaced.id]);
-        console.log("[DebugSetup] Lagerhaus:", Object.values(assets).find((a) => a.type === "warehouse"));
-        console.log("[DebugSetup] Generator A:", generatorA, "Generator B:", generatorB);
-        console.log("[DebugSetup] Smelter Input-Tile:", io.input);
-        console.log("[DebugSetup] Smelter Output-Tile:", io.output);
-        console.log("[DebugSetup] Förderbänder korrekt erkannt:", beltFound, {
-          inputType: inputNeighbor?.type ?? null,
-          outputType: outputNeighbor?.type ?? null,
-        });
-        console.log("[DebugSetup] Miner -> Input-Band verbunden:", {
-          minerOutputTile: { x: minerPos.x - 1, y: minerPos.y },
-          inputTile: io.input,
-          connected: minerPos.x - 1 === inputBelts[0].x && minerPos.y === inputBelts[0].y,
-        });
-      }
-
-    }
-  }
-
-  // Build per-instance generator state; debug mode pre-fuels all generators and starts them.
-  const generators: Record<string, GeneratorState> = {};
-  for (const asset of Object.values(assets)) {
-    if (asset.type === "generator") {
-      generators[asset.id] = isDebug
-        ? { fuel: 500, progress: 0, running: true }
-        : { fuel: 0, progress: 0, running: false };
-    }
-  }
-
-  const inventory: Inventory = {
-    ...createEmptyInventory(),
-    // Start with no resources in debug mode – use the Debug Panel (999 per click) to add them.
-    // In normal mode, give the player a small coin starting grant only.
-    ...(isDebug ? { coins: 99999 } : { coins: 1000 }),
-  };
-
-  const warehouseInventories: Record<string, Inventory> = {};
-  for (const a of Object.values(assets)) {
-    if (a.type === "warehouse") {
-      warehouseInventories[a.id] = createEmptyInventory();
-    }
-  }
-
-  const hotbar = createInitialHotbar();
-  // No pre-filled debug hotbar – tools come from Debug Panel → warehouse → hotbar.
-  const warehouseCount = Object.values(assets).filter((a) => a.type === "warehouse").length;
-  const powerPoleCount = Object.values(assets).filter((a) => a.type === "power_pole").length;
-  const hasGenerator = Object.values(assets).some((a) => a.type === "generator");
-  const connectedAssetIds = computeConnectedAssetIds({ assets, cellMap, constructionSites: {} });
-  const anyGeneratorRunning = Object.values(generators).some((g) => g.running);
-  const poweredMachineIds = anyGeneratorRunning
-    ? connectedAssetIds.filter((id) => {
-        const a = assets[id];
-        return !!a && isEnergyConsumerType(a.type);
-      })
-    : [];
-
-  const initial: GameState = {
-    mode,
-    assets,
-    cellMap,
-    inventory,
-    purchasedBuildings: hasGenerator ? ["generator"] : [],
-    placedBuildings: hasGenerator ? ["generator"] : [],
-    warehousesPurchased: warehouseCount,
-    warehousesPlaced: warehouseCount,
-    warehouseInventories,
-    selectedWarehouseId: null,
-    cablesPlaced: 0,
-    powerPolesPlaced: powerPoleCount,
-    selectedPowerPoleId,
-    hotbarSlots: hotbar,
-    activeSlot: 0,
-    smithy: { fuel: 0, iron: 0, copper: 0, selectedRecipe: "iron", processing: false, progress: 0, outputIngots: 0, outputCopperIngots: 0, buildingId: null },
-    generators,
-    battery: { stored: 0, capacity: BATTERY_CAPACITY },
-    connectedAssetIds,
-    poweredMachineIds,
-    openPanel: null,
-    notifications: [],
-    saplingGrowAt: {},
-    buildMode: false,
-    selectedBuildingType: null,
-    selectedFloorTile: null,
-    floorMap,
-    autoMiners,
-    conveyors,
-    selectedAutoMinerId: null,
-    autoSmelters,
-    selectedAutoSmelterId: null,
-    selectedGeneratorId: null,
-    selectedServiceHubId: null,
-    manualAssembler: { processing: false, recipe: null, progress: 0, buildingId: null },
-    machinePowerRatio: {},
-    energyDebugOverlay: false,
-    autoDeliveryLog: [],
-    buildingSourceWarehouseIds: {},
-    productionZones: {},
-    buildingZoneIds: {},
-    selectedCraftingBuildingId: null,
-    collectionNodes: {},
-    starterDrone: {
-      status: "idle",
-      tileX: protoHubId ? MAP_SHOP_POS.x + 3 : MAP_SHOP_POS.x,
-      tileY: MAP_SHOP_POS.y,
-      targetNodeId: null,
-      cargo: null,
-      ticksRemaining: 0,
-      hubId: protoHubId ?? null,
-      currentTaskType: null,
-      deliveryTargetId: null,
-      craftingJobId: null,
-      droneId: "starter",
-    },
-    drones: {} as Record<string, StarterDroneState>,
-    serviceHubs: protoHubId
-      ? { [protoHubId]: { inventory: createEmptyHubInventory(), targetStock: createDefaultProtoHubTargetStock(), tier: 1 as HubTier, droneIds: ["starter"] } }
-      : {},
-    constructionSites: {},
-    network: createEmptyNetworkSlice(),
-    crafting: createEmptyCraftingQueue(),
-    keepStockByWorkbench: {},
-    recipeAutomationPolicies: {},
-  };
-  // Ensure drones record is pre-populated with the starter drone
-  initial.drones = { starter: initial.starterDrone };
-  return initial;
-}
+export { createInitialState } from "./initial-state";
 
 // ============================================================
 // ACTIONS
@@ -3055,7 +2457,6 @@ const tickOneDroneDeps: TickOneDroneDeps = {
   createDefaultProtoHubTargetStock,
   selectDroneTask,
   getDroneHomeDock,
-  droneTravelTicks,
   parseWorkbenchTaskNodeId,
   getCraftingJobById,
   getCraftingReservationById,
@@ -3063,43 +2464,20 @@ const tickOneDroneDeps: TickOneDroneDeps = {
   finalizeWorkbenchDelivery,
   moveDroneToward,
   nudgeAwayFromDrones,
-  getRemainingConstructionNeed,
-  getRemainingBuildingInputDemand,
-  getRemainingHubRestockNeed,
   commitWorkbenchInputReservation,
   resolveDroneDropoff,
-  decideHubDispatchExecutionAction,
-  getBuildingInputConfig,
   addResources,
-  computeConnectedAssetIds,
-  finalizeHubTier2Upgrade,
   makeId,
-  getDroneDockOffset,
   addNotification,
   syncDrones,
-  getMaxDrones,
   isHubUpgradeDeliverySatisfied,
   finalizeWorkbenchInputDelivery,
   debugLog,
-  DRONE_SPEED_TILES_PER_TICK,
-  DRONE_COLLECT_TICKS,
-  DRONE_DEPOSIT_TICKS,
-  DRONE_CAPACITY,
 };
 
 function tickOneDrone(state: GameState, droneId: string): GameState {
   return tickOneDroneExecution(state, droneId, tickOneDroneDeps);
 }
-
-const tickAllDronesDeps: TickAllDronesDeps = {
-  tickOneDrone,
-  readStarterRecord: (state) => state.drones.starter,
-  writeStarterRecord: (state, starter) => ({
-    ...state,
-    drones: { ...state.drones, starter },
-  }),
-  listDroneIds: (state) => Object.keys(state.drones),
-};
 
 function getKeepStockByWorkbench(state: Pick<GameState, "keepStockByWorkbench">): KeepStockByWorkbench {
   return state.keepStockByWorkbench ?? {};
@@ -3129,12 +2507,59 @@ const CRAFTING_QUEUE_ACTION_DEPS: CraftingQueueActionDeps = {
   getRecipeAutomationPolicies,
 };
 
-const ZONE_ACTION_DEPS: ZoneActionDeps = {
-  makeId,
-};
-
 const UI_CELL_PRELUDE_DEPS: UiCellPreludeDeps = {
   tryTogglePanelFromAsset,
+};
+
+const CLICK_CELL_TOOL_ACTION_DEPS: ClickCellToolActionDeps = {
+  RESOURCE_1x1_DROP_AMOUNT,
+  removeAsset,
+  addToCollectionNodeAt,
+  hotbarDecrement,
+  getCapacityPerResource,
+  hotbarAdd,
+  addResources,
+  addNotification,
+  placeAsset,
+  addErrorNotification,
+  debugLog,
+};
+
+const MACHINE_ACTION_DEPS: MachineActionDeps = {
+  getSelectedCraftingAsset,
+  getActiveSmithyAsset,
+  logCraftingSelectionComparison,
+  isUnderConstruction,
+  resolveBuildingSource,
+  addErrorNotification,
+  addNotification,
+  consumeResources,
+  addResources,
+};
+
+const WAREHOUSE_HOTBAR_ACTION_DEPS: WarehouseHotbarActionDeps = {
+  EMPTY_HOTBAR_SLOT,
+  hotbarAdd,
+  addErrorNotification,
+  isUnderConstruction,
+  getAvailableResource,
+  getWarehouseCapacity,
+  consumeResources,
+  addResources,
+};
+
+const MANUAL_ASSEMBLER_ACTION_DEPS: ManualAssemblerActionDeps = {
+  getSelectedCraftingAsset,
+  logCraftingSelectionComparison,
+  isUnderConstruction,
+  resolveBuildingSource,
+  getCapacityPerResource,
+  getZoneItemCapacity,
+  addErrorNotification,
+  addNotification,
+  consumeResources,
+  addResources,
+  WAREHOUSE_CAPACITY,
 };
 
 const BUILDING_PLACEMENT_ACTION_DEPS: BuildingPlacementActionDeps = {
@@ -3170,6 +2595,8 @@ const BUILDING_PLACEMENT_ACTION_DEPS: BuildingPlacementActionDeps = {
   reassignBuildingSourceIds,
   getDroneDockOffset,
   computeConnectedAssetIds,
+  decideBuildingPlacementEligibility,
+  decideAutoMinerPlacementEligibility,
   addErrorNotification,
   debugLog,
 };
@@ -3181,10 +2608,60 @@ const BUILDING_SITE_ACTION_DEPS: BuildingSiteActionDeps = {
   debugLog,
 };
 
+const FLOOR_PLACEMENT_ACTION_DEPS: FloorPlacementActionDeps = {
+  GRID_W,
+  GRID_H,
+  FLOOR_TILE_COSTS,
+  cellKey,
+  hasResources,
+  getEffectiveBuildInventory,
+  addErrorNotification,
+  checkFloorPlacementEligibility,
+  mapFloorPlacementError,
+  consumeBuildResources,
+  debugLog,
+};
+
+const SHOP_ACTION_DEPS: ShopActionDeps = {
+  MAP_SHOP_ITEMS,
+  hasResources,
+  consumeResources,
+  addNotification,
+  resolveShopItemTarget,
+  hotbarAdd,
+  addResources,
+};
+
+const DRONE_ASSIGNMENT_ACTION_DEPS: DroneAssignmentActionDeps = {
+  validateDroneHubAssignment,
+  addErrorNotification,
+  syncDrones,
+  debugLog,
+};
+
+const LOGISTICS_TICK_ACTION_DEPS: LogisticsTickActionDeps = {
+  getWarehouseCapacity,
+  getCapacityPerResource,
+  getZoneItemCapacity,
+  resolveBuildingSource,
+  directionOffset,
+  getBoostMultiplier,
+  getAutoSmelterIoCells,
+  areAutoSmelterEntriesEqual,
+  isValidWarehouseInput,
+  addResources,
+  addNotification,
+  addAutoDelivery,
+  CONVEYOR_TILE_CAPACITY,
+  AUTO_SMELTER_BUFFER_CAPACITY,
+  AUTO_MINER_PRODUCE_TICKS,
+  LOGISTICS_TICK_MS,
+};
+
 export function gameReducer(state: GameState, action: GameAction): GameState {
   const craftingQueueResult = handleCraftingQueueAction(state, action, CRAFTING_QUEUE_ACTION_DEPS);
   if (craftingQueueResult !== null) return craftingQueueResult;
-  const zoneResult = handleZoneAction(state, action, ZONE_ACTION_DEPS);
+  const zoneResult = handleZoneAction(state, action);
   if (zoneResult !== null) return zoneResult;
   const uiResult = handleUiAction(state, action);
   if (uiResult !== null) return uiResult;
@@ -3200,6 +2677,44 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     BUILDING_SITE_ACTION_DEPS,
   );
   if (buildingSiteResult !== null) return buildingSiteResult;
+  const machineResult = handleMachineAction(
+    state,
+    action,
+    MACHINE_ACTION_DEPS,
+  );
+  if (machineResult !== null) return machineResult;
+  const warehouseHotbarResult = handleWarehouseHotbarAction(
+    state,
+    action,
+    WAREHOUSE_HOTBAR_ACTION_DEPS,
+  );
+  if (warehouseHotbarResult !== null) return warehouseHotbarResult;
+  const manualAssemblerResult = handleManualAssemblerAction(
+    state,
+    action,
+    MANUAL_ASSEMBLER_ACTION_DEPS,
+  );
+  if (manualAssemblerResult !== null) return manualAssemblerResult;
+  const floorPlacementResult = handleFloorPlacementAction(
+    state,
+    action,
+    FLOOR_PLACEMENT_ACTION_DEPS,
+  );
+  if (floorPlacementResult !== null) return floorPlacementResult;
+  const shopResult = handleShopAction(
+    state,
+    action,
+    SHOP_ACTION_DEPS,
+  );
+  if (shopResult !== null) return shopResult;
+  const machineConfigResult = handleMachineConfigAction(state, action);
+  if (machineConfigResult !== null) return machineConfigResult;
+  const droneAssignmentResult = handleDroneAssignmentAction(
+    state,
+    action,
+    DRONE_ASSIGNMENT_ACTION_DEPS,
+  );
+  if (droneAssignmentResult !== null) return droneAssignmentResult;
   switch (action.type) {
     // -----------------------------------------------------------------
     // Crafting/Queue cases (NETWORK_*, CRAFT_REQUEST_WITH_PREREQUISITES,
@@ -3217,137 +2732,17 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const uiPreludeState = handleUiCellPrelude(state, asset, UI_CELL_PRELUDE_DEPS);
       if (uiPreludeState !== null) return uiPreludeState;
 
-      // ---- NO cable removal outside build mode ----
-      // (removed old cable-click-remove logic here; cables are removed via BUILD_REMOVE_ASSET)
-
-      const slot = state.hotbarSlots[state.activeSlot];
-      if (!slot || slot.toolKind === "empty") return state;
-
-      // Block building placement from hotbar in normal mode
-      if (slot.toolKind === "building") return state;
-
-      // Block tool usage on 2×2 deposits – they require an Auto-Miner
-      if (asset && DEPOSIT_TYPES.has(asset.type)) {
-        return { ...state, notifications: addErrorNotification(state.notifications, "Benötigt Auto-Miner") };
-      }
-
-      // === AXE: fell tree (durability 1) ===
-      // Wood is spawned as a CollectionNode at the tree tile — NOT booked into
-      // the warehouse/central inventory. A later drone/service-hub pass will
-      // pick these up. Saplings are intentionally excluded from this system
-      // and keep their existing hotbar/inventory path.
-      if (slot.toolKind === "axe") {
-        if (!asset || asset.type !== "tree") {
-          if (asset && ((["stone", "iron", "copper"] as string[]).includes(asset.type))) {
-            const msg = asset.type === "stone"
-              ? "Du brauchst eine Holz- oder Steinspitzhacke."
-              : "Du brauchst eine Steinspitzhacke.";
-            return { ...state, notifications: addErrorNotification(state.notifications, msg) };
-          }
-          return state;
-        }
-        if (slot.amount <= 0) return state;
-        const treeX = asset.x;
-        const treeY = asset.y;
-        const removed = removeAsset(state, assetId);
-        const collectionNodes = addToCollectionNodeAt(state.collectionNodes, "wood", treeX, treeY, RESOURCE_1x1_DROP_AMOUNT);
-        let notifs = state.notifications;
-        let hotbar0 = hotbarDecrement(state.hotbarSlots, state.activeSlot);
-        let inv = state.inventory;
-        debugLog.mining(`Felled tree at (${x},${y}) with Axe → wood CollectionNode @ (${treeX},${treeY})`);
-        if (Math.random() < SAPLING_DROP_CHANCE) {
-          const cap = getCapacityPerResource(state);
-          const withSapling = hotbarAdd(hotbar0, "sapling");
-          if (withSapling) {
-            hotbar0 = withSapling;
-            notifs = addNotification(notifs, "sapling", 1);
-          } else if (inv.sapling < cap) {
-            inv = addResources(inv, { sapling: 1 });
-            notifs = addNotification(notifs, "sapling", 1);
-            debugLog.inventory("Sapling drop → added to central inventory");
-          }
-        }
-        return { ...state, ...removed, inventory: inv, hotbarSlots: hotbar0, notifications: notifs, collectionNodes };
-      }
-      if (slot.toolKind === "wood_pickaxe") {
-        if (!asset || asset.type !== "stone") {
-          if (asset && asset.type === "tree") {
-            return { ...state, notifications: addErrorNotification(state.notifications, "Du brauchst eine Axt.") };
-          }
-          if (asset && (["iron", "copper"] as string[]).includes(asset.type)) {
-            return { ...state, notifications: addErrorNotification(state.notifications, "Du brauchst eine Steinspitzhacke.") };
-          }
-          return state;
-        }
-        if (slot.amount <= 0) return state;
-        const tileX = asset.x;
-        const tileY = asset.y;
-        const removed = removeAsset(state, assetId);
-        const collectionNodes = addToCollectionNodeAt(state.collectionNodes, "stone", tileX, tileY, RESOURCE_1x1_DROP_AMOUNT);
-        const newHotbar1 = hotbarDecrement(state.hotbarSlots, state.activeSlot);
-        debugLog.mining(`Mined stone at (${x},${y}) with Wood Pickaxe → CollectionNode @ (${tileX},${tileY})`);
-        return { ...state, ...removed, hotbarSlots: newHotbar1, collectionNodes };
-      }
-
-      // === STONE_PICKAXE: mine stone, iron, copper ===
-      if (slot.toolKind === "stone_pickaxe") {
-        if (!asset || !(["stone", "iron", "copper"] as string[]).includes(asset.type)) {
-          if (asset && asset.type === "tree") {
-            return { ...state, notifications: addErrorNotification(state.notifications, "Du brauchst eine Axt.") };
-          }
-          return state;
-        }
-        if (slot.amount <= 0) return state;
-        const itemType = asset.type as CollectableItemType;
-        const tileX = asset.x;
-        const tileY = asset.y;
-        const removed = removeAsset(state, assetId);
-        const collectionNodes = addToCollectionNodeAt(state.collectionNodes, itemType, tileX, tileY, RESOURCE_1x1_DROP_AMOUNT);
-        const newHotbar2 = hotbarDecrement(state.hotbarSlots, state.activeSlot);
-        debugLog.mining(`Mined ${asset.type} at (${x},${y}) with Stone Pickaxe → CollectionNode @ (${tileX},${tileY})`);
-        return { ...state, ...removed, hotbarSlots: newHotbar2, collectionNodes };
-      }
-
-      // === PLACE SAPLING ===
-      if (slot.toolKind === "sapling") {
-        if (slot.amount <= 0 || asset) return state;
-        const placed = placeAsset(state.assets, state.cellMap, "sapling", x, y, 1);
-        if (!placed) return state;
-        const newHotbar3 = hotbarDecrement(state.hotbarSlots, state.activeSlot);
-        debugLog.building(`Placed Sapling at (${x},${y})`);
-        return {
-          ...state,
-          assets: placed.assets,
-          cellMap: placed.cellMap,
-          hotbarSlots: newHotbar3,
-          saplingGrowAt: { ...state.saplingGrowAt, [placed.id]: Date.now() + SAPLING_GROW_MS },
-        };
-      }
-
-      // Buildings are placed exclusively via BUILD_PLACE_BUILDING (build mode)
-
-      return state;
+      return handleClickCellToolAction(
+        state,
+        { x, y, assetId, asset },
+        CLICK_CELL_TOOL_ACTION_DEPS,
+      );
     }
 
     // SET_ACTIVE_SLOT is handled above by handleUiAction.
 
-    case "BUY_MAP_SHOP_ITEM": {
-      const item = MAP_SHOP_ITEMS.find((i) => i.key === action.itemKey);
-      if (!item) return state;
-      if (!hasResources(state.inventory, { coins: item.costCoins })) return state;
-      const baseInv = consumeResources(state.inventory, { coins: item.costCoins });
-      const notifs = addNotification(state.notifications, item.key, 1);
-      const toolHotbarKinds: ToolKind[] = ["axe", "wood_pickaxe", "stone_pickaxe"];
-      const toolKind = item.key as ToolKind;
-      if (toolHotbarKinds.includes(toolKind)) {
-        const newHotbar = hotbarAdd(state.hotbarSlots, toolKind as Exclude<ToolKind, "empty">);
-        if (newHotbar) {
-          return { ...state, inventory: baseInv, hotbarSlots: newHotbar, notifications: notifs };
-        }
-      }
-      const newInv = addResources(baseInv, { [item.inventoryKey]: 1 });
-      return { ...state, inventory: newInv, notifications: notifs };
-    }
+    // BUY_MAP_SHOP_ITEM is handled above by
+    // handleShopAction (see action-handlers/shop.ts).
 
     case "CRAFT_WORKBENCH": {
       if (import.meta.env.DEV) {
@@ -3358,322 +2753,6 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     // TOGGLE_PANEL and CLOSE_PANEL are handled above by handleUiAction.
-
-    case "EQUIP_BUILDING_FROM_WAREHOUSE": {
-      const { buildingType, amount = 1 } = action;
-      const whId = state.selectedWarehouseId;
-      if (!whId) return state;
-      const whInv = state.warehouseInventories[whId];
-      if (!whInv) return state;
-      const invKey = buildingType as keyof Inventory;
-      if ((whInv[invKey] as number) < amount) return state;
-
-      const newHotbar = hotbarAdd(state.hotbarSlots, "building", buildingType, amount);
-      if (!newHotbar) {
-        return {
-          ...state,
-          notifications: addErrorNotification(
-            state.notifications,
-            "Hotbar voll! Kein Platz zum Ausrüsten.",
-          ),
-        };
-      }
-
-      const newWhInv = {
-        ...whInv,
-        [invKey]: (whInv[invKey] as number) - amount,
-      };
-
-      return {
-        ...state,
-        warehouseInventories: {
-          ...state.warehouseInventories,
-          [whId]: newWhInv,
-        },
-        hotbarSlots: newHotbar,
-      };
-    }
-
-    case "EQUIP_FROM_WAREHOUSE": {
-      const { itemKind, amount = 1 } = action;
-      debugLog.hotbar(`Equip ${RESOURCE_LABELS[itemKind] ?? itemKind} ×${amount} from warehouse → hotbar`);
-      const invKey = itemKind as keyof Inventory;
-      const whId = state.selectedWarehouseId;
-      if (!whId) return state;
-      const whInv = state.warehouseInventories[whId];
-      if (!whInv) return state;
-      if ((whInv[invKey] as number) < amount) return state;
-      const newHotbar = hotbarAdd(state.hotbarSlots, itemKind as Exclude<ToolKind, "empty">, undefined, amount);
-      if (!newHotbar) return { ...state, notifications: addErrorNotification(state.notifications, "Hotbar voll! Kein Platz zum Ausrüsten.") };
-      const newWhInv = { ...whInv, [invKey]: (whInv[invKey] as number) - amount };
-      return { ...state, warehouseInventories: { ...state.warehouseInventories, [whId]: newWhInv }, hotbarSlots: newHotbar };
-    }
-
-    // ---- Manual resource transfers: global ↔ selected warehouse ----
-
-    case "TRANSFER_TO_WAREHOUSE": {
-      const { item, amount } = action;
-      if (amount <= 0) return state;
-      const whId = state.selectedWarehouseId;
-      if (!whId) return state;
-      if (isUnderConstruction(state, whId)) return state;
-      const whInv = state.warehouseInventories[whId];
-      if (!whInv) return state;
-
-      // Clamp to what is actually available in global inventory
-      const globalAvailable = getAvailableResource(state, item);
-      const whCap = getWarehouseCapacity(state.mode);
-      const whCurrent = whInv[item] as number;
-      const spaceInWarehouse = item === "coins" ? Infinity : Math.max(0, whCap - whCurrent);
-      const transferAmount = Math.min(amount, globalAvailable, spaceInWarehouse);
-      if (transferAmount <= 0) return state;
-
-      return {
-        ...state,
-        inventory: consumeResources(state.inventory, { [item]: transferAmount }),
-        warehouseInventories: {
-          ...state.warehouseInventories,
-          [whId]: addResources(whInv, { [item]: transferAmount }),
-        },
-      };
-    }
-
-    case "TRANSFER_FROM_WAREHOUSE": {
-      const { item, amount } = action;
-      if (amount <= 0) return state;
-      const whId = state.selectedWarehouseId;
-      if (!whId) return state;
-      if (isUnderConstruction(state, whId)) return state;
-      const whInv = state.warehouseInventories[whId];
-      if (!whInv) return state;
-
-      // Clamp to what the warehouse actually holds
-      const whAvailable = whInv[item] as number;
-      const transferAmount = Math.min(amount, whAvailable);
-      if (transferAmount <= 0) return state;
-
-      return {
-        ...state,
-        inventory: addResources(state.inventory, { [item]: transferAmount }),
-        warehouseInventories: {
-          ...state.warehouseInventories,
-          [whId]: consumeResources(whInv, { [item]: transferAmount }),
-        },
-      };
-    }
-
-    case "SMITHY_ADD_FUEL": {
-      const smithyForFuel = getSelectedCraftingAsset(state, "smithy");
-      if (!smithyForFuel) return state;
-      logCraftingSelectionComparison(state, "smithy", smithyForFuel.id);
-      if (isUnderConstruction(state, smithyForFuel.id)) return state;
-      const source = resolveBuildingSource(state, state.selectedCraftingBuildingId);
-      const sourceInv = getCraftingSourceInventory(state, source);
-      const amt = Math.min(action.amount, sourceInv.wood as number);
-      if (amt > 0) debugLog.smithy(`Added ${amt} Wood as fuel`);
-      if (amt <= 0) return state;
-      return {
-        ...state,
-        ...applyCraftingSourceInventory(state, source, consumeResources(sourceInv, { wood: amt })),
-        smithy: { ...state.smithy, fuel: state.smithy.fuel + amt },
-      };
-    }
-
-    case "SMITHY_ADD_IRON": {
-      const smithyForIron = getSelectedCraftingAsset(state, "smithy");
-      if (!smithyForIron) return state;
-      logCraftingSelectionComparison(state, "smithy", smithyForIron.id);
-      if (isUnderConstruction(state, smithyForIron.id)) return state;
-      const source = resolveBuildingSource(state, state.selectedCraftingBuildingId);
-      const sourceInv = getCraftingSourceInventory(state, source);
-      const amt = Math.min(action.amount, sourceInv.iron as number);
-      if (amt > 0) debugLog.smithy(`Added ${amt} Iron ore`);
-      if (amt <= 0) return state;
-      return {
-        ...state,
-        ...applyCraftingSourceInventory(state, source, consumeResources(sourceInv, { iron: amt })),
-        smithy: { ...state.smithy, iron: state.smithy.iron + amt },
-      };
-    }
-
-    case "SMITHY_ADD_COPPER": {
-      const smithyForCopper = getSelectedCraftingAsset(state, "smithy");
-      if (!smithyForCopper) return state;
-      logCraftingSelectionComparison(state, "smithy", smithyForCopper.id);
-      if (isUnderConstruction(state, smithyForCopper.id)) return state;
-      const source = resolveBuildingSource(state, state.selectedCraftingBuildingId);
-      const sourceInv = getCraftingSourceInventory(state, source);
-      const amt = Math.min(action.amount, sourceInv.copper as number);
-      if (amt > 0) debugLog.smithy(`Added ${amt} Copper ore`);
-      if (amt <= 0) return state;
-      return {
-        ...state,
-        ...applyCraftingSourceInventory(state, source, consumeResources(sourceInv, { copper: amt })),
-        smithy: { ...state.smithy, copper: state.smithy.copper + amt },
-      };
-    }
-
-    case "SMITHY_SET_RECIPE": {
-      if (state.smithy.processing) return state;
-      return { ...state, smithy: { ...state.smithy, selectedRecipe: action.recipe } };
-    }
-
-    case "SMITHY_START": {
-      const s = state.smithy;
-      const smithyAsset = getSelectedCraftingAsset(state, "smithy");
-      if (!smithyAsset) return state;
-      logCraftingSelectionComparison(state, "smithy", smithyAsset.id);
-      if (isUnderConstruction(state, smithyAsset.id)) {
-        return { ...state, notifications: addErrorNotification(state.notifications, `Schmelze [${smithyAsset.id}] ist noch im Bau.`) };
-      }
-      const smithyPowered =
-        !!smithyAsset && (state.poweredMachineIds ?? []).includes(smithyAsset.id);
-      if (!smithyPowered) {
-        debugLog.smithy(`Crafting smithy [${smithyAsset.id}] - not enough power`);
-        return {
-          ...state,
-          notifications: addErrorNotification(state.notifications, `Schmelze [${smithyAsset.id}] hat keinen Strom.`),
-        };
-      }
-      debugLog.smithy(`Crafting smithy [${smithyAsset.id}] - Power OK`);
-      if (s.processing || s.fuel <= 0) return state;
-      const recipe = getSmeltingRecipe(s.selectedRecipe);
-      if (!recipe) return state;
-      const rawAmt = s.selectedRecipe === "iron" ? s.iron : s.copper;
-      if (rawAmt < recipe.inputAmount) return state;
-      debugLog.smithy(`Started smelting ${s.selectedRecipe} (fuel=${s.fuel}, ore=${rawAmt})`);
-      return { ...state, smithy: { ...s, processing: true, progress: 0, buildingId: smithyAsset.id } };
-    }
-
-    case "SMITHY_STOP":
-      return { ...state, smithy: { ...state.smithy, processing: false } };
-
-    case "SMITHY_TICK": {
-      const s = state.smithy;
-      const smithyAsset = getActiveSmithyAsset(state);
-      if (!smithyAsset) {
-        return { ...state, smithy: { ...s, processing: false } };
-      }
-      if (isUnderConstruction(state, smithyAsset.id)) {
-        return { ...state, smithy: { ...s, processing: false } };
-      }
-      const smithyPowered =
-        !!smithyAsset && (state.poweredMachineIds ?? []).includes(smithyAsset.id);
-      if (!smithyPowered) {
-        return { ...state, smithy: { ...s, processing: false } };
-      }
-      const recipe = getSmeltingRecipe(s.selectedRecipe);
-      if (!recipe) {
-        return { ...state, smithy: { ...s, processing: false } };
-      }
-      const rawAmt = s.selectedRecipe === "iron" ? s.iron : s.copper;
-      if (!s.processing || s.fuel <= 0 || rawAmt < recipe.inputAmount)
-        return { ...state, smithy: { ...s, processing: false } };
-      const newProgress = s.progress + SMITHY_TICK_MS / SMITHY_PROCESS_MS;
-      if (newProgress >= 1) {
-        const newFuel = s.fuel - 1;
-        if (recipe.inputItem === "iron") {
-          const newIron = s.iron - recipe.inputAmount;
-          const canContinue = newFuel > 0 && newIron >= recipe.inputAmount;
-          return {
-            ...state,
-            smithy: { ...s, iron: newIron, fuel: newFuel, outputIngots: s.outputIngots + recipe.outputAmount, progress: 0, processing: canContinue },
-            notifications: addNotification(state.notifications, recipe.outputItem, recipe.outputAmount),
-          };
-        } else {
-          const newCopper = s.copper - recipe.inputAmount;
-          const canContinue = newFuel > 0 && newCopper >= recipe.inputAmount;
-          return {
-            ...state,
-            smithy: { ...s, copper: newCopper, fuel: newFuel, outputCopperIngots: s.outputCopperIngots + recipe.outputAmount, progress: 0, processing: canContinue },
-            notifications: addNotification(state.notifications, recipe.outputItem, recipe.outputAmount),
-          };
-        }
-      }
-      return { ...state, smithy: { ...s, progress: newProgress } };
-    }
-
-    case "SMITHY_WITHDRAW": {
-      const ironAmt = state.smithy.outputIngots;
-      const copperAmt = state.smithy.outputCopperIngots;
-      if (ironAmt <= 0 && copperAmt <= 0) return state;
-      const source = resolveBuildingSource(state, state.smithy.buildingId ?? state.selectedCraftingBuildingId);
-      const sourceInv = getCraftingSourceInventory(state, source);
-      const newSourceInv = addResources(sourceInv, { ironIngot: ironAmt, copperIngot: copperAmt });
-      return {
-        ...state,
-        ...applyCraftingSourceInventory(state, source, newSourceInv),
-        smithy: { ...state.smithy, outputIngots: 0, outputCopperIngots: 0 },
-      };
-    }
-
-    case "MANUAL_ASSEMBLER_START": {
-      const maAsset = getSelectedCraftingAsset(state, "manual_assembler");
-      if (!maAsset) return state;
-      logCraftingSelectionComparison(state, "manual_assembler", maAsset.id);
-      if (isUnderConstruction(state, maAsset.id)) {
-        return {
-          ...state,
-          notifications: addErrorNotification(state.notifications, `Manueller Assembler [${maAsset.id}] ist noch im Bau.`),
-        };
-      }
-      if (state.manualAssembler.processing) return state;
-      const recipe = getManualAssemblerRecipe(action.recipe);
-      if (!recipe) return state;
-      const bId = maAsset.id;
-      const source = resolveBuildingSource(state, bId);
-      const sourceInv = getCraftingSourceInventory(state, source);
-      const outputKey = recipe.outputItem as keyof Inventory;
-      const inputKey = recipe.inputItem as keyof Inventory;
-
-      // Capacity check against active source
-      const cap = source.kind === "global" ? getCapacityPerResource(state) : source.kind === "zone" ? getZoneItemCapacity(state, source.zoneId) : (state.mode === "debug" ? Infinity : WAREHOUSE_CAPACITY);
-      if ((sourceInv[outputKey] as number) >= cap) {
-        return { ...state, notifications: addErrorNotification(state.notifications, "Lager voll! Baue mehr Lagerhäuser.") };
-      }
-      if ((sourceInv[inputKey] as number) < recipe.inputAmount) {
-        const error = recipe.key === "metal_plate" ? "Nicht genug Metallbarren!" : "Nicht genug Metallplatten!";
-        return { ...state, notifications: addErrorNotification(state.notifications, error) };
-      }
-
-      return {
-        ...state,
-        ...applyCraftingSourceInventory(state, source, consumeResources(sourceInv, { [inputKey]: recipe.inputAmount })),
-        manualAssembler: { processing: true, recipe: recipe.key, progress: 0, buildingId: bId },
-      };
-    }
-
-    case "MANUAL_ASSEMBLER_TICK": {
-      const m = state.manualAssembler;
-      if (!m.processing || !m.recipe) return state;
-      const recipe = getManualAssemblerRecipe(m.recipe);
-      if (!recipe) return { ...state, manualAssembler: { processing: false, recipe: null, progress: 0, buildingId: null } };
-
-      const newProgress = m.progress + MANUAL_ASSEMBLER_TICK_MS / Math.max(1, recipe.processingTime * 1000);
-      if (newProgress < 1) {
-        return { ...state, manualAssembler: { ...m, progress: newProgress } };
-      }
-
-      // Use the building ID stored at START time for output routing
-      const source = resolveBuildingSource(state, m.buildingId);
-      const sourceInv = getCraftingSourceInventory(state, source);
-      const outputKey = recipe.outputItem as keyof Inventory;
-      const cap = source.kind === "global" ? getCapacityPerResource(state) : source.kind === "zone" ? getZoneItemCapacity(state, source.zoneId) : (state.mode === "debug" ? Infinity : WAREHOUSE_CAPACITY);
-      if ((sourceInv[outputKey] as number) >= cap) {
-        return {
-          ...state,
-          manualAssembler: { processing: false, recipe: null, progress: 0, buildingId: null },
-          notifications: addErrorNotification(state.notifications, "Lager voll! Baue mehr Lagerhäuser."),
-        };
-      }
-
-      return {
-        ...state,
-        ...applyCraftingSourceInventory(state, source, addResources(sourceInv, { [outputKey]: recipe.outputAmount })),
-        manualAssembler: { processing: false, recipe: null, progress: 0, buildingId: null },
-        notifications: addNotification(state.notifications, outputKey, recipe.outputAmount),
-      };
-    }
 
     case "GROW_SAPLING": {
       const asset = state.assets[action.assetId];
@@ -3735,29 +2814,6 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return state;
     }
 
-    case "REMOVE_FROM_HOTBAR": {
-      const hs = state.hotbarSlots[action.slot];
-      if (!hs || hs.toolKind === "empty") return state;
-      debugLog.hotbar(`Removed ${hs.label || hs.toolKind} ×${hs.amount} from Hotbar slot ${action.slot}`);
-      const whId = state.selectedWarehouseId;
-      if (!whId || !state.warehouseInventories[whId]) return state;
-      const whInv = state.warehouseInventories[whId];
-      const newHotbarSlots = state.hotbarSlots.map((s, i) =>
-        i === action.slot ? { ...EMPTY_HOTBAR_SLOT } : s
-      );
-      let newWhInv = { ...whInv };
-      if (hs.toolKind === "building" && hs.buildingType) {
-        const bType = hs.buildingType;
-        (newWhInv as any)[bType] = ((newWhInv as any)[bType] ?? 0) + hs.amount;
-        return { ...state, warehouseInventories: { ...state.warehouseInventories, [whId]: newWhInv }, hotbarSlots: newHotbarSlots };
-      }
-      if (hs.toolKind === "axe") newWhInv = { ...newWhInv, axe: newWhInv.axe + hs.amount };
-      else if (hs.toolKind === "wood_pickaxe") newWhInv = { ...newWhInv, wood_pickaxe: newWhInv.wood_pickaxe + hs.amount };
-      else if (hs.toolKind === "stone_pickaxe") newWhInv = { ...newWhInv, stone_pickaxe: newWhInv.stone_pickaxe + hs.amount };
-      else if (hs.toolKind === "sapling") newWhInv = { ...newWhInv, sapling: newWhInv.sapling + hs.amount };
-      return { ...state, warehouseInventories: { ...state.warehouseInventories, [whId]: newWhInv }, hotbarSlots: newHotbarSlots };
-    }
-
     case "EXPIRE_NOTIFICATIONS": {
       const now = Date.now();
       const alive = state.notifications.filter((n) => n.expiresAt > now);
@@ -3770,175 +2826,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return action.state;
     }
 
-    // ============================================================
-    // GENERATOR & ENERGY CASES
-    // ============================================================
-
-    case "GENERATOR_ADD_FUEL": {
-      const genId = state.selectedGeneratorId;
-      if (!genId || !state.generators[genId]) return state;
-      if (isUnderConstruction(state, genId)) return state;
-      const source = resolveBuildingSource(state, genId);
-      const sourceInv = getCraftingSourceInventory(state, source);
-      const gen = state.generators[genId];
-      const space = Math.max(0, GENERATOR_MAX_FUEL - gen.fuel);
-      const amt = Math.min(action.amount, (sourceInv.wood as number) ?? 0, space);
-      if (amt <= 0) return state;
-      debugLog.building(`Generator ${genId}: added ${amt} wood as fuel (${gen.fuel} → ${gen.fuel + amt}/${GENERATOR_MAX_FUEL})`);
-      return {
-        ...state,
-        ...applyCraftingSourceInventory(state, source, consumeResources(sourceInv, { wood: amt })),
-        generators: { ...state.generators, [genId]: { ...gen, fuel: gen.fuel + amt } },
-      };
-    }
-
-    case "GENERATOR_REQUEST_REFILL": {
-      const genId = state.selectedGeneratorId;
-      if (!genId || !state.generators[genId]) return state;
-      if (isUnderConstruction(state, genId)) return state;
-      const gen = state.generators[genId];
-      const currentReq = gen.requestedRefill ?? 0;
-      // Cap by remaining fuel-slot space minus what's already been requested
-      // (so repeated clicks don't over-promise beyond capacity).
-      const headroom = Math.max(0, GENERATOR_MAX_FUEL - gen.fuel - currentReq);
-      const desired = action.amount === "max" ? headroom : Math.max(0, Math.floor(action.amount));
-      const add = Math.min(desired, headroom);
-      if (add <= 0) {
-        return {
-          ...state,
-          notifications: addErrorNotification(
-            state.notifications,
-            currentReq > 0
-              ? `Generator ${genId}: bereits ${currentReq} Holz angefordert`
-              : `Generator ${genId}: Speicher voll`,
-          ),
-        };
-      }
-      debugLog.building(`Generator ${genId}: refill request +${add} (open ${currentReq} → ${currentReq + add})`);
-      return {
-        ...state,
-        generators: { ...state.generators, [genId]: { ...gen, requestedRefill: currentReq + add } },
-      };
-    }
-
-    case "GENERATOR_START": {
-      const genId = state.selectedGeneratorId;
-      if (!genId) return state;
-      if (isUnderConstruction(state, genId)) return state;
-      const gen = state.generators[genId];
-      if (!gen || gen.running || gen.fuel <= 0) return state;
-      debugLog.building(`Generator ${genId}: started`);
-      return { ...state, generators: { ...state.generators, [genId]: { ...gen, running: true } } };
-    }
-
-    case "GENERATOR_STOP": {
-      const genId = state.selectedGeneratorId;
-      if (!genId) return state;
-      const gen = state.generators[genId];
-      if (!gen) return state;
-      debugLog.building(`Generator ${genId}: stopped`);
-      const fuelAfterStop = gen.progress > 0 ? Math.max(0, gen.fuel - 1) : gen.fuel;
-      return { ...state, generators: { ...state.generators, [genId]: { ...gen, running: false, progress: 0, fuel: fuelAfterStop } } };
-    }
-
-    case "GENERATOR_TICK": {
-      const newGenerators = { ...state.generators };
-      let changed = false;
-      for (const id of Object.keys(newGenerators)) {
-        if (isUnderConstruction(state, id)) continue;
-        const g = newGenerators[id];
-        if (!g.running || g.fuel <= 0) {
-          if (g.running) { newGenerators[id] = { ...g, running: false }; changed = true; }
-          continue;
-        }
-        const newProgress = g.progress + 1 / GENERATOR_TICKS_PER_WOOD;
-        if (newProgress >= 1) {
-          const newFuel = g.fuel - 1;
-          newGenerators[id] = { ...g, fuel: newFuel, progress: 0, running: newFuel > 0 };
-        } else {
-          newGenerators[id] = { ...g, progress: newProgress };
-        }
-        changed = true;
-      }
-      if (!changed) return state;
-      return { ...state, generators: newGenerators };
-    }
-
     case "ENERGY_NET_TICK": {
-      // === Generator production over this 2-second period ===
-      const production = getEnergyProductionPerPeriod(state);
-
-      // === Connected consumer machines ===
-      const connectedConsumers = state.connectedAssetIds
-        .map((id) => state.assets[id])
-        .filter((a): a is PlacedAsset => !!a && isEnergyConsumerType(a.type));
-
-      // Priority scheduling: lower number gets energy first.
-      // For equal priority, keep the logistics backbone stable by serving
-      // conveyors first, then miners, then other machines, then smelters.
-      const prioritizedConsumers = connectedConsumers
-        .map((asset, index) => ({
-          asset,
-          index,
-          priority: clampMachinePriority(asset.priority),
-          allocationRank: getEnergyAllocationRank(asset.type),
-          drain:
-            (asset.type === "auto_smelter"
-              ? (state.autoSmelters?.[asset.id]?.processing ? AUTO_SMELTER_PROCESSING_DRAIN_PER_PERIOD : AUTO_SMELTER_IDLE_DRAIN_PER_PERIOD)
-              : ENERGY_DRAIN[asset.type]) * getBoostMultiplier(asset),
-        }))
-        .sort((a, b) => a.priority - b.priority || a.allocationRank - b.allocationRank || a.index - b.index);
-
-      // === Battery is the sole energy storage ===
-      const batteryAsset = Object.values(state.assets).find((a) => a.type === "battery");
-      const batteryConnected = batteryAsset
-        ? state.connectedAssetIds.includes(batteryAsset.id) && !isUnderConstruction(state, batteryAsset.id)
-        : false;
-
-      // Available energy in this period = production + (optional) battery discharge potential.
-      let remainingEnergy = production + (batteryConnected ? state.battery.stored : 0);
-      const poweredMachineIds: string[] = [];
-      const machinePowerRatio: Record<string, number> = {};
-
-      for (const consumer of prioritizedConsumers) {
-        if (consumer.drain <= 0) {
-          machinePowerRatio[consumer.asset.id] = 1;
-          poweredMachineIds.push(consumer.asset.id);
-          continue;
-        }
-        if (remainingEnergy <= 0) {
-          machinePowerRatio[consumer.asset.id] = 0;
-          continue;
-        }
-        const ratio = Math.max(0, Math.min(1, remainingEnergy / consumer.drain));
-        machinePowerRatio[consumer.asset.id] = ratio;
-        remainingEnergy -= consumer.drain * ratio;
-        if (ratio >= 1) poweredMachineIds.push(consumer.asset.id);
-      }
-
-      let newBatteryStored = state.battery.stored;
-      if (batteryConnected) {
-        // Whatever remains after serving prioritized consumers is the new battery level.
-        newBatteryStored = Math.min(state.battery.capacity, Math.max(0, remainingEnergy));
-      }
-
-      const prevPowered = state.poweredMachineIds ?? [];
-      const samePoweredSet =
-        poweredMachineIds.length === prevPowered.length &&
-        poweredMachineIds.every((id, idx) => prevPowered[idx] === id);
-
-      const samePowerRatio =
-        Object.keys(machinePowerRatio).length === Object.keys(state.machinePowerRatio ?? {}).length &&
-        Object.entries(machinePowerRatio).every(([id, ratio]) => Math.abs((state.machinePowerRatio?.[id] ?? 0) - ratio) < 0.0001);
-
-      if (newBatteryStored === state.battery.stored && samePoweredSet && samePowerRatio) return state;
-
-      return {
-        ...state,
-        battery: { ...state.battery, stored: newBatteryStored },
-        poweredMachineIds,
-        machinePowerRatio,
-      };
+      return runEnergyNetTick(state);
     }
 
     case "REMOVE_POWER_POLE": {
@@ -3986,569 +2875,17 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     // BUILD_PLACE_BUILDING and BUILD_REMOVE_ASSET are handled above by
     // handleBuildingPlacementAction (see action-handlers/building-placement.ts).
 
-    case "BUILD_PLACE_FLOOR_TILE": {
-      if (!state.buildMode || !state.selectedFloorTile) return state;
-      const tileType = state.selectedFloorTile;
-      const { x, y } = action;
-      if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) return state;
-      const key = cellKey(x, y);
-
-      // Cost check (considers global inventory + hub inventories)
-      const tileCosts = FLOOR_TILE_COSTS[tileType];
-      if (!hasResources(getEffectiveBuildInventory(state), tileCosts as Partial<Record<keyof Inventory, number>>)) {
-          return { ...state, notifications: addErrorNotification(state.notifications, "Nicht genug Ressourcen!") };
-      }
-
-      if (tileType === "stone_floor") {
-        // Can only be placed on empty grass (no floor, no object)
-        if (state.floorMap[key]) {
-          return { ...state, notifications: addErrorNotification(state.notifications, "Hier liegt bereits Steinboden.") };
-        }
-        if (state.cellMap[key]) {
-          return { ...state, notifications: addErrorNotification(state.notifications, "Das Feld ist belegt.") };
-        }
-        const newFloorMap = { ...state.floorMap, [key]: "stone_floor" as const };
-        const consumedF = consumeBuildResources(state, tileCosts as Partial<Record<keyof Inventory, number>>);
-        debugLog.building(`[BuildMode] Placed stone_floor at (${x},${y})`);
-        return { ...state, floorMap: newFloorMap, inventory: consumedF.inventory, warehouseInventories: consumedF.warehouseInventories, serviceHubs: consumedF.serviceHubs };
-      } else {
-        // grass_block: convert stone_floor back to grass (no object on cell)
-        if (!state.floorMap[key]) {
-          return { ...state, notifications: addErrorNotification(state.notifications, "Kein Steinboden auf diesem Feld.") };
-        }
-        if (state.cellMap[key]) {
-          return { ...state, notifications: addErrorNotification(state.notifications, "Das Feld ist belegt – Gebäude zuerst entfernen.") };
-        }
-        const newFloorMap = { ...state.floorMap };
-        delete newFloorMap[key];
-        const consumedF = consumeBuildResources(state, tileCosts as Partial<Record<keyof Inventory, number>>);
-        debugLog.building(`[BuildMode] Placed grass_block at (${x},${y}) – stone floor removed`);
-        return { ...state, floorMap: newFloorMap, inventory: consumedF.inventory, warehouseInventories: consumedF.warehouseInventories, serviceHubs: consumedF.serviceHubs };
-      }
-    }
+    // BUILD_PLACE_FLOOR_TILE is handled above by
+    // handleFloorPlacementAction (see action-handlers/floor-placement.ts).
 
     case "LOGISTICS_TICK": {
-      const poweredSet = new Set(state.poweredMachineIds ?? []);
-      let newAutoMinersL = state.autoMiners;
-      let newConveyorsL = state.conveyors;
-      let newInvL = state.inventory;
-      let newWarehouseInventoriesL = state.warehouseInventories;
-      let newSmithyL = state.smithy;
-      let newNotifsL = state.notifications;
-      let newAutoDeliveryLogL = state.autoDeliveryLog;
-      let changed = false;
-
-      const tryStoreInWarehouse = (warehouseId: string, resource: ConveyorItem): boolean => {
-        // Warehouse building must exist
-        const whInv = (newWarehouseInventoriesL === state.warehouseInventories
-          ? state.warehouseInventories[warehouseId]
-          : newWarehouseInventoriesL[warehouseId]);
-        if (!whInv) return false;
-        // Store into the warehouse's own inventory (per-WH storage)
-        const cap = getWarehouseCapacity(state.mode);
-        const resKey = resource as keyof Inventory;
-        if ((whInv[resKey] as number) >= cap) return false;
-        newWarehouseInventoriesL = newWarehouseInventoriesL === state.warehouseInventories
-          ? { ...state.warehouseInventories }
-          : newWarehouseInventoriesL;
-        newWarehouseInventoriesL[warehouseId] = addResources(whInv, { [resKey]: 1 });
-        return true;
-      };
-
-      const getLiveLogisticsState = (): GameState => {
-        if (newInvL === state.inventory && newWarehouseInventoriesL === state.warehouseInventories) {
-          return state;
-        }
-        return {
-          ...state,
-          inventory: newInvL,
-          warehouseInventories: newWarehouseInventoriesL,
-        };
-      };
-
-      const getSourceCapacity = (liveState: GameState, source: CraftingSource): number => {
-        if (source.kind === "global") return getCapacityPerResource(liveState);
-        if (source.kind === "zone") return getZoneItemCapacity(liveState, source.zoneId);
-        return getWarehouseCapacity(liveState.mode);
-      };
-
-      const applySourceInventory = (source: CraftingSource, nextInv: Inventory): void => {
-        const partial = applyCraftingSourceInventory(getLiveLogisticsState(), source, nextInv);
-        if (partial.inventory) {
-          newInvL = partial.inventory;
-        }
-        if (partial.warehouseInventories) {
-          newWarehouseInventoriesL = partial.warehouseInventories;
-        }
-      };
-
-      // ---- Auto-Miners: produce resources ----
-      for (const [minerId, miner] of Object.entries(state.autoMiners)) {
-        const minerAsset = state.assets[minerId];
-        if (!minerAsset) continue;
-        const isConnected = state.connectedAssetIds.includes(minerId);
-        const powerRatio = Math.max(0, Math.min(1, state.machinePowerRatio?.[minerId] ?? (poweredSet.has(minerId) ? 1 : 0)));
-        // Unterstrom = kompletter Stopp: Progress bleibt eingefroren, bis die Maschine wieder voll versorgt ist.
-        // Hinweis: der Scheduler hat den (ggf. boosted) Mehrverbrauch bereits eingerechnet — liefert er ratio === 1,
-        // ist der Bedarf gedeckt. Ist der Bedarf nicht gedeckt, ratio < 1 → hier wird abgebrochen.
-        if (!isConnected || powerRatio < 1) continue;
-
-        const minerBoost = getBoostMultiplier(minerAsset);
-        let progress = miner.progress + minerBoost;
-        if (progress >= AUTO_MINER_PRODUCE_TICKS) {
-          const dir = minerAsset.direction ?? "east";
-          const [ox, oy] = directionOffset(dir);
-          const outX = minerAsset.x + ox;
-          const outY = minerAsset.y + oy;
-          let outputDone = false;
-
-          // Priority 1: Adjacent conveyor — unchanged physical belt output.
-          if (!outputDone && outX >= 0 && outX < GRID_W && outY >= 0 && outY < GRID_H) {
-            const outAssetId = state.cellMap[cellKey(outX, outY)];
-            const outAsset = outAssetId ? state.assets[outAssetId] : null;
-            if (outAsset?.type === "conveyor" || outAsset?.type === "conveyor_corner") {
-              const outConv = newConveyorsL === state.conveyors ? state.conveyors[outAssetId] : newConveyorsL[outAssetId];
-              const outQueue = outConv?.queue ?? [];
-              if (outQueue.length < CONVEYOR_TILE_CAPACITY) {
-                newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-                newConveyorsL[outAssetId] = { queue: [...outQueue, miner.resource] };
-                progress = 0;
-                changed = true;
-                outputDone = true;
-              }
-            }
-          }
-
-          // Priority 2: Zone-aware source output (Zone > Legacy-Warehouse > Global).
-          if (!outputDone) {
-            const liveState = getLiveLogisticsState();
-            const source = resolveBuildingSource(liveState, minerId);
-            const sourceInv = getCraftingSourceInventory(liveState, source);
-            const sourceCapacity = getSourceCapacity(liveState, source);
-            const resKey = miner.resource as keyof Inventory;
-            if ((sourceInv[resKey] as number) < sourceCapacity) {
-              const newSourceInv = addResources(sourceInv, { [resKey]: 1 });
-              applySourceInventory(source, newSourceInv);
-              const logWhId = source.kind === "warehouse"
-                ? source.warehouseId
-                : source.kind === "zone"
-                ? (getZoneWarehouseIds(liveState, source.zoneId)[0] ?? minerId)
-                : minerId;
-              newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "auto_miner", minerId, miner.resource, logWhId);
-              progress = 0;
-              changed = true;
-              outputDone = true;
-            }
-          }
-
-          // If still at max, stay blocked (output-Ziel hat keinen Platz).
-          if (progress >= AUTO_MINER_PRODUCE_TICKS) progress = AUTO_MINER_PRODUCE_TICKS;
-        }
-        if (progress !== miner.progress) {
-          newAutoMinersL = newAutoMinersL === state.autoMiners ? { ...state.autoMiners } : newAutoMinersL;
-          newAutoMinersL[minerId] = { ...miner, progress };
-          changed = true;
-        }
-      }
-
-      // ---- Conveyors: move items ----
-      const movedThisTick = new Set<string>();
-      for (const [convId, conv] of Object.entries(state.conveyors)) {
-        const activeConv = newConveyorsL === state.conveyors ? conv : newConveyorsL[convId];
-        const activeQueue = activeConv?.queue ?? [];
-        const currentItem = activeQueue[0] ?? null;
-        if (!currentItem) continue;
-        if (movedThisTick.has(convId)) continue;
-        const convAsset = state.assets[convId];
-        if (!convAsset) continue;
-        const isConnected = state.connectedAssetIds.includes(convId);
-        const isPowered = poweredSet.has(convId);
-        if (!isConnected || !isPowered) continue;
-
-        // ---- Priority: if this belt is sitting on a warehouse input tile, deliver directly ----
-        // This overrides directional movement so the item always goes into the warehouse
-        // regardless of which direction the belt faces.
-        let deliveredToWarehouse = false;
-        for (const wAsset of Object.values(state.assets)) {
-          if (wAsset.type !== "warehouse") continue;
-          if (convAsset.x === wAsset.x && convAsset.y === wAsset.y + assetHeight(wAsset)) {
-            const convZoneDirect = state.buildingZoneIds[convId] ?? null;
-            const whZoneDirect = state.buildingZoneIds[wAsset.id] ?? null;
-            if (areZonesTransportCompatible(convZoneDirect, whZoneDirect) && tryStoreInWarehouse(wAsset.id, currentItem)) {
-              newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "conveyor", convId, currentItem, wAsset.id);
-              newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-              newConveyorsL[convId] = { queue: activeQueue.slice(1) };
-              changed = true;
-            }
-            deliveredToWarehouse = true;
-            break;
-          }
-        }
-        if (deliveredToWarehouse) continue;
-
-        const inDir = convAsset.direction ?? "east";
-        // For both conveyor and conveyor_corner, `direction` is the OUTPUT direction.
-        // The corner shape is purely visual (sprite rotation); the tile pushes items
-        // in the direction the asset is facing — identical to a straight belt.
-        const dir = inDir;
-        const [ox, oy] = directionOffset(dir);
-        const nextX = convAsset.x + ox;
-        const nextY = convAsset.y + oy;
-        if (nextX < 0 || nextX >= GRID_W || nextY < 0 || nextY >= GRID_H) continue;
-
-        const nextAssetId = state.cellMap[cellKey(nextX, nextY)];
-        const nextAsset = nextAssetId ? state.assets[nextAssetId] : null;
-
-        // Straight belts only accept items arriving from behind (same output direction).
-        // Corner belts accept from any direction — they are the intended turn mechanism.
-        const nextBeltCompatible =
-          nextAsset?.type === "conveyor_corner" ||
-          (nextAsset?.type === "conveyor" && (nextAsset.direction ?? "east") === dir);
-        // Zone-aware transport: block belt-to-belt if both have explicit, differing zones.
-        const convZone = state.buildingZoneIds[convId] ?? null;
-        const nextTileZone = nextAssetId ? (state.buildingZoneIds[nextAssetId] ?? null) : null;
-        const beltToNextZoneOk = areZonesTransportCompatible(convZone, nextTileZone);
-        if (nextBeltCompatible && !movedThisTick.has(nextAssetId) && beltToNextZoneOk) {
-          const nextConv = newConveyorsL === state.conveyors ? state.conveyors[nextAssetId] : newConveyorsL[nextAssetId];
-          const nextQueue = nextConv?.queue ?? [];
-          if (nextQueue.length < CONVEYOR_TILE_CAPACITY) {
-            newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-            newConveyorsL[nextAssetId] = { queue: [...nextQueue, currentItem] };
-            newConveyorsL[convId] = { queue: activeQueue.slice(1) };
-            movedThisTick.add(nextAssetId);
-            changed = true;
-          }
-        } else if (nextAsset?.type === "warehouse" && isValidWarehouseInput(convAsset.x, convAsset.y, dir, nextAsset)) {
-          const adjWhZone = state.buildingZoneIds[nextAsset.id] ?? null;
-          if (areZonesTransportCompatible(convZone, adjWhZone) && tryStoreInWarehouse(nextAsset.id, currentItem)) {
-            newAutoDeliveryLogL = addAutoDelivery(newAutoDeliveryLogL, "conveyor", convId, currentItem, nextAsset.id);
-            newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-            newConveyorsL[convId] = { queue: activeQueue.slice(1) };
-            changed = true;
-          }
-        } else if (nextAsset?.type === "workbench") {
-          // Guard: only deliver conveyor items into the workbench's source when an active
-          // crafting job (queued / reserved / crafting) exists for this workbench.
-          // Without an active job the item stays on the belt — no silent stockpiling.
-          const activeJobForWb = (state.crafting?.jobs ?? []).find(
-            (j) =>
-              j.workbenchId === nextAsset.id &&
-              j.status !== "done" &&
-              j.status !== "cancelled",
-          );
-          if (!activeJobForWb) {
-            if (import.meta.env.DEV) {
-              debugLog.inventory(
-                `[Conveyor] WorkBench ${nextAsset.id}: ignoring ${currentItem}, no active job`,
-              );
-            }
-            // Item remains on the conveyor — do NOT set changed/consume the item.
-          } else {
-            // Inject into the workbench's resolved source (zone/warehouse/global) so zone-assigned
-            // workbenches receive conveyor items in their zone inventory, not always in global.
-            const wbZone = state.buildingZoneIds[nextAsset.id] ?? null;
-            if (areZonesTransportCompatible(convZone, wbZone)) {
-              const liveForWb = getLiveLogisticsState();
-              const wbSource = resolveBuildingSource(liveForWb, nextAsset.id);
-              const wbSourceInv = getCraftingSourceInventory(liveForWb, wbSource);
-              const wbCap = getSourceCapacity(liveForWb, wbSource);
-              const resKey = currentItem as keyof Inventory;
-              if ((wbSourceInv[resKey] as number) < wbCap) {
-                applySourceInventory(wbSource, addResources(wbSourceInv, { [resKey]: 1 }));
-                newNotifsL = addNotification(newNotifsL, currentItem, 1);
-                newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-                newConveyorsL[convId] = { queue: activeQueue.slice(1) };
-                changed = true;
-                if (import.meta.env.DEV) {
-                  debugLog.inventory(
-                    `[Conveyor] Drohne/Band: delivering ${currentItem} for Job ${activeJobForWb.id} (${activeJobForWb.status})`,
-                  );
-                }
-              }
-            }
-          }
-        } else if (nextAsset?.type === "smithy") {
-          // Feed ore into smithy internal slots
-          const smithyZone = state.buildingZoneIds[nextAsset.id] ?? null;
-          if (areZonesTransportCompatible(convZone, smithyZone) && (currentItem === "iron" || currentItem === "copper")) {
-            const oreKey = currentItem === "iron" ? "iron" : "copper";
-            if ((newSmithyL as any)[oreKey] < 50) {
-              newSmithyL = { ...newSmithyL, [oreKey]: (newSmithyL as any)[oreKey] + 1 };
-              newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-              newConveyorsL[convId] = { queue: activeQueue.slice(1) };
-              changed = true;
-            }
-          }
-        }
-      }
-
-      // ---- Auto Smelters: source input -> process -> source output ----
-      let newAutoSmeltersL = state.autoSmelters;
-      for (const [smelterId, smelterState] of Object.entries(state.autoSmelters ?? {})) {
-        const smelterAsset = state.assets[smelterId];
-        if (!smelterAsset || smelterAsset.type !== "auto_smelter") continue;
-
-        const powerRatio = Math.max(0, Math.min(1, state.machinePowerRatio?.[smelterId] ?? (poweredSet.has(smelterId) ? 1 : 0)));
-        // Unterstrom = kompletter Stopp: jede Unterversorgung (ratio < 1) stoppt die Verarbeitung vollständig.
-        // Laufender progressMs bleibt erhalten und wird pausiert, bis wieder volle Versorgung anliegt.
-        if (powerRatio < 1) {
-          newAutoSmeltersL = newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;
-          newAutoSmeltersL[smelterId] = { ...smelterState, status: "NO_POWER" };
-          changed = true;
-          continue;
-        }
-
-        let nextSmelter = { ...smelterState };
-        const selectedRecipe = getSmeltingRecipe(nextSmelter.selectedRecipe);
-        if (!selectedRecipe) {
-          nextSmelter.status = "MISCONFIGURED";
-          if (!areAutoSmelterEntriesEqual(nextSmelter, smelterState)) {
-            newAutoSmeltersL = newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;
-            newAutoSmeltersL[smelterId] = nextSmelter;
-            changed = true;
-          }
-          continue;
-        }
-
-        const source = resolveBuildingSource(getLiveLogisticsState(), smelterId);
-        let sourceInv = getCraftingSourceInventory(getLiveLogisticsState(), source);
-        const sourceCapacity = getSourceCapacity(getLiveLogisticsState(), source);
-
-        // Belt-only input: pull 1 matching item per tick from the adjacent input conveyor.
-        // No inventory fallback — the auto-smelter is exclusively belt-fed.
-        {
-          const smelterInputIo = getAutoSmelterIoCells(smelterAsset);
-          const inX = smelterInputIo.input.x;
-          const inY = smelterInputIo.input.y;
-          if (import.meta.env.DEV) {
-            console.log(`[AutoSmelter:${smelterId}] input check at tile (${inX},${inY}), buffer=${nextSmelter.inputBuffer.length}/${AUTO_SMELTER_BUFFER_CAPACITY}`);
-          }
-          if (
-            nextSmelter.inputBuffer.length < AUTO_SMELTER_BUFFER_CAPACITY &&
-            inX >= 0 && inX < GRID_W && inY >= 0 && inY < GRID_H
-          ) {
-            const inAssetId = state.cellMap[cellKey(inX, inY)];
-            const inAsset = inAssetId ? state.assets[inAssetId] : null;
-            if (inAsset?.type === "conveyor" || inAsset?.type === "conveyor_corner") {
-              const inConv = newConveyorsL === state.conveyors ? state.conveyors[inAssetId] : newConveyorsL[inAssetId];
-              const inQueue = inConv?.queue ?? [];
-              const frontItem = inQueue[0];
-              if (frontItem === selectedRecipe.inputItem) {
-                newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-                newConveyorsL[inAssetId] = { queue: inQueue.slice(1) };
-                nextSmelter.inputBuffer = [...nextSmelter.inputBuffer, frontItem];
-                nextSmelter.lastRecipeInput = selectedRecipe.inputItem;
-                nextSmelter.lastRecipeOutput = selectedRecipe.outputItem;
-                changed = true;
-                if (import.meta.env.DEV) {
-                  console.log(`[AutoSmelter:${smelterId}] consumed "${frontItem}" from conveyor tile (${inX},${inY})`);
-                }
-              } else {
-                if (import.meta.env.DEV) {
-                  console.log(`[AutoSmelter:${smelterId}] no matching item on belt – found: ${frontItem ?? "empty"}, need: ${selectedRecipe.inputItem}`);
-                }
-              }
-            } else {
-              if (import.meta.env.DEV) {
-                console.log(`[AutoSmelter:${smelterId}] no conveyor at input tile (${inX},${inY}) – smelter blocked`);
-              }
-            }
-          }
-        }
-
-        // Flush pending output — Priority 1: output conveyor belt, Priority 2: source inventory.
-        while (nextSmelter.pendingOutput.length > 0) {
-          const pendingInputItem = nextSmelter.pendingOutput[0];
-          const pendingRecipe = getSmeltingRecipe(pendingInputItem);
-          if (!pendingRecipe) {
-            nextSmelter.pendingOutput = nextSmelter.pendingOutput.slice(1);
-            changed = true;
-            continue;
-          }
-          const pendingOutputKey = pendingRecipe.outputItem as keyof Inventory;
-          const pendingOutputItem = pendingRecipe.outputItem as ConveyorItem;
-          let outputDone = false;
-
-          // Priority 1: Adjacent output conveyor belt (direction-aware, mirrors Auto-Miner logic).
-          const smelterIo = getAutoSmelterIoCells(smelterAsset);
-          const outX = smelterIo.output.x;
-          const outY = smelterIo.output.y;
-          if (outX >= 0 && outX < GRID_W && outY >= 0 && outY < GRID_H) {
-            const outAssetId = state.cellMap[cellKey(outX, outY)];
-            const outAsset = outAssetId ? state.assets[outAssetId] : null;
-            if (outAsset?.type === "conveyor" || outAsset?.type === "conveyor_corner") {
-              const outConv = newConveyorsL === state.conveyors ? state.conveyors[outAssetId] : newConveyorsL[outAssetId];
-              const outQueue = outConv?.queue ?? [];
-              if (outQueue.length < CONVEYOR_TILE_CAPACITY) {
-                newConveyorsL = newConveyorsL === state.conveyors ? { ...state.conveyors } : newConveyorsL;
-                newConveyorsL[outAssetId] = { queue: [...outQueue, pendingOutputItem] };
-                nextSmelter.pendingOutput = nextSmelter.pendingOutput.slice(1);
-                nextSmelter.throughputEvents = [...nextSmelter.throughputEvents, Date.now()];
-                changed = true;
-                outputDone = true;
-              } else {
-                // Output conveyor is present but full — stay blocked, don't bypass to source inventory.
-                break;
-              }
-            }
-          }
-
-          // Priority 2: Source inventory fallback (no conveyor at output cell).
-          if (!outputDone) {
-            if ((sourceInv[pendingOutputKey] as number) + pendingRecipe.outputAmount > sourceCapacity) {
-              break;
-            }
-            const added = addResources(sourceInv, { [pendingOutputKey]: pendingRecipe.outputAmount });
-            applySourceInventory(source, added);
-            sourceInv = added;
-            nextSmelter.pendingOutput = nextSmelter.pendingOutput.slice(1);
-            nextSmelter.throughputEvents = [...nextSmelter.throughputEvents, Date.now()];
-            changed = true;
-          }
-        }
-
-        // Start processing once buffer holds recipe.inputAmount matching items.
-        const matchCount = nextSmelter.inputBuffer.filter((it) => it === selectedRecipe.inputItem).length;
-        if (!nextSmelter.processing && nextSmelter.pendingOutput.length === 0 && matchCount >= selectedRecipe.inputAmount) {
-          if (import.meta.env.DEV && !_smelterRecipesLogged) {
-            console.log("[Smelter] Rezepte geladen:", SMELTING_RECIPES);
-            _smelterRecipesLogged = true;
-          }
-          let batchConsumed = 0;
-          nextSmelter.inputBuffer = nextSmelter.inputBuffer.filter((it) => {
-            if (batchConsumed < selectedRecipe.inputAmount && it === selectedRecipe.inputItem) {
-              batchConsumed++;
-              return false;
-            }
-            return true;
-          });
-          nextSmelter.processing = {
-            inputItem: selectedRecipe.inputItem as ConveyorItem,
-            outputItem: selectedRecipe.outputItem as ConveyorItem,
-            progressMs: 0,
-            durationMs: Math.max(1, selectedRecipe.processingTime * 1000),
-          };
-          nextSmelter.lastRecipeInput = selectedRecipe.inputItem;
-          nextSmelter.lastRecipeOutput = selectedRecipe.outputItem;
-          changed = true;
-        }
-
-        // Ab hier gilt powerRatio === 1 (volle Versorgung). Produktion läuft mit voller Geschwindigkeit
-        // oder — bei Unterstrom — wurde oben bereits per `continue` komplett gestoppt.
-        if (nextSmelter.processing) {
-          const smelterBoost = getBoostMultiplier(smelterAsset);
-          nextSmelter.processing = {
-            ...nextSmelter.processing,
-            progressMs: nextSmelter.processing.progressMs + LOGISTICS_TICK_MS * smelterBoost,
-          };
-          if (nextSmelter.processing.progressMs >= nextSmelter.processing.durationMs) {
-            // Store the recipe input token (iron/copper) to resolve deterministic output metadata later.
-            nextSmelter.pendingOutput = [...nextSmelter.pendingOutput, nextSmelter.processing.inputItem];
-            nextSmelter.processing = null;
-          }
-          changed = true;
-        }
-
-        // Keep only last 60s throughput data.
-        const cutoff = Date.now() - 60_000;
-        const trimmed = nextSmelter.throughputEvents.filter((ts) => ts >= cutoff);
-        if (trimmed.length !== nextSmelter.throughputEvents.length) {
-          nextSmelter.throughputEvents = trimmed;
-          changed = true;
-        }
-
-        if (nextSmelter.pendingOutput.length > 0) {
-          const pendingRecipe = getSmeltingRecipe(nextSmelter.pendingOutput[0]);
-          if (!pendingRecipe) {
-            nextSmelter.status = "MISCONFIGURED";
-          } else {
-            const pendingOutputKey = pendingRecipe.outputItem as keyof Inventory;
-            // Check output route: conveyor takes priority over source inventory.
-            const statusIo = getAutoSmelterIoCells(smelterAsset);
-            const statusOutX = statusIo.output.x;
-            const statusOutY = statusIo.output.y;
-            let hasOutputConveyor = false;
-            let outputConveyorHasSpace = false;
-            if (statusOutX >= 0 && statusOutX < GRID_W && statusOutY >= 0 && statusOutY < GRID_H) {
-              const statusOutId = state.cellMap[cellKey(statusOutX, statusOutY)];
-              const statusOutAsset = statusOutId ? state.assets[statusOutId] : null;
-              if (statusOutAsset?.type === "conveyor" || statusOutAsset?.type === "conveyor_corner") {
-                hasOutputConveyor = true;
-                const statusConv = newConveyorsL === state.conveyors ? state.conveyors[statusOutId] : newConveyorsL[statusOutId];
-                outputConveyorHasSpace = (statusConv?.queue?.length ?? 0) < CONVEYOR_TILE_CAPACITY;
-              }
-            }
-            const outputCanProceed = hasOutputConveyor
-              ? outputConveyorHasSpace
-              : (sourceInv[pendingOutputKey] as number) + pendingRecipe.outputAmount <= sourceCapacity;
-            nextSmelter.status = outputCanProceed ? "IDLE" : "OUTPUT_BLOCKED";
-          }
-        } else if (nextSmelter.processing) {
-          nextSmelter.status = "PROCESSING";
-        } else if (nextSmelter.inputBuffer.length > 0) {
-          nextSmelter.status = "IDLE";
-        } else {
-          nextSmelter.status = "IDLE";
-        }
-
-        if (!areAutoSmelterEntriesEqual(nextSmelter, smelterState)) {
-          newAutoSmeltersL = newAutoSmeltersL === state.autoSmelters ? { ...state.autoSmelters } : newAutoSmeltersL;
-          newAutoSmeltersL[smelterId] = nextSmelter;
-        }
-      }
-
-      if (!changed) return state;
-      return {
-        ...state,
-        inventory: newInvL,
-        warehouseInventories: newWarehouseInventoriesL,
-        smithy: newSmithyL,
-        autoMiners: newAutoMinersL,
-        autoSmelters: newAutoSmeltersL,
-        conveyors: newConveyorsL,
-        notifications: newNotifsL,
-        autoDeliveryLog: newAutoDeliveryLogL,
-      };
+      return handleLogisticsTickAction(state, LOGISTICS_TICK_ACTION_DEPS);
     }
 
     // TOGGLE_ENERGY_DEBUG is handled above by handleUiAction.
 
-    case "SET_MACHINE_PRIORITY": {
-      const asset = state.assets[action.assetId];
-      if (!asset) return state;
-      if (!isEnergyConsumerType(asset.type)) return state;
-      const nextPriority = clampMachinePriority(action.priority);
-      if ((asset.priority ?? DEFAULT_MACHINE_PRIORITY) === nextPriority) return state;
-      return {
-        ...state,
-        assets: {
-          ...state.assets,
-          [action.assetId]: {
-            ...asset,
-            priority: nextPriority,
-          },
-        },
-      };
-    }
-
-    case "SET_MACHINE_BOOST": {
-      const asset = state.assets[action.assetId];
-      if (!asset) return state;
-      // Harte Einschränkung: Overclocking-Stufe 1 ist nur für auto_miner und auto_smelter.
-      if (!isBoostSupportedType(asset.type)) return state;
-      const nextBoost = !!action.boosted;
-      if ((asset.boosted ?? false) === nextBoost) return state;
-      return {
-        ...state,
-        assets: {
-          ...state.assets,
-          [action.assetId]: {
-            ...asset,
-            boosted: nextBoost,
-          },
-        },
-      };
-    }
+    // SET_MACHINE_PRIORITY and SET_MACHINE_BOOST are handled above by
+    // handleMachineConfigAction (see action-handlers/machine-config.ts).
 
     // SET_BUILDING_SOURCE and UPGRADE_HUB are handled above by
     // handleBuildingSiteAction (see action-handlers/building-site.ts).
@@ -4578,82 +2915,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       };
     }
 
-    case "ASSIGN_DRONE_TO_HUB": {
-      const { droneId, hubId } = action;
-      const targetHub = state.serviceHubs[hubId];
-      const hubAsset = state.assets[hubId];
-      if (!targetHub || !hubAsset) return state;
-
-      // Look up the drone — starterDrone is authoritative for "starter"; fall back to drones record
-      const drone = (droneId === state.starterDrone.droneId)
-        ? state.starterDrone
-        : (state.drones[droneId] ?? null);
-      if (!drone) return state;
-
-      // Check hub capacity (skip if already assigned to this hub)
-      const maxSlots = getMaxDrones(targetHub.tier);
-      if (!targetHub.droneIds.includes(droneId) && targetHub.droneIds.length >= maxSlots) {
-        return { ...state, notifications: addErrorNotification(state.notifications, "Hub hat keine freien Drohnen-Slots.") };
-      }
-
-      // Remove drone from its old hub's droneIds
-      let newHubs = { ...state.serviceHubs };
-      const oldHubId = drone.hubId;
-      if (oldHubId && oldHubId !== hubId && newHubs[oldHubId]) {
-        newHubs = {
-          ...newHubs,
-          [oldHubId]: {
-            ...newHubs[oldHubId],
-            droneIds: newHubs[oldHubId].droneIds.filter((id) => id !== droneId),
-          },
-        };
-      }
-
-      // Add drone to new hub (preserve order; skip if already there)
-      const newDroneIds = targetHub.droneIds.includes(droneId)
-        ? [...(newHubs[hubId]?.droneIds ?? [])]
-        : [...(newHubs[hubId]?.droneIds ?? []), droneId];
-      const dockSlot = newDroneIds.indexOf(droneId);
-      const offset = getDroneDockOffset(dockSlot);
-      const dockX = hubAsset.x + offset.dx;
-      const dockY = hubAsset.y + offset.dy;
-      newHubs = { ...newHubs, [hubId]: { ...newHubs[hubId]!, droneIds: newDroneIds } };
-
-      // Release any claimed collection node before resetting the drone
-      let newNodes = state.collectionNodes;
-      if (drone.targetNodeId && newNodes[drone.targetNodeId]?.reservedByDroneId === droneId) {
-        newNodes = { ...newNodes, [drone.targetNodeId]: { ...newNodes[drone.targetNodeId], reservedByDroneId: null } };
-      }
-
-      // Snap drone to new dock, reset to idle
-      const assignedDrone: StarterDroneState = {
-        ...drone,
-        hubId,
-        status: "idle" as DroneStatus,
-        tileX: dockX,
-        tileY: dockY,
-        targetNodeId: null,
-        cargo: null,
-        ticksRemaining: 0,
-        currentTaskType: null,
-            craftingJobId: null,
-        deliveryTargetId: null,
-      };
-
-      debugLog.building(`[ASSIGN_DRONE_TO_HUB] Drone ${droneId} → hub ${hubId} (dock slot ${dockSlot}, pos ${dockX},${dockY})`);
-
-      let newState: GameState = {
-        ...state,
-        serviceHubs: newHubs,
-        collectionNodes: newNodes,
-        drones: { ...state.drones, [droneId]: assignedDrone },
-      };
-      // Keep starterDrone in sync
-      if (droneId === state.starterDrone.droneId) {
-        newState = { ...newState, starterDrone: assignedDrone };
-      }
-      return syncDrones(newState);
-    }
+    // ASSIGN_DRONE_TO_HUB is handled above by
+    // handleDroneAssignmentAction (see action-handlers/drone-assignment.ts).
 
     case "DRONE_SET_ROLE": {
       const { droneId, role } = action;
@@ -4671,7 +2934,18 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case "DRONE_TICK": {
-      return tickAllDrones(state, tickAllDronesDeps);
+      // Inline of the former tickAllDrones() — sequential per-drone tick using
+      // the order of the current drones map. Each subsequent drone sees all
+      // mutations made by the previously ticked drones.
+      const starterRecord = state.drones.starter;
+      const startState = starterRecord !== state.starterDrone
+        ? { ...state, drones: { ...state.drones, starter: state.starterDrone } }
+        : state;
+      let nextState = startState;
+      for (const droneId of Object.keys(startState.drones)) {
+        nextState = tickOneDrone(nextState, droneId);
+      }
+      return nextState;
     }
 
     default:

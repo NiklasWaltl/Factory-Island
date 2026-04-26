@@ -25,17 +25,17 @@ import { debugLog } from "../../debug/debugLogger";
 import {
   countOpenAutomationCraftingJobs,
   hasActiveAutomationRefillForItem,
-} from "../jobStatus";
+} from "../queue/jobStatus";
 import {
   checkRecipeAutomationPolicy,
-} from "../policies";
+} from "../policies/policies";
 import {
   evaluateKeepStockTarget,
   listConfiguredKeepStockTargets,
   type KeepStockEvaluationDeps,
-} from "../keepStockDecision";
-import { buildWorkbenchAutoCraftPlan } from "../planner";
-import { enqueueJob as craftingEnqueueJob } from "../queue";
+} from "../policies/keepStockDecision";
+import { buildWorkbenchAutoCraftPlan } from "../planner/planner";
+import { enqueueJob as craftingEnqueueJob } from "../queue/queue";
 import { getWorkbenchRecipe } from "../../simulation/recipes";
 import type {
   GameState,

@@ -6,7 +6,7 @@ import {
   type PlacedAsset,
 } from "../../store/reducer";
 import { WORKBENCH_RECIPES, type WorkbenchRecipe } from "../../simulation/recipes";
-import { buildWorkbenchAutoCraftPlan } from "../planner";
+import { buildWorkbenchAutoCraftPlan } from "../planner/planner";
 import { pickOutputWarehouseId, routeOutput } from "../output";
 import type { CraftingInventorySource, CraftingJob, JobStatus } from "../types";
 

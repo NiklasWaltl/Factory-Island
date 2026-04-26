@@ -7,7 +7,7 @@ import {
   isGuaranteedPendingCraftingJob,
   isKeepStockTrackedJob,
   isOpenCraftingJob,
-} from "../jobStatus";
+} from "../queue/jobStatus";
 
 function makeJob(overrides: Partial<CraftingJob>): CraftingJob {
   const base: CraftingJob = {

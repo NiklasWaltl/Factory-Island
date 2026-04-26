@@ -1,9 +1,7 @@
 ﻿import React from "react";
 import type { GameState, PlacedAsset } from "../../store/types";
+import { CELL_PX, GRID_W, GRID_H } from "../../constants/grid";
 import {
-  CELL_PX,
-  GRID_W,
-  GRID_H,
   ENERGY_DRAIN,
   GENERATOR_ENERGY_PER_TICK,
   GENERATOR_TICK_MS,

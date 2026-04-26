@@ -1,8 +1,6 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
+import { GRID_W, GRID_H, CELL_PX } from "../constants/grid";
 import {
-  GRID_W,
-  GRID_H,
-  CELL_PX,
   cellKey,
 } from "../store/reducer";
 import type { Direction, GameState } from "../store/types";

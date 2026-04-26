@@ -1,8 +1,6 @@
 import React from "react";
+import { GRID_W, GRID_H, CELL_PX } from "../constants/grid";
 import {
-  GRID_W,
-  GRID_H,
-  CELL_PX,
   BUILDING_SIZES,
   FLOOR_TILE_EMOJIS,
   REQUIRES_STONE_FLOOR,

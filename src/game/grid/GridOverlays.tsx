@@ -1,13 +1,8 @@
 import React from "react";
-import {
-  CELL_PX,
-  GRID_W,
-  GRID_H,
-  cellKey,
-  isValidWarehouseInput,
-  getWarehouseInputCell,
-  isUnderConstruction,
-} from "../store/reducer";
+import { GRID_W, GRID_H, CELL_PX } from "../constants/grid";
+import { cellKey } from "../store/cell-key";
+import { isUnderConstruction } from "../store/asset-status";
+import { getWarehouseInputCell, isValidWarehouseInput } from "../store/warehouse-input";
 import type { Direction, GameState } from "../store/types";
 import { WAREHOUSE_INPUT_SPRITE } from "../assets/sprites/sprites";
 import type { StaticAssetSnapshot } from "../world/PhaserGame";

@@ -1,6 +1,6 @@
 ﻿import React from "react";
 import type { GameNotification } from "../../store/types";
-import { RESOURCE_EMOJIS } from "../../store/reducer";
+import { RESOURCE_EMOJIS } from "../../store/constants/resources";
 
 interface NotificationsProps {
   notifications: GameNotification[];

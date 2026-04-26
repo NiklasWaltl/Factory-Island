@@ -9,7 +9,7 @@ import {
   STONE_FLOOR_MORTAR_COLOR,
 } from "../assets/sprites/sprites";
 import { CELL_PX, GRID_H, GRID_W } from "../constants/grid";
-import { ASSET_LABELS } from "../store/reducer";
+import { ASSET_LABELS } from "../store/constants/assets";
 import type { Direction } from "../store/types";
 
 const GAME_W = GRID_W * CELL_PX;

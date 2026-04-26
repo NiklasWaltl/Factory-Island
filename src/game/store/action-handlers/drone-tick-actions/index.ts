@@ -1,9 +1,19 @@
 // ============================================================
 // Drone tick action handler
 // ------------------------------------------------------------
-// Extracts the DRONE_TICK reducer case.
-// Behaviour is intentionally byte-equivalent to the prior inline
-// case body - no new abstractions, no logic changes.
+// Handles:     DRONE_TICK
+// Reads:       state.drones, state.starterDrone, state.assets,
+//              state.serviceHubs, state.warehouseInventories,
+//              state.constructionSites, state.crafting,
+//              state.collectionNodes
+// Writes:      state.drones (movement / status / cargo),
+//              state.starterDrone, target inventories on
+//              collect/deposit, state.crafting (input buffer +
+//              delivery transitions), state.collectionNodes
+// Depends on:  ./phases/drone-tick-phase, deps.tickOneDrone
+//              (orchestrator from ../../../drones/execution/tick-one-drone)
+// Notes:       Hottest path. Iterates every drone every 500 ms.
+//              Task selection deps live in ../../../drones/selection/.
 // ============================================================
 
 import type { GameAction } from "../../actions";

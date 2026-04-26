@@ -1,9 +1,14 @@
 // ============================================================
 // Hub-target action handler
 // ------------------------------------------------------------
-// Extracts the SET_HUB_TARGET_STOCK reducer case.
-// Behaviour is intentionally byte-equivalent to the prior inline
-// case body — no new abstractions, no logic changes.
+// Handles:     SET_HUB_TARGET_STOCK
+// Reads:       state.serviceHubs[hubId]
+// Writes:      state.serviceHubs[hubId].targetStock[resource]
+// Depends on:  ./phases/set-hub-target-stock-phase
+// Notes:       Target stock drives drone restock candidate
+//              selection (see ../../../drones/candidates/
+//              hub-restock-candidates.ts). Tier-aware caps live in
+//              ../../hub-tier-selectors.ts (getMaxTargetStockForTier).
 // ============================================================
 
 import type { GameAction } from "../../actions";

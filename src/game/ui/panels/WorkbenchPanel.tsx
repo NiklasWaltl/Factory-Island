@@ -4,6 +4,8 @@ import type { GameAction } from "../../store/actions";
 import {
   RESOURCE_LABELS,
   RESOURCE_EMOJIS,
+} from "../../store/constants/resources";
+import {
   getSourceStatusInfo,
   getCraftingSourceInventory,
 } from "../../store/reducer";

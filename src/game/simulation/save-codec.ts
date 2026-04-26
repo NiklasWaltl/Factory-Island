@@ -7,19 +7,18 @@ import type {
   ServiceHubEntry,
   ConstructionSite,
 } from "../store/types";
+import { GRID_H, GRID_W } from "../constants/grid";
+import { createEmptyHubInventory } from "../buildings/service-hub/hub-upgrade-workflow";
+import { cleanBuildingSourceIds } from "../buildings/warehouse/warehouse-assignment";
+import { getDroneHomeDock } from "../drones/drone-dock";
+import { computeConnectedAssetIds } from "../logistics/connectivity";
+import { cleanBuildingZoneIds } from "../zones/production-zone-cleanup";
+import { MAP_SHOP_POS } from "../store/constants/map-layout";
+import { createDefaultProtoHubTargetStock } from "../store/constants/hub/hub-target-stock";
+import { cellKey } from "../store/cell-key";
+import { createInitialState } from "../store/initial-state";
 import {
-  computeConnectedAssetIds,
-  createInitialState,
-  cleanBuildingSourceIds,
-  cleanBuildingZoneIds,
-  createEmptyHubInventory,
   createDefaultHubTargetStock,
-  createDefaultProtoHubTargetStock,
-  getDroneHomeDock,
-  MAP_SHOP_POS,
-  GRID_W,
-  GRID_H,
-  cellKey,
 } from "../store/reducer";
 import type { HubTier } from "../store/types";
 import { debugLog } from "../debug/debugLogger";

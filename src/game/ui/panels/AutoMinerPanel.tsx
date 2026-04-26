@@ -1,12 +1,12 @@
 ﻿import React, { useEffect, useRef } from "react";
 import type { GameState, Inventory, MachinePriority } from "../../store/types";
 import type { GameAction } from "../../store/actions";
+import { RESOURCE_LABELS } from "../../store/constants/resources";
 import {
   AUTO_MINER_BOOST_MULTIPLIER,
   AUTO_MINER_PRODUCE_TICKS,
   DEFAULT_MACHINE_PRIORITY,
   ENERGY_DRAIN,
-  RESOURCE_LABELS,
   getCapacityPerResource,
   getCraftingSourceInventory,
   getSourceStatusInfo,

@@ -19,11 +19,11 @@ import type {
   KeepStockByWorkbench,
   HubTier,
 } from "../store/types";
+import { createEmptyHubInventory } from "../buildings/service-hub/hub-upgrade-workflow";
+import { GENERATOR_MAX_FUEL } from "../store/constants/buildings";
+import { MAP_SHOP_POS } from "../store/constants/map-layout";
 import {
-  createEmptyHubInventory,
   createDefaultHubTargetStock,
-  MAP_SHOP_POS,
-  GENERATOR_MAX_FUEL,
 } from "../store/reducer";
 import type { NetworkSlice } from "../inventory/reservationTypes";
 import { createEmptyNetworkSlice } from "../inventory/reservationTypes";

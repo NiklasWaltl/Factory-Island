@@ -1,6 +1,7 @@
 import React from "react";
 import type { GameState, CollectableItemType, DroneRole, Inventory } from "../../store/types";
 import type { GameAction } from "../../store/actions";
+import { RESOURCE_LABELS as GLOBAL_RESOURCE_LABELS } from "../../store/constants/resources";
 import {
   getDroneStatusDetail,
   getHubTierLabel,
@@ -10,7 +11,6 @@ import {
   getMaxDrones,
   getHubDrones,
   HUB_UPGRADE_COST,
-  RESOURCE_LABELS as GLOBAL_RESOURCE_LABELS,
   hasResourcesInPhysicalStorage,
 } from "../../store/reducer";
 

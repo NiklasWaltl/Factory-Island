@@ -26,11 +26,11 @@ import {
   type KeepStockEvaluationDeps,
 } from "../../crafting/policies";
 import { isKnownItemId, getItemDef } from "../../items/registry";
+import { RESOURCE_LABELS } from "../../store/constants/resources";
 import type { CollectableItemType, CraftingSource, GameState } from "../../store/types";
 import {
   KEEP_STOCK_MAX_TARGET,
   KEEP_STOCK_OPEN_JOB_CAP,
-  RESOURCE_LABELS,
   getCraftingSourceInventory,
   getZoneWarehouseIds,
   isUnderConstruction,

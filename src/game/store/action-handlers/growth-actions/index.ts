@@ -1,12 +1,16 @@
 // ============================================================
 // Growth action handler
 // ------------------------------------------------------------
-// Extracts growth/spawn reducer cases:
-// - GROW_SAPLING
-// - GROW_SAPLINGS
-// - NATURAL_SPAWN
-// Behaviour is intentionally byte-equivalent to the prior inline
-// case bodies — no new abstractions, no logic changes.
+// Handles:     GROW_SAPLING, GROW_SAPLINGS, NATURAL_SPAWN
+// Reads:       state.assets, state.cellMap, state.saplingGrowAt,
+//              state.floorMap
+// Writes:      state.assets (sapling -> tree replacement, naturally
+//              spawned trees), state.cellMap, state.saplingGrowAt
+// Depends on:  ./phases (3 phase modules); no deps injection
+// Notes:       NATURAL_SPAWN runs every 60 s (constants/timing.ts:
+//              NATURAL_SPAWN_MS). GROW_SAPLINGS is dispatched
+//              every 1 s from FactoryApp; only saplings whose
+//              saplingGrowAt has matured are passed in.
 // ============================================================
 
 import type { GameAction } from "../../actions";

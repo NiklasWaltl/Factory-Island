@@ -1,16 +1,20 @@
 import React from "react";
 import type { BuildingType, FloorTileType, GameState, Inventory } from "../../store/types";
 import type { GameAction } from "../../store/actions";
+import { BUILDING_LABELS } from "../../store/constants/buildings";
 import {
-  BUILDING_COSTS,
-  BUILDING_LABELS,
-  BUILDING_SIZES,
+  FLOOR_TILE_DESCRIPTIONS,
+  FLOOR_TILE_LABELS,
+} from "../../store/constants/floor";
+import {
   RESOURCE_EMOJIS,
   RESOURCE_LABELS,
+} from "../../store/constants/resources";
+import {
+  BUILDING_COSTS,
+  BUILDING_SIZES,
   STACKABLE_BUILDINGS,
   FLOOR_TILE_COSTS,
-  FLOOR_TILE_LABELS,
-  FLOOR_TILE_DESCRIPTIONS,
   hasResources,
   selectBuildMenuInventoryView,
   selectGlobalInventoryView,

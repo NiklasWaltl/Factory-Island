@@ -1,7 +1,7 @@
 ﻿import React from "react";
 import type { AssetType, GameState } from "../../store/types";
 import type { GameAction } from "../../store/actions";
-import { ASSET_EMOJIS, ASSET_LABELS } from "../../store/reducer";
+import { ASSET_EMOJIS, ASSET_LABELS } from "../../store/constants/assets";
 import { POWER_POLE_RANGE } from "../../store/constants/energy/power-pole";
 
 interface PowerPolePanelProps {

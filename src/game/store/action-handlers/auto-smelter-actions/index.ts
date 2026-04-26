@@ -1,9 +1,12 @@
 // ============================================================
 // Auto-smelter action handler
 // ------------------------------------------------------------
-// Extracts the AUTO_SMELTER_SET_RECIPE reducer case.
-// Behaviour is intentionally byte-equivalent to the prior inline
-// case body — no new abstractions, no logic changes.
+// Handles:     AUTO_SMELTER_SET_RECIPE
+// Reads:       state.assets, state.autoSmelters
+// Writes:      state.autoSmelters[assetId].recipe
+// Depends on:  ./phases/auto-smelter-set-recipe-phase
+// Notes:       AUTO_SMELTER_TICK is NOT here — it runs inside
+//              LOGISTICS_TICK (logistics-tick/phases/auto-smelter.ts).
 // ============================================================
 
 import type { GameAction } from "../../actions";

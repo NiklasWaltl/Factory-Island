@@ -1,13 +1,25 @@
 // ============================================================
 // Crafting / Queue action handler
 // ------------------------------------------------------------
-// Dispatcher over 6 phase modules that mutate the crafting queue
-// and closely related slices (network reservations, keep-in-stock
-// targets, recipe automation policies). The reducer switch
-// delegates these action cases to this module.
-//
-// Behaviour is intentionally byte-equivalent to the prior inline
-// case bodies — no new abstractions, no logic changes.
+// Handles:     NETWORK_RESERVE_BATCH, NETWORK_COMMIT_RESERVATION,
+//              NETWORK_COMMIT_BY_OWNER, NETWORK_CANCEL_RESERVATION,
+//              NETWORK_CANCEL_BY_OWNER, CRAFT_REQUEST_WITH_PREREQUISITES,
+//              JOB_ENQUEUE, JOB_CANCEL, JOB_MOVE, JOB_SET_PRIORITY,
+//              JOB_TICK, SET_KEEP_STOCK_TARGET, SET_RECIPE_AUTOMATION_POLICY
+// Reads:       state.crafting, state.network, state.warehouseInventories,
+//              state.inventory, state.assets, state.serviceHubs,
+//              state.keepStockByWorkbench, state.recipeAutomationPolicies
+// Writes:      state.crafting, state.network, physical inventories
+//              (warehouseInventories / inventory / serviceHubs)
+//              on commit, state.keepStockByWorkbench,
+//              state.recipeAutomationPolicies
+// Depends on:  ./phases (6 phase modules), ./deps (reducer-internal
+//              helpers injected to avoid ESM cycle with reducer.ts)
+// Notes:       JOB_TICK is split into Planning + Execution
+//              (see ../../crafting/tickPhases.ts). Only the
+//              Planning phase is allowed to enqueue new jobs.
+//              Largest cluster — see crafting/README.md for the
+//              job-lifecycle overview.
 // ============================================================
 
 import type { GameState } from "../../types";

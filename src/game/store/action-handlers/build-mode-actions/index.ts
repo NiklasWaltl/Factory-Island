@@ -1,13 +1,16 @@
 // ============================================================
 // Build-mode action handler
 // ------------------------------------------------------------
-// Dispatcher over the three pure UI build-mode toggle/select cases:
-// - TOGGLE_BUILD_MODE
-// - SELECT_BUILD_BUILDING
-// - SELECT_BUILD_FLOOR_TILE
-//
-// Behaviour is intentionally byte-equivalent to the prior inline
-// case bodies — no new abstractions, no logic changes.
+// Handles:     TOGGLE_BUILD_MODE, SELECT_BUILD_BUILDING,
+//              SELECT_BUILD_FLOOR_TILE
+// Reads:       state.buildMode, state.selectedBuildingType,
+//              state.selectedFloorTile
+// Writes:      state.buildMode, state.selectedBuildingType,
+//              state.selectedFloorTile
+// Depends on:  ./phases (3 phase modules; pure UI toggles)
+// Notes:       No deps injection. Pure UI-only mutations — no asset
+//              placement here (that's BUILD_PLACE_BUILDING in
+//              building-placement.ts).
 // ============================================================
 
 import type { GameAction } from "../../actions";

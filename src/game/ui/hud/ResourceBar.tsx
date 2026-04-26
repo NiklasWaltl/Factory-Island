@@ -1,6 +1,6 @@
 ﻿import React from "react";
+import { RESOURCE_EMOJIS } from "../../store/constants/resources";
 import {
-  RESOURCE_EMOJIS,
   getCapacityPerResource,
   selectGlobalInventoryView,
 } from "../../store/reducer";

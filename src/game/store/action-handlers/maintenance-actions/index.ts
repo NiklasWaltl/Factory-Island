@@ -1,15 +1,20 @@
 // ============================================================
 // Maintenance / no-op action handler
 // ------------------------------------------------------------
-// Extracts low-coupling maintenance and no-op reducer cases:
-// - CRAFT_WORKBENCH
-// - REMOVE_BUILDING
-// - REMOVE_POWER_POLE
-// - DEBUG_SET_STATE
-// - EXPIRE_NOTIFICATIONS
-//
-// Behaviour is intentionally byte-equivalent to the prior inline
-// case bodies — no new abstractions, no logic changes.
+// Handles:     CRAFT_WORKBENCH (deprecated — use JOB_ENQUEUE),
+//              REMOVE_BUILDING, REMOVE_POWER_POLE,
+//              DEBUG_SET_STATE, EXPIRE_NOTIFICATIONS
+// Reads:       state.assets, state.notifications, state.inventory,
+//              state.placedBuildings, state.purchasedBuildings,
+//              state.cellMap (REMOVE_*); whole state on DEBUG_SET_STATE
+// Writes:      state.notifications (EXPIRE), state.assets +
+//              state.cellMap + state.placedBuildings (REMOVE_*),
+//              full state replacement (DEBUG_SET_STATE)
+// Depends on:  ./phases (5 phase modules); no deps injection
+// Notes:       Heterogeneous bucket — these cases share only "low
+//              coupling to other clusters". DEBUG_SET_STATE bypasses
+//              every invariant; intended for tests + debug panel.
+//              EXPIRE_NOTIFICATIONS fires every 500 ms.
 // ============================================================
 
 import type { GameAction } from "../../actions";

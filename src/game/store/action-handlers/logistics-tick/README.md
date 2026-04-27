@@ -62,6 +62,5 @@
 
 ## Verwandt
 
-- `AUTO_SMELTER_TICK` als Action-Type ist toter Code — siehe [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) "Known Friction" Punkt 8.
 - Smelter-Recipes (`processingTime`, `inputItem`, `inputAmount`, `outputItem`): [`simulation/recipes/SmeltingRecipes.ts`](../../../simulation/recipes/SmeltingRecipes.ts).
 - IO-Geometrie (Input-/Output-Tile pro Smelter): [`asset-geometry.ts`](../../asset-geometry.ts) → `getAutoSmelterIoCells`.

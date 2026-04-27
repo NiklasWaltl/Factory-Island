@@ -5,8 +5,8 @@
 // Reads:       state.assets, state.autoSmelters
 // Writes:      state.autoSmelters[assetId].recipe
 // Depends on:  ./phases/auto-smelter-set-recipe-phase
-// Notes:       AUTO_SMELTER_TICK is NOT here — it runs inside
-//              LOGISTICS_TICK (logistics-tick/phases/auto-smelter.ts).
+// Notes:       Smelter ticking runs as Phase 4 of LOGISTICS_TICK
+//              (logistics-tick/phases/auto-smelter.ts), not here.
 // ============================================================
 
 import type { GameAction } from "../../actions";

@@ -33,11 +33,6 @@ export type GameAction =
   | { type: "SMITHY_WITHDRAW" }
   | { type: "MANUAL_ASSEMBLER_START"; recipe: "metal_plate" | "gear" }
   | { type: "MANUAL_ASSEMBLER_TICK" }
-  // NOTE: AUTO_SMELTER_TICK is declared in the union for legacy reasons but is
-  // never dispatched (no setInterval, no UI handler). The reducer falls through
-  // to `default: return state` for it. Smelter logic runs as Phase 4 of
-  // LOGISTICS_TICK — see action-handlers/logistics-tick/phases/auto-smelter.ts.
-  | { type: "AUTO_SMELTER_TICK" }
   | { type: "AUTO_SMELTER_SET_RECIPE"; assetId: string; recipe: "iron" | "copper" }
   | { type: "GROW_SAPLING"; assetId: string }
   | { type: "GROW_SAPLINGS"; assetIds: string[] }

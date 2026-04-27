@@ -3,6 +3,10 @@ import type { BuildingType, FloorTileType, GameState, Inventory } from "../../st
 import type { GameAction } from "../../store/actions";
 import { BUILDING_LABELS } from "../../store/constants/buildings";
 import {
+  BUILD_CATEGORIES,
+  getBuildingDef,
+} from "../../store/constants/buildings/registry";
+import {
   FLOOR_TILE_DESCRIPTIONS,
   FLOOR_TILE_LABELS,
 } from "../../store/constants/floor";
@@ -28,42 +32,12 @@ interface BuildMenuProps {
   dispatch: React.Dispatch<GameAction>;
 }
 
-interface BuildCategory {
-  label: string;
-  emoji: string;
-  buildings: BuildingType[];
-}
-
 interface BuildMenuDebugSectionProps {
   energyDebugOverlay: boolean;
   onToggle: () => void;
 }
 
-const CATEGORIES: BuildCategory[] = [
-  { label: "Energie", emoji: "⚡", buildings: ["generator", "cable", "power_pole", "battery"] },
-  { label: "Produktion", emoji: "🏭", buildings: ["workbench", "smithy", "auto_miner", "manual_assembler", "auto_smelter"] },
-  { label: "Logistik", emoji: "🚚", buildings: ["conveyor", "conveyor_corner"] },
-  { label: "Lager", emoji: "📦", buildings: ["warehouse"] },
-  { label: "Hub", emoji: "\uD83D\uDEF8", buildings: ["service_hub"] },
-];
-
 const FLOOR_TILES: FloorTileType[] = ["stone_floor", "grass_block"];
-
-const BUILDING_DESCRIPTIONS: Record<BuildingType, string> = {
-  generator: "Verbrennt Holz und erzeugt Energie für das Netzwerk.",
-  cable: "Verbindet Generator mit Stromknoten (1×1).",
-  power_pole: "Verteilt Energie kabellos an Gebäude in Reichweite (3 Felder).",
-  battery: "Speichert überschüssige Energie für später.",
-  workbench: "Stelle Werkzeuge und Items her.",
-  smithy: "Schmelze Erze zu Barren.",
-  warehouse: "Erhöht die Lagerkapazität für Ressourcen.",
-  auto_miner: "Baut automatisch Ressourcen von Vorkommen ab. Nur auf 2×2 Deposits. Benötigt Energie. R zum Drehen.",
-  manual_assembler: "Stellt per Hand Metallplatten und Zahnräder her. Keine Energie nötig.",
-  auto_smelter: "Automatisches Schmelzen per Förderband. 2×1, rotierbar, Input/Output auf gegenüberliegenden Seiten.",
-  conveyor: "Transportiert Items automatisch in eine Richtung. Benötigt Energie. R zum Drehen.",
-  conveyor_corner: "Leitet Items in einer 90°-Ecke weiter. Benötigt Energie. R zum Drehen.",
-  service_hub: "Platziert einen Proto-Hub (Stufe 1). Kann sp\u00e4ter zu einem Service-Hub (Stufe 2) aufger\u00fcstet werden.",
-};
 
 const BuildMenuDebugSection: React.FC<BuildMenuDebugSectionProps> = ({
   energyDebugOverlay,
@@ -141,8 +115,8 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
         <br />Rechtsklick auf ein platziertes Gebäude zum Entfernen.
       </div>
 
-      {CATEGORIES.map((cat) => (
-        <div key={cat.label} className="fi-build-category">
+      {BUILD_CATEGORIES.map((cat) => (
+        <div key={cat.key} className="fi-build-category">
           <h3 className="fi-build-category-title">{cat.emoji} {cat.label}</h3>
           <div className="fi-build-items">
             {cat.buildings.map((bType) => {
@@ -173,7 +147,7 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
                       {BUILDING_LABELS[bType]}
                       <span className="fi-build-item-size">{size}×{size}</span>
                     </div>
-                    <div className="fi-build-item-desc">{BUILDING_DESCRIPTIONS[bType]}</div>
+                    <div className="fi-build-item-desc">{getBuildingDef(bType).description}</div>
                     <div className="fi-build-item-costs">
                       {Object.entries(costs).map(([res, amt]) => {
                         const have = (buildingInventoryView[res as keyof Inventory] ?? 0) as number;

@@ -126,7 +126,7 @@ Konstanten in [`store/constants/timing.ts`](./store/constants/timing.ts), [`stor
 | [`drone-assignment.ts`](./store/action-handlers/drone-assignment.ts) | `ASSIGN_DRONE_TO_HUB` | ja |
 | [`click-cell.ts`](./store/action-handlers/click-cell.ts) (+ `click-cell-tools.ts`, `ui-cell-prelude.ts`) | `CLICK_CELL` | ja |
 | [`logistics-tick.ts`](./store/action-handlers/logistics-tick.ts) (+ `logistics-tick/`) | `LOGISTICS_TICK` | ja (IO) |
-| inline `switch` in [`reducer.ts`](./store/reducer.ts) | `ENERGY_NET_TICK`, `LOGISTICS_TICK` (*Notes: `AUTO_SMELTER_TICK` ist als Action-Type in der Union deklariert ([`game-actions.ts:40`](./store/game-actions.ts#L40)), wird aber **nirgends dispatched** — die Smelter-Logik läuft als Phase 4 von `LOGISTICS_TICK` (siehe [`logistics-tick/phases/auto-smelter.ts`](./store/action-handlers/logistics-tick/phases/auto-smelter.ts)). Im inline `switch` fällt der Type auf `default: return state` durch (No-Op).*) | — |
+| inline `switch` in [`reducer.ts`](./store/reducer.ts) | `ENERGY_NET_TICK`, `LOGISTICS_TICK` | — |
 
 ### Discoverability
 
@@ -171,8 +171,7 @@ Stolperfallen, die häufiger Tool-Calls kosten als nötig:
 5. **`starterDrone` ↔ `drones[id]`** — duplizierter State, "kept in sync" via [`syncDrones`](./drones/drone-state-helpers.ts). Nicht beide editieren.
 6. **Phase-File-Explosion** — Cluster wie `crafting-queue-actions/phases/` haben ≥6 Dateien + `index.ts` + `types.ts` + `deps.ts`. Eine Änderung berührt typischerweise 3 Dateien (Cluster-Index + Phase + Deps).
 7. **Tick-Reihenfolge unbestimmt** — keine globale Tick-Orchestrierung. Jeder `setInterval` läuft unabhängig. Race-Conditions sind tolerierbar, weil jeder Tick einen kompletten Reducer-Pass macht.
-8. **`AUTO_SMELTER_TICK` ist toter Action-Type** — in der `GameAction`-Union deklariert ([`game-actions.ts:40`](./store/game-actions.ts#L40)), aber niemand dispatched ihn (kein `setInterval`, kein UI-Handler). Im Reducer fällt er auf `default: return state` durch. Die Smelter-Logik läuft als Phase 4 von `LOGISTICS_TICK` (siehe [`logistics-tick/phases/auto-smelter.ts`](./store/action-handlers/logistics-tick/phases/auto-smelter.ts)).
-9. **Action-Discoverability funktioniert** — `grep "case \"X\":"` führt zuverlässig zur Implementierung.
+8. **Action-Discoverability funktioniert** — `grep "case \"X\":"` führt zuverlässig zur Implementierung.
 
 ---
 

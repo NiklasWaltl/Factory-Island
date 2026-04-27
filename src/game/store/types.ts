@@ -14,6 +14,7 @@ import type {
   RecipeAutomationPolicyEntry,
   RecipeAutomationPolicyMap,
 } from "../crafting/policies";
+import type { ItemId } from "../items/types";
 
 export type {
   RecipeAutomationPolicyEntry,
@@ -73,30 +74,20 @@ export interface PlacedAsset {
   boosted?: boolean;
 }
 
-export interface Inventory {
-  coins: number;
-  wood: number;
-  stone: number;
-  iron: number;
-  copper: number;
-  sapling: number;
-  ironIngot: number;
-  copperIngot: number;
-  metalPlate: number;
-  gear: number;
-  axe: number;
-  wood_pickaxe: number;
-  stone_pickaxe: number;
-  workbench: number;
-  warehouse: number;
-  smithy: number;
-  generator: number;
-  cable: number;
-  battery: number;
-  power_pole: number;
-  manual_assembler: number;
-  auto_smelter: number;
-}
+/**
+ * Inventory shape — derived from `ItemId` so any new item id is
+ * automatically required at every place that constructs an Inventory.
+ *
+ * RUNTIME FORM: identical to the previous hand-written interface — a
+ * plain object with `coins` plus one numeric field per ItemId. JSON
+ * persistence is unchanged; no save migration required.
+ *
+ * `coins` is intentionally NOT part of `ItemId` (coins are not a
+ * placeable / craftable item). Adding new item ids belongs in
+ * `items/types.ts`; new non-item numeric balances would extend the
+ * left-hand `{ coins: number }` half here.
+ */
+export type Inventory = { coins: number } & Record<ItemId, number>;
 
 export type ToolKind =
   | "axe"

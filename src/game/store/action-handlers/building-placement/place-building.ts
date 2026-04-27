@@ -78,6 +78,24 @@ function getAutoSmelterFootprintDimensions(
     : { width: 1, height: 2 };
 }
 
+/**
+ * Common post-step shared by every successful placement branch:
+ * recompute the connected-asset-ids overlay and emit invariant warnings.
+ *
+ * Each branch used to inline the same three-step recipe; centralising it
+ * here keeps the per-branch return sites uniform and prepares the file
+ * for the upcoming strategy-map split. No behaviour change.
+ */
+function finalizePlacement(
+  partial: GameState,
+  actionType: "BUILD_PLACE_BUILDING",
+  debugLog: BuildingPlacementIoDeps["debugLog"],
+): GameState {
+  const nextState = { ...partial, connectedAssetIds: computeConnectedAssetIds(partial) };
+  logPlacementInvariantWarnings(nextState, actionType, debugLog);
+  return nextState;
+}
+
 export function handlePlaceBuildingAction(
   state: GameState,
   action: Extract<GameAction, { type: "BUILD_PLACE_BUILDING" }>,
@@ -189,6 +207,35 @@ export function handlePlaceBuildingAction(
   const useConstructionSite = CONSTRUCTION_SITE_BUILDINGS.has(bType) && hasActiveHub
     && costIsFullyCollectable(costs);
 
+  const applyCostOrConstructionSite = (
+    partial: GameState,
+    placedAssetId: string,
+  ): GameState => {
+    if (useConstructionSite) {
+      return {
+        ...partial,
+        constructionSites: {
+          ...state.constructionSites,
+          [placedAssetId]: {
+            buildingType: bType,
+            remaining: fullCostAsRemaining(costs),
+          },
+        },
+      };
+    }
+
+    const consumed = consumeBuildResources(
+      state,
+      costs as Partial<Record<keyof Inventory, number>>,
+    );
+    return {
+      ...partial,
+      inventory: consumed.inventory,
+      warehouseInventories: consumed.warehouseInventories,
+      serviceHubs: consumed.serviceHubs,
+    };
+  };
+
   const bSize = BUILDING_SIZES[bType] ?? 2;
   const runStandardPlacementChecks =
     bType !== "auto_miner" &&
@@ -228,8 +275,12 @@ export function handlePlaceBuildingAction(
     };
   }
 
-  // ---- SPECIAL: Auto-Miner placement on deposit ----
-  if (bType === "auto_miner") {
+  const placeAutoMinerBranch = (input: {
+    x: number;
+    y: number;
+    direction: Direction;
+  }): GameState => {
+    const { x, y, direction } = input;
     const autoMinerEligibilityDecision = decideAutoMinerPlacementEligibility({
       x,
       y,
@@ -253,7 +304,6 @@ export function handlePlaceBuildingAction(
 
     const depositAssetId = state.cellMap[cellKey(x, y)];
     const depositAsset = state.assets[depositAssetId];
-    const dir: Direction = action.direction ?? "east";
     const minerId = makeId();
     const newAssets = {
       ...state.assets,
@@ -263,7 +313,7 @@ export function handlePlaceBuildingAction(
         x,
         y,
         size: 1 as const,
-        direction: dir,
+        direction,
         priority: DEFAULT_MACHINE_PRIORITY,
       },
     };
@@ -271,54 +321,63 @@ export function handlePlaceBuildingAction(
     const resource = DEPOSIT_RESOURCE[depositAsset.type];
     const newAutoMiners = { ...state.autoMiners, [minerId]: { depositId: depositAssetId, resource, progress: 0 } };
     debugLog.building(`[BuildMode] Placed Auto-Miner at (${x},${y}) on ${depositAsset.type}${useConstructionSite ? " as construction site" : ""}`);
-    let partialM: GameState;
-    if (useConstructionSite) {
-      partialM = { ...state, assets: newAssets, cellMap: newCellMap, autoMiners: newAutoMiners,
-        constructionSites: { ...state.constructionSites, [minerId]: { buildingType: bType, remaining: fullCostAsRemaining(costs) } } };
-    } else {
-      const consumedM = consumeBuildResources(state, costs as Partial<Record<keyof Inventory, number>>);
-      partialM = { ...state, assets: newAssets, cellMap: newCellMap, inventory: consumedM.inventory, warehouseInventories: consumedM.warehouseInventories, serviceHubs: consumedM.serviceHubs, autoMiners: newAutoMiners };
-    }
+    let partialM = applyCostOrConstructionSite(
+      { ...state, assets: newAssets, cellMap: newCellMap, autoMiners: newAutoMiners },
+      minerId,
+    );
     // Auto-assign nearest warehouse source for zone-aware output
     const nearestWhIdM = getNearestWarehouseId(partialM, x, y);
     if (nearestWhIdM) {
       partialM = { ...partialM, buildingSourceWarehouseIds: { ...partialM.buildingSourceWarehouseIds, [minerId]: nearestWhIdM } };
     }
-    const nextState = { ...partialM, connectedAssetIds: computeConnectedAssetIds(partialM) };
-    logPlacementInvariantWarnings(nextState, action.type, debugLog);
-    return nextState;
+    return finalizePlacement(partialM, action.type, debugLog);
+  };
+
+  // ---- SPECIAL: Auto-Miner placement on deposit ----
+  if (bType === "auto_miner") {
+    return placeAutoMinerBranch({ x, y, direction: action.direction ?? "east" });
   }
 
-  // ---- SPECIAL: Conveyor placement with direction ----
-  if (bType === "conveyor" || bType === "conveyor_corner") {
+  const placeConveyorBranch = (input: {
+    x: number;
+    y: number;
+    direction: Direction;
+  }): GameState => {
+    const { x, y, direction } = input;
     if (state.cellMap[cellKey(x, y)]) {
       return { ...state, notifications: addErrorNotification(state.notifications, "Das Feld ist belegt.") };
     }
-    const dir: Direction = action.direction ?? "east";
     const placeType: AssetType = bType === "conveyor_corner" ? "conveyor_corner" : "conveyor";
     const convPlaced = placeAsset(state.assets, state.cellMap, placeType, x, y, 1);
     if (!convPlaced) return state;
-    const assetWithDir = { ...convPlaced.assets[convPlaced.id], direction: dir };
+    const assetWithDir = { ...convPlaced.assets[convPlaced.id], direction };
     const newAssetsC = { ...convPlaced.assets, [convPlaced.id]: assetWithDir };
     const newConveyors = { ...state.conveyors, [convPlaced.id]: { queue: [] as ConveyorItem[] } };
-    debugLog.building(`[BuildMode] Placed ${BUILDING_LABELS[bType]} at (${x},${y}) facing ${dir}${useConstructionSite ? " as construction site" : ""}`);
-    let partialC: GameState;
-    if (useConstructionSite) {
-      partialC = { ...state, assets: newAssetsC, cellMap: convPlaced.cellMap, conveyors: newConveyors,
-        constructionSites: { ...state.constructionSites, [convPlaced.id]: { buildingType: bType, remaining: fullCostAsRemaining(costs) } } };
-    } else {
-      const consumedC = consumeBuildResources(state, costs as Partial<Record<keyof Inventory, number>>);
-      partialC = { ...state, assets: newAssetsC, cellMap: convPlaced.cellMap, inventory: consumedC.inventory, warehouseInventories: consumedC.warehouseInventories, serviceHubs: consumedC.serviceHubs, conveyors: newConveyors };
-    }
-    const nextState = { ...partialC, connectedAssetIds: computeConnectedAssetIds(partialC) };
-    logPlacementInvariantWarnings(nextState, action.type, debugLog);
-    return nextState;
+    debugLog.building(`[BuildMode] Placed ${BUILDING_LABELS[bType]} at (${x},${y}) facing ${direction}${useConstructionSite ? " as construction site" : ""}`);
+    const partialC = applyCostOrConstructionSite(
+      {
+        ...state,
+        assets: newAssetsC,
+        cellMap: convPlaced.cellMap,
+        conveyors: newConveyors,
+      },
+      convPlaced.id,
+    );
+    return finalizePlacement(partialC, action.type, debugLog);
+  };
+
+  // ---- SPECIAL: Conveyor placement with direction ----
+  if (bType === "conveyor" || bType === "conveyor_corner") {
+    return placeConveyorBranch({ x, y, direction: action.direction ?? "east" });
   }
 
-  // ---- SPECIAL: Auto Smelter placement with directional 2x1 footprint ----
-  if (bType === "auto_smelter") {
-    const dir: Direction = action.direction ?? "east";
-    const { width, height } = getAutoSmelterFootprintDimensions(dir);
+  const placeAutoSmelterBranch = (input: {
+    x: number;
+    y: number;
+    direction: Direction;
+  }): GameState => {
+    const { x, y, direction } = input;
+    const { width, height } = getAutoSmelterFootprintDimensions(direction);
 
     // Footprint validation
     const footprintEligibilityDecision = checkAutoSmelterFootprintEligibility({
@@ -326,7 +385,7 @@ export function handlePlaceBuildingAction(
       y,
       width,
       height,
-      dir,
+      dir: direction,
       cellMap: state.cellMap,
     });
     if (footprintEligibilityDecision.kind === "blocked") {
@@ -342,7 +401,7 @@ export function handlePlaceBuildingAction(
       y,
       width,
       height,
-      dir,
+      dir: direction,
       cellMap: state.cellMap,
       assets: state.assets,
     });
@@ -364,7 +423,7 @@ export function handlePlaceBuildingAction(
       ...placed.assets,
       [placed.id]: {
         ...placed.assets[placed.id],
-        direction: dir,
+        direction,
         priority: DEFAULT_MACHINE_PRIORITY,
       },
     };
@@ -381,38 +440,42 @@ export function handlePlaceBuildingAction(
         selectedRecipe: "iron" as const,
       },
     };
-    let partialSmelter: GameState;
-    if (useConstructionSite) {
-      partialSmelter = {
+    const partialSmelter = applyCostOrConstructionSite(
+      {
         ...state,
         assets: newAssets,
         cellMap: placed.cellMap,
         autoSmelters: newAutoSmelters,
         placedBuildings: [...state.placedBuildings, bType],
         purchasedBuildings: [...state.purchasedBuildings, bType],
-        constructionSites: { ...state.constructionSites, [placed.id]: { buildingType: bType, remaining: fullCostAsRemaining(costs) } },
-      };
-    } else {
-      const newInv = consumeBuildResources(state, costs as Partial<Record<keyof Inventory, number>>);
-      partialSmelter = {
-        ...state,
-        assets: newAssets,
-        cellMap: placed.cellMap,
-        inventory: newInv.inventory,
-        warehouseInventories: newInv.warehouseInventories,
-        serviceHubs: newInv.serviceHubs,
-        autoSmelters: newAutoSmelters,
-        placedBuildings: [...state.placedBuildings, bType],
-        purchasedBuildings: [...state.purchasedBuildings, bType],
-      };
-    }
-    const nextState = { ...partialSmelter, connectedAssetIds: computeConnectedAssetIds(partialSmelter) };
-    logPlacementInvariantWarnings(nextState, action.type, debugLog);
-    return nextState;
+      },
+      placed.id,
+    );
+    return finalizePlacement(partialSmelter, action.type, debugLog);
+  };
+
+  // ---- SPECIAL: Auto Smelter placement with directional 2x1 footprint ----
+  if (bType === "auto_smelter") {
+    return placeAutoSmelterBranch({ x, y, direction: action.direction ?? "east" });
   }
 
   const placed = placeAsset(state.assets, state.cellMap, bType, x, y, bSize);
   if (!placed) return state;
+
+  const applyDefaultPlacementCosts = (): Pick<
+    GameState,
+    "inventory" | "warehouseInventories" | "serviceHubs"
+  > => {
+    const consumed = consumeBuildResources(
+      state,
+      costs as Partial<Record<keyof Inventory, number>>,
+    );
+    return {
+      inventory: consumed.inventory,
+      warehouseInventories: consumed.warehouseInventories,
+      serviceHubs: consumed.serviceHubs,
+    };
+  };
 
   // Deduct costs — construction site: drone delivers everything; otherwise consume immediately
   let newInvB = state.inventory;
@@ -426,15 +489,19 @@ export function handlePlaceBuildingAction(
     };
     debugLog.building(`[BuildMode] Placed ${BUILDING_LABELS[bType]} at (${x},${y}) as construction site`);
   } else {
-    const consumedB = consumeBuildResources(state, costs as Partial<Record<keyof Inventory, number>>);
+    const consumedB = applyDefaultPlacementCosts();
     newInvB = consumedB.inventory;
     newHubsB = consumedB.serviceHubs;
     newWarehousesB = consumedB.warehouseInventories;
     debugLog.building(`[BuildMode] Placed ${BUILDING_LABELS[bType]} at (${x},${y})`);
   }
 
-  let partialBuild: GameState =
-    bType === "warehouse"
+  const createDefaultPartialBuild = (input: {
+    buildingType: typeof bType;
+    inventoryAfterCosts: Inventory;
+  }): GameState => {
+    const { buildingType, inventoryAfterCosts } = input;
+    return buildingType === "warehouse"
       ? {
         ...state,
         assets: {
@@ -445,7 +512,7 @@ export function handlePlaceBuildingAction(
           },
         },
         cellMap: placed.cellMap,
-        inventory: newInvB,
+        inventory: inventoryAfterCosts,
         warehousesPlaced: state.warehousesPlaced + 1,
         warehousesPurchased: state.warehousesPurchased + 1,
         warehouseInventories: {
@@ -453,13 +520,26 @@ export function handlePlaceBuildingAction(
           [placed.id]: createEmptyInventory(),
         },
       }
-      : bType === "cable"
-        ? { ...state, assets: placed.assets, cellMap: placed.cellMap, inventory: newInvB, cablesPlaced: state.cablesPlaced + 1 }
-        : bType === "power_pole"
-          ? { ...state, assets: placed.assets, cellMap: placed.cellMap, inventory: newInvB, powerPolesPlaced: state.powerPolesPlaced + 1 }
-          : bType === "generator"
-            ? { ...state, assets: placed.assets, cellMap: placed.cellMap, inventory: newInvB, generators: { ...state.generators, [placed.id]: { fuel: 0, progress: 0, running: false } } }
-            : { ...state, assets: placed.assets, cellMap: placed.cellMap, inventory: newInvB, placedBuildings: [...state.placedBuildings, bType], purchasedBuildings: [...state.purchasedBuildings, bType] };
+      : buildingType === "cable"
+        ? { ...state, assets: placed.assets, cellMap: placed.cellMap, inventory: inventoryAfterCosts, cablesPlaced: state.cablesPlaced + 1 }
+        : buildingType === "power_pole"
+          ? { ...state, assets: placed.assets, cellMap: placed.cellMap, inventory: inventoryAfterCosts, powerPolesPlaced: state.powerPolesPlaced + 1 }
+          : buildingType === "generator"
+            ? { ...state, assets: placed.assets, cellMap: placed.cellMap, inventory: inventoryAfterCosts, generators: { ...state.generators, [placed.id]: { fuel: 0, progress: 0, running: false } } }
+            : {
+              ...state,
+              assets: placed.assets,
+              cellMap: placed.cellMap,
+              inventory: inventoryAfterCosts,
+              placedBuildings: [...state.placedBuildings, buildingType],
+              purchasedBuildings: [...state.purchasedBuildings, buildingType],
+            };
+  };
+
+  let partialBuild: GameState = createDefaultPartialBuild({
+    buildingType: bType,
+    inventoryAfterCosts: newInvB,
+  });
 
   // Apply construction site if created
   if (newConstructionSites !== state.constructionSites) {
@@ -533,7 +613,5 @@ export function handlePlaceBuildingAction(
     }
   }
 
-  const nextState = { ...partialBuild, connectedAssetIds: computeConnectedAssetIds(partialBuild) };
-  logPlacementInvariantWarnings(nextState, action.type, debugLog);
-  return nextState;
+  return finalizePlacement(partialBuild, action.type, debugLog);
 }

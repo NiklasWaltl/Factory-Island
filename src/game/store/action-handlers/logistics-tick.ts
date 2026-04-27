@@ -26,6 +26,7 @@ import {
 import { runAutoMinerPhase } from "./logistics-tick/phases/auto-miner";
 import { runConveyorPhase } from "./logistics-tick/phases/conveyor";
 import { runAutoSmelterPhase } from "./logistics-tick/phases/auto-smelter";
+import { runAutoAssemblerPhase } from "./logistics-tick/phases/auto-assembler";
 
 export type { LogisticsTickIoDeps } from "./logistics-tick/context";
 
@@ -61,6 +62,7 @@ export function handleLogisticsTickAction(
     newNotifsL: state.notifications,
     newAutoDeliveryLogL: state.autoDeliveryLog,
     newAutoSmeltersL: state.autoSmelters,
+    newAutoAssemblersL: state.autoAssemblers,
     changed: false,
   };
 
@@ -70,8 +72,10 @@ export function handleLogisticsTickAction(
   runConveyorPhase(ctx);
   // Phase 4: Auto-smelter belt input, processing, and output flush/status update.
   runAutoSmelterPhase(ctx);
+  // Phase 5: Auto-assembler (belt-only I/O, fixed V1 recipes).
+  runAutoAssemblerPhase(ctx);
 
-  // Phase 5: Commit accumulated logistics mutations (or no-op).
+  // Phase 6: Commit accumulated logistics mutations (or no-op).
   if (!ctx.changed) return state;
   return {
     ...state,
@@ -80,6 +84,7 @@ export function handleLogisticsTickAction(
     smithy: ctx.newSmithyL,
     autoMiners: ctx.newAutoMinersL,
     autoSmelters: ctx.newAutoSmeltersL,
+    autoAssemblers: ctx.newAutoAssemblersL,
     conveyors: ctx.newConveyorsL,
     notifications: ctx.newNotifsL,
     autoDeliveryLog: ctx.newAutoDeliveryLogL,

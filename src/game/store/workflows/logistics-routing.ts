@@ -3,6 +3,10 @@
 // ------------------------------------------------------------
 // Pure decision layer for conveyor next-target routing.
 // Reducer remains responsible for all state mutations.
+//
+// Not wired into LOGISTICS_TICK / Phase 3 conveyors. Merger, splitter, and
+// underground routing live in `store/conveyor-decisions.ts`
+// (`decideConveyorTargetSelection`); tests here cover this helper in isolation.
 // ============================================================
 
 import type { AssetType, Direction } from "../types";

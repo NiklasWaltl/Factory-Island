@@ -70,5 +70,14 @@ export function tryTogglePanelFromAsset(
     };
   }
 
+  if (asset.type === "auto_assembler") {
+    const opening = state.openPanel !== "auto_assembler" || state.selectedAutoAssemblerId !== asset.id;
+    return {
+      ...state,
+      openPanel: opening ? "auto_assembler" : null,
+      selectedAutoAssemblerId: opening ? asset.id : null,
+    };
+  }
+
   return null;
 }

@@ -1,6 +1,7 @@
 import { applyCraftingSourceInventory } from "../../../crafting/crafting-sources";
 import type { CraftingSource } from "../../types";
 import type {
+  AutoAssemblerEntry,
   AutoDeliveryEntry,
   AutoMinerEntry,
   AutoSmelterEntry,
@@ -55,6 +56,7 @@ export interface LogisticsTickContext {
   newNotifsL: GameNotification[];
   newAutoDeliveryLogL: AutoDeliveryEntry[];
   newAutoSmeltersL: Record<string, AutoSmelterEntry>;
+  newAutoAssemblersL: Record<string, AutoAssemblerEntry>;
   changed: boolean;
 }
 

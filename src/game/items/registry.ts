@@ -57,6 +57,7 @@ export const ITEM_REGISTRY: Readonly<Record<ItemId, ItemDef>> = Object.freeze({
   power_pole:       { id: "power_pole",       displayName: "Power Pole",       category: "buildable", stackSize: 99, isHotbarEligible: false, sortGroup: 60 },
   manual_assembler: { id: "manual_assembler", displayName: "Manual Assembler", category: "buildable", stackSize: 99, isHotbarEligible: false, sortGroup: 60 },
   auto_smelter:     { id: "auto_smelter",     displayName: "Auto Smelter",     category: "buildable", stackSize: 99, isHotbarEligible: false, sortGroup: 60 },
+  auto_assembler:   { id: "auto_assembler",   displayName: "Auto Assembler",   category: "buildable", stackSize: 99, isHotbarEligible: false, sortGroup: 60 },
 });
 
 /** All known item ids, in registry insertion order. */

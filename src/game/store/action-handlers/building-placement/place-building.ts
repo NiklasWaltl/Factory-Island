@@ -41,6 +41,11 @@ import { getNearestWarehouseId } from "../../../buildings/warehouse/warehouse-as
 import { createEmptyHubInventory } from "../../../buildings/service-hub/hub-upgrade-workflow";
 import { getDroneDockOffset } from "../../../drones/drone-dock-geometry";
 import { computeConnectedAssetIds } from "../../../logistics/connectivity";
+import { undergroundSpanCellsInBounds } from "../../constants/conveyor";
+import {
+  explainUndergroundOutPairingFailure,
+  findUnpairedUndergroundEntranceId,
+} from "../../underground-out-pairing-hint";
 import {
   type BuildingPlacementIoDeps,
   logPlacementInvariantWarnings,
@@ -165,8 +170,14 @@ export function handlePlaceBuildingAction(
     const outputNeighbor = outputNeighborId ? assets[outputNeighborId] : null;
     const inputType = inputNeighbor?.type ?? null;
     const outputType = outputNeighbor?.type ?? null;
-    const inputIsConveyor = inputType === "conveyor" || inputType === "conveyor_corner";
-    const outputIsConveyor = outputType === "conveyor" || outputType === "conveyor_corner";
+    const beltLike: AssetType[] = [
+      "conveyor",
+      "conveyor_corner",
+      "conveyor_underground_in",
+      "conveyor_underground_out",
+    ];
+    const inputIsConveyor = inputType !== null && beltLike.includes(inputType);
+    const outputIsConveyor = outputType !== null && beltLike.includes(outputType);
 
     return {
       ioCells: io,
@@ -241,7 +252,12 @@ export function handlePlaceBuildingAction(
     bType !== "auto_miner" &&
     bType !== "conveyor" &&
     bType !== "conveyor_corner" &&
-    bType !== "auto_smelter";
+    bType !== "conveyor_merger" &&
+    bType !== "conveyor_splitter" &&
+    bType !== "conveyor_underground_in" &&
+    bType !== "conveyor_underground_out" &&
+    bType !== "auto_smelter" &&
+    bType !== "auto_assembler";
   const eligibilityDecision = decideBuildingPlacementEligibility({
     buildingType: bType,
     hasEnoughResources:
@@ -347,7 +363,14 @@ export function handlePlaceBuildingAction(
     if (state.cellMap[cellKey(x, y)]) {
       return { ...state, notifications: addErrorNotification(state.notifications, "Das Feld ist belegt.") };
     }
-    const placeType: AssetType = bType === "conveyor_corner" ? "conveyor_corner" : "conveyor";
+    const placeType: AssetType =
+      bType === "conveyor_corner"
+        ? "conveyor_corner"
+        : bType === "conveyor_merger"
+          ? "conveyor_merger"
+          : bType === "conveyor_splitter"
+            ? "conveyor_splitter"
+            : "conveyor";
     const convPlaced = placeAsset(state.assets, state.cellMap, placeType, x, y, 1);
     if (!convPlaced) return state;
     const assetWithDir = { ...convPlaced.assets[convPlaced.id], direction };
@@ -366,8 +389,120 @@ export function handlePlaceBuildingAction(
     return finalizePlacement(partialC, action.type, debugLog);
   };
 
+  const placeUndergroundInBranch = (input: {
+    x: number;
+    y: number;
+    direction: Direction;
+  }): GameState => {
+    const { x, y, direction } = input;
+    if (state.cellMap[cellKey(x, y)]) {
+      return { ...state, notifications: addErrorNotification(state.notifications, "Das Feld ist belegt.") };
+    }
+    const convPlaced = placeAsset(state.assets, state.cellMap, "conveyor_underground_in", x, y, 1);
+    if (!convPlaced) return state;
+    const assetWithDir = { ...convPlaced.assets[convPlaced.id], direction };
+    const newAssetsC = { ...convPlaced.assets, [convPlaced.id]: assetWithDir };
+    const newConveyors = { ...state.conveyors, [convPlaced.id]: { queue: [] as ConveyorItem[] } };
+    debugLog.building(
+      `[BuildMode] Placed ${BUILDING_LABELS[bType]} at (${x},${y}) facing ${direction}${useConstructionSite ? " as construction site" : ""}`,
+    );
+    const partialC = applyCostOrConstructionSite(
+      {
+        ...state,
+        assets: newAssetsC,
+        cellMap: convPlaced.cellMap,
+        conveyors: newConveyors,
+      },
+      convPlaced.id,
+    );
+    return finalizePlacement(partialC, action.type, debugLog);
+  };
+
+  const placeUndergroundOutBranch = (input: {
+    x: number;
+    y: number;
+    direction: Direction;
+  }): GameState => {
+    const { x, y, direction } = input;
+    if (state.cellMap[cellKey(x, y)]) {
+      return { ...state, notifications: addErrorNotification(state.notifications, "Das Feld ist belegt.") };
+    }
+    const entranceId = findUnpairedUndergroundEntranceId(state, x, y, direction);
+    if (!entranceId) {
+      return {
+        ...state,
+        notifications: addErrorNotification(
+          state.notifications,
+          explainUndergroundOutPairingFailure(state, x, y, direction),
+        ),
+      };
+    }
+    const entrance = state.assets[entranceId];
+    if (!entrance || entrance.type !== "conveyor_underground_in") return state;
+    const tempOut: PlacedAsset = {
+      id: "temp",
+      type: "conveyor_underground_out",
+      x,
+      y,
+      size: 1,
+      direction,
+    };
+    if (!undergroundSpanCellsInBounds(entrance, tempOut)) {
+      return {
+        ...state,
+        notifications: addErrorNotification(
+          state.notifications,
+          "Untergrund-Tunnel: Ein Teil der Strecke zwischen Eingang und Ausgang liegt außerhalb der Karte.",
+        ),
+      };
+    }
+    const inZone = state.buildingZoneIds[entranceId] ?? null;
+    const convPlaced = placeAsset(state.assets, state.cellMap, "conveyor_underground_out", x, y, 1);
+    if (!convPlaced) return state;
+    const outId = convPlaced.id;
+    const assetWithDir = { ...convPlaced.assets[outId], direction };
+    const newAssetsC = { ...convPlaced.assets, [outId]: assetWithDir };
+    const newConveyors = { ...state.conveyors, [outId]: { queue: [] as ConveyorItem[] } };
+    const newPeers: Record<string, string> = {
+      ...state.conveyorUndergroundPeers,
+      [entranceId]: outId,
+      [outId]: entranceId,
+    };
+    let nextBuildingZones = state.buildingZoneIds;
+    if (inZone) {
+      nextBuildingZones = { ...state.buildingZoneIds, [outId]: inZone };
+    }
+    debugLog.building(
+      `[BuildMode] Placed ${BUILDING_LABELS[bType]} at (${x},${y}) facing ${direction}, paired with entrance ${entranceId}${useConstructionSite ? " as construction site" : ""}`,
+    );
+    const partialC = applyCostOrConstructionSite(
+      {
+        ...state,
+        assets: newAssetsC,
+        cellMap: convPlaced.cellMap,
+        conveyors: newConveyors,
+        conveyorUndergroundPeers: newPeers,
+        buildingZoneIds: nextBuildingZones,
+      },
+      outId,
+    );
+    return finalizePlacement(partialC, action.type, debugLog);
+  };
+
   // ---- SPECIAL: Conveyor placement with direction ----
-  if (bType === "conveyor" || bType === "conveyor_corner") {
+  if (bType === "conveyor_underground_in") {
+    return placeUndergroundInBranch({ x, y, direction: action.direction ?? "east" });
+  }
+  if (bType === "conveyor_underground_out") {
+    return placeUndergroundOutBranch({ x, y, direction: action.direction ?? "east" });
+  }
+
+  if (
+    bType === "conveyor" ||
+    bType === "conveyor_corner" ||
+    bType === "conveyor_merger" ||
+    bType === "conveyor_splitter"
+  ) {
     return placeConveyorBranch({ x, y, direction: action.direction ?? "east" });
   }
 
@@ -457,6 +592,80 @@ export function handlePlaceBuildingAction(
   // ---- SPECIAL: Auto Smelter placement with directional 2x1 footprint ----
   if (bType === "auto_smelter") {
     return placeAutoSmelterBranch({ x, y, direction: action.direction ?? "east" });
+  }
+
+  const placeAutoAssemblerBranch = (input: {
+    x: number;
+    y: number;
+    direction: Direction;
+  }): GameState => {
+    const { x, y, direction } = input;
+    const { width, height } = getAutoSmelterFootprintDimensions(direction);
+
+    const footprintEligibilityDecision = checkAutoSmelterFootprintEligibility({
+      x,
+      y,
+      width,
+      height,
+      dir: direction,
+      cellMap: state.cellMap,
+    });
+    if (footprintEligibilityDecision.kind === "blocked") {
+      if (footprintEligibilityDecision.blockReason === "out_of_bounds") {
+        return { ...state, notifications: addErrorNotification(state.notifications, "Kein Platz für Auto-Assembler.") };
+      }
+      return { ...state, notifications: addErrorNotification(state.notifications, "Das Feld ist belegt.") };
+    }
+
+    const connectorPreflight = computeAutoSmelterConnectorPreflight({
+      x,
+      y,
+      width,
+      height,
+      dir: direction,
+      cellMap: state.cellMap,
+      assets: state.assets,
+    });
+    if (connectorPreflight.ioOutOfBounds) {
+      return { ...state, notifications: addErrorNotification(state.notifications, "Input/Output-Felder liegen außerhalb der Karte.") };
+    }
+
+    const placedA = placeAsset(state.assets, state.cellMap, "auto_assembler", x, y, 2, width, height);
+    if (!placedA) return state;
+    const newAssetsA = {
+      ...placedA.assets,
+      [placedA.id]: {
+        ...placedA.assets[placedA.id],
+        direction,
+        priority: DEFAULT_MACHINE_PRIORITY,
+      },
+    };
+    const newAutoAssemblers = {
+      ...state.autoAssemblers,
+      [placedA.id]: {
+        ironIngotBuffer: 0,
+        processing: null,
+        pendingOutput: [],
+        status: "IDLE" as const,
+        selectedRecipe: "metal_plate" as const,
+      },
+    };
+    const partialAssembler = applyCostOrConstructionSite(
+      {
+        ...state,
+        assets: newAssetsA,
+        cellMap: placedA.cellMap,
+        autoAssemblers: newAutoAssemblers,
+        placedBuildings: [...state.placedBuildings, bType],
+        purchasedBuildings: [...state.purchasedBuildings, bType],
+      },
+      placedA.id,
+    );
+    return finalizePlacement(partialAssembler, action.type, debugLog);
+  };
+
+  if (bType === "auto_assembler") {
+    return placeAutoAssemblerBranch({ x, y, direction: action.direction ?? "east" });
   }
 
   const placed = placeAsset(state.assets, state.cellMap, bType, x, y, bSize);

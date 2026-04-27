@@ -43,11 +43,16 @@ export type AssetType =
   | "auto_miner"
   | "conveyor"
   | "conveyor_corner"
+  | "conveyor_merger"
+  | "conveyor_splitter"
+  | "conveyor_underground_in"
+  | "conveyor_underground_out"
   | "manual_assembler"
   | "auto_smelter"
+  | "auto_assembler"
   | "service_hub";
 
-export type BuildingType = "workbench" | "warehouse" | "smithy" | "generator" | "cable" | "battery" | "power_pole" | "auto_miner" | "conveyor" | "conveyor_corner" | "manual_assembler" | "auto_smelter" | "service_hub";
+export type BuildingType = "workbench" | "warehouse" | "smithy" | "generator" | "cable" | "battery" | "power_pole" | "auto_miner" | "conveyor" | "conveyor_corner" | "conveyor_merger" | "conveyor_splitter" | "conveyor_underground_in" | "conveyor_underground_out" | "manual_assembler" | "auto_smelter" | "auto_assembler" | "service_hub";
 
 /** Floor tiles that can be placed on the ground layer */
 export type FloorTileType = "stone_floor" | "grass_block";
@@ -174,6 +179,31 @@ export interface AutoSmelterEntry {
   selectedRecipe: "iron" | "copper";
 }
 
+/** Two fixed V1 recipes for the auto-assembler (not a generic recipe id). */
+export type AutoAssemblerRecipeId = "metal_plate" | "gear";
+
+export type AutoAssemblerStatus =
+  | "IDLE"
+  | "PROCESSING"
+  | "OUTPUT_BLOCKED"
+  | "NO_POWER"
+  | "MISCONFIGURED";
+
+/** Belt-fed assembler V1: iron ingots in, metal plate or gear out (no warehouse output fallback). */
+export interface AutoAssemblerEntry {
+  /** Count of iron ingots held for processing (same logical buffer for both recipes). */
+  ironIngotBuffer: number;
+  processing: {
+    outputItem: Extract<ConveyorItem, "metalPlate" | "gear">;
+    progressMs: number;
+    durationMs: number;
+  } | null;
+  /** At most one finished item waiting for the output belt. */
+  pendingOutput: ConveyorItem[];
+  status: AutoAssemblerStatus;
+  selectedRecipe: AutoAssemblerRecipeId;
+}
+
 export type UIPanel =
   | "map_shop"
   | "warehouse"
@@ -184,6 +214,7 @@ export type UIPanel =
   | "power_pole"
   | "auto_miner"
   | "auto_smelter"
+  | "auto_assembler"
   | "manual_assembler"
   | "service_hub"
   | null;
@@ -467,12 +498,21 @@ export interface GameState {
   autoMiners: Record<string, AutoMinerEntry>;
   /** Per-conveyor item state (keyed by asset ID) */
   conveyors: Record<string, ConveyorState>;
+  /**
+   * Underground belt tunnel endpoints: each entrance/exit asset ID maps to its peer.
+   * Always bidirectional (A→B and B→A). Empty when no tunnels exist.
+   */
+  conveyorUndergroundPeers: Record<string, string>;
   /** ID of the auto-miner whose panel is currently open */
   selectedAutoMinerId: string | null;
   /** Per-auto-smelter processing state (keyed by asset ID) */
   autoSmelters: Record<string, AutoSmelterEntry>;
   /** ID of the auto-smelter whose panel is currently open */
   selectedAutoSmelterId: string | null;
+  /** Per-auto-assembler processing state (keyed by asset ID) */
+  autoAssemblers: Record<string, AutoAssemblerEntry>;
+  /** ID of the auto-assembler whose panel is currently open */
+  selectedAutoAssemblerId: string | null;
   /** ID of the generator whose panel is currently open */
   selectedGeneratorId: string | null;
   /** ID of the service hub whose panel is currently open */

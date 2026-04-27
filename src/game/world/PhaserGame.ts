@@ -48,8 +48,13 @@ export interface StaticAssetSnapshot {
     | "power_pole"
     | "conveyor"
     | "conveyor_corner"
+    | "conveyor_merger"
+    | "conveyor_splitter"
+    | "conveyor_underground_in"
+    | "conveyor_underground_out"
     | "auto_miner"
     | "auto_smelter"
+    | "auto_assembler"
     | "warehouse"
     | "workbench"
     | "smithy"
@@ -149,8 +154,13 @@ class WorldScene extends Phaser.Scene {
     this.load.image("asset:power_pole", ASSET_SPRITES.power_pole);
     this.load.image("asset:conveyor", ASSET_SPRITES.conveyor);
     this.load.image("asset:conveyor_corner", ASSET_SPRITES.conveyor_corner);
+    this.load.image("asset:conveyor_merger", ASSET_SPRITES.conveyor_merger);
+    this.load.image("asset:conveyor_splitter", ASSET_SPRITES.conveyor_splitter);
+    this.load.image("asset:conveyor_underground_in", ASSET_SPRITES.conveyor_underground_in);
+    this.load.image("asset:conveyor_underground_out", ASSET_SPRITES.conveyor_underground_out);
     this.load.image("asset:auto_miner", ASSET_SPRITES.auto_miner);
     this.load.image("asset:auto_smelter", ASSET_SPRITES.auto_smelter);
+    this.load.image("asset:auto_assembler", ASSET_SPRITES.auto_assembler);
     this.load.image("asset:warehouse", ASSET_SPRITES.warehouse);
     this.load.image("asset:workbench", ASSET_SPRITES.workbench);
     this.load.image("asset:smithy", ASSET_SPRITES.smithy);
@@ -268,8 +278,13 @@ class WorldScene extends Phaser.Scene {
     if (
       asset.type === "conveyor" ||
       asset.type === "conveyor_corner" ||
+      asset.type === "conveyor_merger" ||
+      asset.type === "conveyor_splitter" ||
+      asset.type === "conveyor_underground_in" ||
+      asset.type === "conveyor_underground_out" ||
       asset.type === "auto_miner" ||
-      asset.type === "auto_smelter"
+      asset.type === "auto_smelter" ||
+      asset.type === "auto_assembler"
     ) {
       image.setAngle(DIRECTION_ROTATION[asset.direction ?? "east"]);
     } else {

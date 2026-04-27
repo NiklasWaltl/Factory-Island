@@ -174,7 +174,11 @@ export const decideAutoSmelterInputBeltEligibility = (
 
   const inAssetId = input.state.cellMap[cellKey(input.inputX, input.inputY)] ?? null;
   const inAsset = inAssetId ? input.state.assets[inAssetId] : null;
-  if (inAsset?.type !== "conveyor" && inAsset?.type !== "conveyor_corner") {
+  if (
+    inAsset?.type !== "conveyor" &&
+    inAsset?.type !== "conveyor_corner" &&
+    inAsset?.type !== "conveyor_underground_out"
+  ) {
     return { kind: "blocked", blockReason: "input_tile_no_conveyor" };
   }
 
@@ -225,7 +229,11 @@ export const decideAutoSmelterOutputTarget = (
   if (input.outputX >= 0 && input.outputX < GRID_W && input.outputY >= 0 && input.outputY < GRID_H) {
     const outAssetId = input.state.cellMap[cellKey(input.outputX, input.outputY)] ?? null;
     const outAsset = outAssetId ? input.state.assets[outAssetId] : null;
-    if (outAsset?.type === "conveyor" || outAsset?.type === "conveyor_corner") {
+    if (
+      outAsset?.type === "conveyor" ||
+      outAsset?.type === "conveyor_corner" ||
+      outAsset?.type === "conveyor_underground_in"
+    ) {
       const outQueue = input.conveyors[outAssetId]?.queue ?? [];
       if (outQueue.length < CONVEYOR_TILE_CAPACITY) {
         return {

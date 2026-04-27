@@ -32,8 +32,13 @@ export const ASSET_LABELS: Record<AssetType, string> = {
   auto_miner: "Auto-Miner",
   conveyor: "Förderband",
   conveyor_corner: "Förderband-Ecke",
+  conveyor_merger: "Förderband-Merger",
+  conveyor_splitter: "Förderband-Splitter",
+  conveyor_underground_in: "Untergrund-Eingang",
+  conveyor_underground_out: "Untergrund-Ausgang",
   manual_assembler: "Manueller Assembler",
   auto_smelter: "Auto Smelter",
+  auto_assembler: "Auto-Assembler",
   service_hub: "Drohnen-Hub",
 };
 
@@ -57,8 +62,13 @@ export const ASSET_COLORS: Record<AssetType, string> = {
   auto_miner: "#ff6b00",
   conveyor: "#ffa500",
   conveyor_corner: "#ff8c00",
+  conveyor_merger: "#f59e0b",
+  conveyor_splitter: "#14b8a6",
+  conveyor_underground_in: "#5c4033",
+  conveyor_underground_out: "#7a5c45",
   manual_assembler: "#4da6ff",
   auto_smelter: "#e64545",
+  auto_assembler: "#2e8b57",
   service_hub: "#4169E1",
 };
 
@@ -82,7 +92,12 @@ export const ASSET_EMOJIS: Record<AssetType, string> = {
   auto_miner: "\u2699\uFE0F",
   conveyor: "\u27A1\uFE0F",
   conveyor_corner: "\u21A9\uFE0F",
+  conveyor_merger: "\u{1F500}",
+  conveyor_splitter: "\u21C4",
+  conveyor_underground_in: "\u2B07\uFE0F",
+  conveyor_underground_out: "\u2B06\uFE0F",
   manual_assembler: "\u{1F9F0}",
   auto_smelter: "\u{1F525}",
+  auto_assembler: "\u{1F528}",
   service_hub: "\u{1F6F8}",
 };

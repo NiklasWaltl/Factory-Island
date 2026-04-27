@@ -26,6 +26,7 @@ import { BatteryPanel } from "../ui/panels/BatteryPanel";
 import { PowerPolePanel } from "../ui/panels/PowerPolePanel";
 import { AutoMinerPanel } from "../ui/panels/AutoMinerPanel";
 import { AutoSmelterPanel } from "../ui/panels/AutoSmelterPanel";
+import { AutoAssemblerPanel } from "../ui/panels/AutoAssemblerPanel";
 import { ManualAssemblerPanel } from "../ui/panels/ManualAssemblerPanel";
 import { ServiceHubPanel } from "../ui/panels/ServiceHubPanel";
 import { BuildMenu } from "../ui/menus/BuildMenu";
@@ -328,6 +329,9 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
       )}
       {state.openPanel === "auto_smelter" && (
         <AutoSmelterPanel state={state} dispatch={dispatch} />
+      )}
+      {state.openPanel === "auto_assembler" && (
+        <AutoAssemblerPanel state={state} dispatch={dispatch} />
       )}
       {state.openPanel === "manual_assembler" && (
         <ManualAssemblerPanel state={state} dispatch={dispatch} />

@@ -119,7 +119,26 @@ export function handleRemoveAssetAction(
 
   const activeHotbarSlot = state.hotbarSlots[state.activeSlot];
   // Only buildings can be removed via build mode; resources and map_shop are off-limits
-  const removableTypes = new Set<string>(["workbench", "warehouse", "smithy", "generator", "cable", "battery", "power_pole", "auto_miner", "conveyor", "conveyor_corner", "manual_assembler", "auto_smelter", "service_hub"]);
+  const removableTypes = new Set<string>([
+    "workbench",
+    "warehouse",
+    "smithy",
+    "generator",
+    "cable",
+    "battery",
+    "power_pole",
+    "auto_miner",
+    "conveyor",
+    "conveyor_corner",
+    "conveyor_merger",
+    "conveyor_splitter",
+    "conveyor_underground_in",
+    "conveyor_underground_out",
+    "manual_assembler",
+    "auto_smelter",
+    "auto_assembler",
+    "service_hub",
+  ]);
   const removeEligibilityDecision = decideRemoveAssetEligibility({
     buildMode: state.buildMode,
     activeHotbarToolKind: activeHotbarSlot?.toolKind,
@@ -132,16 +151,37 @@ export function handleRemoveAssetAction(
   const { targetAsset, buildingType: bTypeR } = removeEligibilityDecision;
 
   debugLog.building(`[BuildMode] Removed ${ASSET_LABELS[targetAsset.type]} at (${targetAsset.x},${targetAsset.y}) – ~1/3 refund`);
-  const removedB = removeAsset(state, action.assetId);
-  const costsR = BUILDING_COSTS[bTypeR];
-  // Only refund building cost when the building was NOT placed via construction site
-  // (player never paid resources for construction site buildings — the drone delivers them).
-  const isStillConstructionSite = !!state.constructionSites?.[action.assetId];
-  const refundMap = deriveInitialRemovalRefundMap({
-    costs: costsR,
-    isStillConstructionSite,
-  });
-  const newInvR = addResources(state.inventory, refundMap);
+
+  const ugPeer =
+    (bTypeR === "conveyor_underground_in" || bTypeR === "conveyor_underground_out")
+      ? state.conveyorUndergroundPeers[action.assetId]
+      : undefined;
+  const stripAssetIds =
+    ugPeer && state.assets[ugPeer] ? [action.assetId, ugPeer] : [action.assetId];
+
+  let working: GameState = state;
+  for (const sid of stripAssetIds) {
+    const step = removeAsset(working, sid);
+    working = { ...working, ...step };
+  }
+  const removedB = {
+    assets: working.assets,
+    cellMap: working.cellMap,
+    saplingGrowAt: working.saplingGrowAt,
+  };
+
+  let newInvR = state.inventory;
+  for (const sid of stripAssetIds) {
+    const sidType = state.assets[sid]?.type as BuildingType | undefined;
+    if (!sidType) continue;
+    const costsSid = BUILDING_COSTS[sidType];
+    const wasSite = !!state.constructionSites?.[sid];
+    const refundMapSid = deriveInitialRemovalRefundMap({
+      costs: costsSid,
+      isStillConstructionSite: wasSite,
+    });
+    newInvR = addResources(newInvR, refundMapSid);
+  }
 
   let partialRemove: GameState;
   if (bTypeR === "warehouse") {
@@ -182,10 +222,32 @@ export function handleRemoveAssetAction(
       openPanel: null as UIPanel,
       selectedAutoMinerId: null,
     };
-  } else if (bTypeR === "conveyor" || bTypeR === "conveyor_corner") {
+  } else if (
+    bTypeR === "conveyor" ||
+    bTypeR === "conveyor_corner" ||
+    bTypeR === "conveyor_merger" ||
+    bTypeR === "conveyor_splitter" ||
+    bTypeR === "conveyor_underground_in" ||
+    bTypeR === "conveyor_underground_out"
+  ) {
     const newConveyors = { ...state.conveyors };
-    delete newConveyors[action.assetId];
-    partialRemove = { ...state, ...removedB, inventory: newInvR, conveyors: newConveyors, openPanel: null as UIPanel };
+    const newPeers = { ...state.conveyorUndergroundPeers };
+    for (const sid of stripAssetIds) {
+      delete newConveyors[sid];
+      const p = newPeers[sid];
+      if (p) {
+        delete newPeers[sid];
+        delete newPeers[p];
+      }
+    }
+    partialRemove = {
+      ...state,
+      ...removedB,
+      inventory: newInvR,
+      conveyors: newConveyors,
+      conveyorUndergroundPeers: newPeers,
+      openPanel: null as UIPanel,
+    };
   } else if (bTypeR === "generator") {
     const newGenerators = { ...state.generators };
     delete newGenerators[action.assetId];
@@ -220,6 +282,20 @@ export function handleRemoveAssetAction(
       purchasedBuildings: state.purchasedBuildings.filter((b) => b !== bTypeR),
       openPanel: null as UIPanel,
     };
+  } else if (bTypeR === "auto_assembler") {
+    const newAutoAssemblers = { ...state.autoAssemblers };
+    delete newAutoAssemblers[action.assetId];
+    partialRemove = {
+      ...state,
+      ...removedB,
+      inventory: newInvR,
+      autoAssemblers: newAutoAssemblers,
+      selectedAutoAssemblerId:
+        state.selectedAutoAssemblerId === action.assetId ? null : state.selectedAutoAssemblerId,
+      placedBuildings: state.placedBuildings.filter((b) => b !== bTypeR),
+      purchasedBuildings: state.purchasedBuildings.filter((b) => b !== bTypeR),
+      openPanel: null as UIPanel,
+    };
   } else if (bTypeR === "service_hub") {
     // Release the drone: fall back to start module delivery
     const droneAfterRemoval = state.starterDrone.hubId === action.assetId
@@ -244,26 +320,34 @@ export function handleRemoveAssetAction(
   } else {
     partialRemove = { ...state, ...removedB, inventory: newInvR, placedBuildings: state.placedBuildings.filter((b) => b !== bTypeR), purchasedBuildings: state.purchasedBuildings.filter((b) => b !== bTypeR), openPanel: null as UIPanel };
   }
-  // Clean up zone assignment for the removed building
-  if (partialRemove.buildingZoneIds[action.assetId]) {
-    const { [action.assetId]: _z, ...restZoneIds } = partialRemove.buildingZoneIds;
-    partialRemove = { ...partialRemove, buildingZoneIds: restZoneIds };
+  // Clean up zone assignment for the removed building(s)
+  for (const sid of stripAssetIds) {
+    if (partialRemove.buildingZoneIds[sid]) {
+      const { [sid]: _z, ...restZoneIds } = partialRemove.buildingZoneIds;
+      partialRemove = { ...partialRemove, buildingZoneIds: restZoneIds };
+    }
   }
-  // Clean up construction site and refund delivered resources
-  if (partialRemove.constructionSites?.[action.assetId]) {
-    const site = partialRemove.constructionSites[action.assetId];
-    // Refund resources that were already delivered (total cost - remaining)
-    const totalCost = BUILDING_COSTS[site.buildingType];
-    const deliveredRefund = deriveDeliveredRefundForConstructionSite({
-      totalCost,
-      remaining: site.remaining,
-    });
-    const invAfterSiteRefund = addResources(partialRemove.inventory, deliveredRefund);
-    const { [action.assetId]: _site, ...restSites } = partialRemove.constructionSites;
-    partialRemove = { ...partialRemove, constructionSites: restSites, inventory: invAfterSiteRefund };
+  // Clean up construction site and refund delivered resources (per stripped asset)
+  for (const sid of stripAssetIds) {
+    if (partialRemove.constructionSites?.[sid]) {
+      const site = partialRemove.constructionSites[sid];
+      const totalCost = BUILDING_COSTS[site.buildingType];
+      const deliveredRefund = deriveDeliveredRefundForConstructionSite({
+        totalCost,
+        remaining: site.remaining,
+      });
+      const invAfterSiteRefund = addResources(partialRemove.inventory, deliveredRefund);
+      const { [sid]: _site, ...restSites } = partialRemove.constructionSites;
+      partialRemove = { ...partialRemove, constructionSites: restSites, inventory: invAfterSiteRefund };
+    }
   }
   // If the drone was delivering to this removed asset, reset it
-  if (state.starterDrone?.deliveryTargetId === action.assetId && partialRemove.starterDrone.status !== "idle") {
+  const stripSet = new Set(stripAssetIds);
+  if (
+    state.starterDrone?.deliveryTargetId &&
+    stripSet.has(state.starterDrone.deliveryTargetId) &&
+    partialRemove.starterDrone.status !== "idle"
+  ) {
     partialRemove = {
       ...partialRemove,
       starterDrone: { ...partialRemove.starterDrone, status: "idle" as DroneStatus, targetNodeId: null, cargo: null, ticksRemaining: 0, currentTaskType: null, deliveryTargetId: null, craftingJobId: null, droneId: partialRemove.starterDrone.droneId },

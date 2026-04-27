@@ -9,7 +9,15 @@ import type { GameAction } from "../store/actions";
 const WORLD_W = GRID_W * CELL_PX;
 const WORLD_H = GRID_H * CELL_PX;
 
-const SKIP_CONFIRM_TYPES = new Set(["cable", "conveyor", "conveyor_corner"]);
+const SKIP_CONFIRM_TYPES = new Set([
+  "cable",
+  "conveyor",
+  "conveyor_corner",
+  "conveyor_merger",
+  "conveyor_splitter",
+  "conveyor_underground_in",
+  "conveyor_underground_out",
+]);
 
 export interface UseGridInputResult {
   containerRef: React.RefObject<HTMLDivElement | null>;

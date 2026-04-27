@@ -294,6 +294,28 @@ describe("migrateSave – missing fields get defaults", () => {
     expect(result!.version).toBe(CURRENT_SAVE_VERSION);
     expect(result!.recipeAutomationPolicies).toEqual({});
   });
+
+  it("migrates v16 saves by seeding empty underground belt peer map", () => {
+    const latest = serializeState(createInitialState("release"));
+    const { conveyorUndergroundPeers: _dropPeers, ...legacyShape } = latest as any;
+    const v16 = { ...legacyShape, version: 16 };
+
+    const result = migrateSave(v16);
+    expect(result).not.toBeNull();
+    expect(result!.version).toBe(CURRENT_SAVE_VERSION);
+    expect(result!.conveyorUndergroundPeers).toEqual({});
+  });
+
+  it("migrates v17 saves by seeding empty auto-assemblers map", () => {
+    const latest = serializeState(createInitialState("release"));
+    const { autoAssemblers: _dropAsm, version: _ignoreVersion, ...legacyShape } = latest as any;
+    const v17 = { ...legacyShape, version: 17 };
+
+    const result = migrateSave(v17);
+    expect(result).not.toBeNull();
+    expect(result!.version).toBe(CURRENT_SAVE_VERSION);
+    expect(result!.autoAssemblers).toEqual({});
+  });
 });
 
 // ---------------------------------------------------------------------------

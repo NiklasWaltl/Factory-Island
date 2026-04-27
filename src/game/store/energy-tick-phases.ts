@@ -7,6 +7,10 @@
 
 import { getEnergyProductionPerPeriod } from "../power/energy-production";
 import {
+  AUTO_ASSEMBLER_IDLE_DRAIN_PER_PERIOD,
+  AUTO_ASSEMBLER_PROCESSING_DRAIN_PER_PERIOD,
+} from "./constants/energy/energy-assembler";
+import {
   AUTO_SMELTER_IDLE_DRAIN_PER_PERIOD,
   AUTO_SMELTER_PROCESSING_DRAIN_PER_PERIOD,
 } from "./constants/energy/energy-smelter";
@@ -85,6 +89,7 @@ export function buildEnergyTickPhase1Snapshot(
     | "connectedAssetIds"
     | "generators"
     | "autoSmelters"
+    | "autoAssemblers"
     | "constructionSites"
     | "battery"
   >,
@@ -105,7 +110,11 @@ export function buildEnergyTickPhase1Snapshot(
           ? state.autoSmelters?.[asset.id]?.processing
             ? AUTO_SMELTER_PROCESSING_DRAIN_PER_PERIOD
             : AUTO_SMELTER_IDLE_DRAIN_PER_PERIOD
-          : ENERGY_DRAIN[asset.type]) * getBoostMultiplier(asset),
+          : asset.type === "auto_assembler"
+            ? state.autoAssemblers?.[asset.id]?.processing
+              ? AUTO_ASSEMBLER_PROCESSING_DRAIN_PER_PERIOD
+              : AUTO_ASSEMBLER_IDLE_DRAIN_PER_PERIOD
+            : ENERGY_DRAIN[asset.type]) * getBoostMultiplier(asset),
     }))
     .sort(
       (a, b) =>

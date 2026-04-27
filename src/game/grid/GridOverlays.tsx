@@ -77,9 +77,15 @@ export function buildWorldOverlayData({
 
     const isConnected = connectedSet.has(asset.id);
     const isPowerPole = asset.type === "power_pole";
-    const isConveyor = asset.type === "conveyor" || asset.type === "conveyor_corner";
+    const isConveyor =
+      asset.type === "conveyor" ||
+      asset.type === "conveyor_corner" ||
+      asset.type === "conveyor_merger" ||
+      asset.type === "conveyor_splitter" ||
+      asset.type === "conveyor_underground_in" ||
+      asset.type === "conveyor_underground_out";
     const isAutoMiner = asset.type === "auto_miner";
-    const isAutoSmelter = asset.type === "auto_smelter";
+    const isTwoTileBeltMachine = asset.type === "auto_smelter" || asset.type === "auto_assembler";
     const underConstruction = isUnderConstruction(state, asset.id);
 
     const convQueue = isConveyor ? state.conveyors[asset.id]?.queue ?? [] : [];
@@ -101,8 +107,13 @@ export function buildWorldOverlayData({
       asset.type === "power_pole" ||
       asset.type === "conveyor" ||
       asset.type === "conveyor_corner" ||
+      asset.type === "conveyor_merger" ||
+      asset.type === "conveyor_splitter" ||
+      asset.type === "conveyor_underground_in" ||
+      asset.type === "conveyor_underground_out" ||
       asset.type === "auto_miner" ||
       asset.type === "auto_smelter" ||
+      asset.type === "auto_assembler" ||
       asset.type === "warehouse" ||
       asset.type === "workbench" ||
       asset.type === "smithy" ||
@@ -180,6 +191,30 @@ export function buildWorldOverlayData({
                 />
               );
             })}
+            {import.meta.env.DEV &&
+            (asset.type === "conveyor_underground_in" ||
+              asset.type === "conveyor_underground_out") ? (
+              <span
+                key={`${asset.id}-ug-peer`}
+                style={{
+                  position: "absolute",
+                  left: 2,
+                  top: 2,
+                  fontSize: 8,
+                  lineHeight: 1,
+                  color: "#eea",
+                  background: "rgba(0,0,0,0.65)",
+                  padding: "1px 3px",
+                  borderRadius: 3,
+                  zIndex: 6,
+                  pointerEvents: "none",
+                }}
+              >
+                {state.conveyorUndergroundPeers[asset.id]
+                  ? `peer:${state.conveyorUndergroundPeers[asset.id].slice(0, 8)}`
+                  : "peer:—"}
+              </span>
+            ) : null}
           </div>,
         );
 
@@ -207,8 +242,11 @@ export function buildWorldOverlayData({
         }
       }
 
-      if (isAutoSmelter) {
-        const status = state.autoSmelters?.[asset.id]?.status ?? "IDLE";
+      if (isTwoTileBeltMachine) {
+        const status =
+          asset.type === "auto_smelter"
+            ? (state.autoSmelters?.[asset.id]?.status ?? "IDLE")
+            : (state.autoAssemblers?.[asset.id]?.status ?? "IDLE");
         const statusColor =
           status === "PROCESSING"
             ? "#22c55e"

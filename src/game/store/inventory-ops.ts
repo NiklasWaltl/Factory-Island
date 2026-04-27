@@ -31,6 +31,7 @@ export function createEmptyInventory(): Inventory {
     power_pole: 0,
     manual_assembler: 0,
     auto_smelter: 0,
+    auto_assembler: 0,
   };
 }
 

@@ -28,6 +28,7 @@ import {
   type RecipeAutomationPolicyMap,
 } from "../crafting/policies";
 import { debugLog } from "../debug/debugLogger";
+import { undergroundSpanSteps } from "../store/constants/conveyor";
 
 const PHYSICAL_WAREHOUSE_KEYS: ReadonlyArray<keyof Inventory> = [
   "wood",
@@ -44,6 +45,30 @@ const PHYSICAL_HUB_KEYS: ReadonlyArray<keyof Inventory> = [
   "iron",
   "copper",
 ];
+
+/**
+ * Rebuilds underground belt peer links from save data and live assets.
+ * Drops invalid or one-sided pairs.
+ */
+export function sanitizeConveyorUndergroundPeers(
+  raw: unknown,
+  assets: Record<string, PlacedAsset>,
+): Record<string, string> {
+  if (!raw || typeof raw !== "object") return {};
+  const rawMap = raw as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const [id, asset] of Object.entries(assets)) {
+    if (asset.type !== "conveyor_underground_in") continue;
+    const rawPeer = rawMap[id];
+    if (typeof rawPeer !== "string") continue;
+    const peerAsset = assets[rawPeer];
+    if (!peerAsset || peerAsset.type !== "conveyor_underground_out") continue;
+    if (undergroundSpanSteps(asset, peerAsset) === null) continue;
+    out[id] = rawPeer;
+    out[rawPeer] = id;
+  }
+  return out;
+}
 
 export function rebuildGlobalInventoryFromStorage(
   state: Pick<GameState, "inventory" | "warehouseInventories" | "serviceHubs">,

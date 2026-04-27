@@ -9,6 +9,7 @@ import type {
   BatteryState,
   AutoMinerEntry,
   ConveyorState,
+  AutoAssemblerEntry,
   AutoSmelterEntry,
   ManualAssemblerState,
   ProductionZone,
@@ -34,7 +35,7 @@ import { debugLog } from "../debug/debugLogger";
 import { migrateV0ToV1 } from "./save-legacy";
 
 /** Current save format version. Bump when persisted shape changes. */
-export const CURRENT_SAVE_VERSION = 16;
+export const CURRENT_SAVE_VERSION = 18;
 
 // ---- Save schema (V1 - initial versioned format) --------------------
 
@@ -165,7 +166,19 @@ export interface SaveGameV16 extends Omit<SaveGameV15, "version"> {
   recipeAutomationPolicies: RecipeAutomationPolicyMap;
 }
 
-export type SaveGameLatest = SaveGameV16;
+export interface SaveGameV17 extends Omit<SaveGameV16, "version"> {
+  version: 17;
+  /** Bidirectional map of underground belt entrance ↔ exit asset IDs. */
+  conveyorUndergroundPeers: Record<string, string>;
+}
+
+export interface SaveGameV18 extends Omit<SaveGameV17, "version"> {
+  version: 18;
+  /** Per-auto-assembler runtime state (belt-fed V1 recipes). */
+  autoAssemblers: Record<string, AutoAssemblerEntry>;
+}
+
+export type SaveGameLatest = SaveGameV18;
 
 /**
  * Clamp each generator's local fuel buffer to GENERATOR_MAX_FUEL.
@@ -395,6 +408,22 @@ function migrateV15ToV16(save: SaveGameV15): SaveGameV16 {
   };
 }
 
+function migrateV16ToV17(save: SaveGameV16): SaveGameV17 {
+  return {
+    ...save,
+    version: 17,
+    conveyorUndergroundPeers: {},
+  };
+}
+
+function migrateV17ToV18(save: SaveGameV17): SaveGameV18 {
+  return {
+    ...save,
+    version: 18,
+    autoAssemblers: {},
+  };
+}
+
 const MIGRATIONS: MigrationStep[] = [
   { from: 0, to: 1, migrate: migrateV0ToV1 },
   { from: 1, to: 2, migrate: migrateV1ToV2 },
@@ -412,6 +441,8 @@ const MIGRATIONS: MigrationStep[] = [
   { from: 13, to: 14, migrate: migrateV13ToV14 },
   { from: 14, to: 15, migrate: migrateV14ToV15 },
   { from: 15, to: 16, migrate: migrateV15ToV16 },
+  { from: 16, to: 17, migrate: migrateV16ToV17 },
+  { from: 17, to: 18, migrate: migrateV17ToV18 },
 ];
 
 export function migrateSave(raw: unknown): SaveGameLatest | null {

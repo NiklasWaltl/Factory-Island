@@ -42,7 +42,8 @@ export type ItemId =
   | "battery"
   | "power_pole"
   | "manual_assembler"
-  | "auto_smelter";
+  | "auto_smelter"
+  | "auto_assembler";
 
 /**
  * Item categories.

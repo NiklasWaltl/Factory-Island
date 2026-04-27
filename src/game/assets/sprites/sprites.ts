@@ -563,6 +563,80 @@ function makeConveyorCorner(): string {
   return svgURI(32, 32, s);
 }
 
+function makeConveyorMerger(): string {
+  let s = "";
+  // Center merge chamber, output points east by default.
+  s += r(4, 10, 24, 12, "#6a6a7a");
+  s += r(8, 12, 16, 8, "#8a8a9a");
+  // Side input lanes.
+  s += r(10, 2, 12, 10, "#6a6a7a");
+  s += r(10, 20, 12, 10, "#6a6a7a");
+  s += r(12, 4, 8, 8, "#8a8a9a");
+  s += r(12, 20, 8, 8, "#8a8a9a");
+  // Merge arrows: top/bottom inputs and single east output.
+  s += r(14, 5, 4, 8, "#ffa500");
+  s += r(12, 11, 8, 4, "#ffa500");
+  s += r(14, 19, 4, 8, "#ffa500");
+  s += r(12, 17, 8, 4, "#ffa500");
+  s += r(20, 14, 6, 4, "#ffd700");
+  s += r(24, 12, 4, 8, "#ffd700");
+  // Rails / shadow.
+  s += r(8, 0, 16, 2, "#4a4a5a");
+  s += r(8, 30, 16, 2, "#1a1a2e");
+  s += r(2, 8, 28, 2, "#4a4a5a");
+  s += r(2, 22, 28, 2, "#4a4a5a");
+  return svgURI(32, 32, s);
+}
+
+/** Splitter: back input (west), lateral outputs (north/south when facing east). Teal accent vs merger orange. */
+function makeConveyorSplitter(): string {
+  let s = "";
+  s += r(4, 10, 24, 12, "#5a6a6a");
+  s += r(8, 12, 16, 8, "#7a9a9a");
+  s += r(2, 12, 8, 8, "#5a6a6a");
+  s += r(6, 14, 4, 4, "#7a9a9a");
+  s += r(10, 2, 12, 10, "#5a6a6a");
+  s += r(10, 20, 12, 10, "#5a6a6a");
+  s += r(12, 4, 8, 8, "#7a9a9a");
+  s += r(12, 20, 8, 8, "#7a9a9a");
+  s += r(2, 16, 6, 2, "#14b8a6");
+  s += r(14, 5, 4, 6, "#14b8a6");
+  s += r(14, 21, 4, 6, "#14b8a6");
+  s += r(8, 0, 16, 2, "#4a5a5a");
+  s += r(8, 30, 16, 2, "#1a1a2e");
+  s += r(2, 8, 28, 2, "#4a5a5a");
+  s += r(2, 22, 28, 2, "#4a5a5a");
+  return svgURI(32, 32, s);
+}
+
+/** Underground belt entrance: darker trench, forward flow accent (rotation in Phaser). */
+function makeConveyorUndergroundIn(): string {
+  let s = "";
+  s += r(4, 4, 24, 24, "#3d2914");
+  s += r(6, 6, 20, 20, "#2a1a0c");
+  s += r(8, 8, 16, 16, "#1a1208");
+  s += r(10, 14, 12, 4, "#6b5344");
+  s += r(12, 10, 8, 4, "#c4a574");
+  s += r(12, 18, 8, 4, "#8b7355");
+  s += r(8, 0, 16, 2, "#5c4033");
+  s += r(8, 30, 16, 2, "#1a1a2e");
+  return svgURI(32, 32, s);
+}
+
+/** Underground belt exit: lighter rim suggesting surface exit. */
+function makeConveyorUndergroundOut(): string {
+  let s = "";
+  s += r(4, 4, 24, 24, "#4a3528");
+  s += r(6, 6, 20, 20, "#3d2914");
+  s += r(8, 8, 16, 16, "#2a1a0c");
+  s += r(10, 12, 12, 8, "#6b5344");
+  s += r(12, 10, 8, 4, "#d4c4a8");
+  s += r(12, 20, 8, 4, "#a89878");
+  s += r(8, 0, 16, 2, "#6b5344");
+  s += r(8, 30, 16, 2, "#1a1a2e");
+  return svgURI(32, 32, s);
+}
+
 function makeManualAssembler(): string {
   let s = "";
   // Housing
@@ -601,6 +675,19 @@ function makeAutoSmelter(): string {
   s += r(58, 16, 6, 8, "#444");
   // Accent / status strip
   s += r(30, 12, 24, 4, "#ffd166");
+  s += r(30, 24, 24, 3, "#1a1a2e");
+  return svgURI(64, 32, s);
+}
+
+function makeAutoAssembler(): string {
+  let s = "";
+  s += r(2, 8, 60, 24, "#14532d");
+  s += r(4, 10, 56, 20, "#166534");
+  s += r(18, 12, 28, 16, "#0f2918");
+  s += r(22, 16, 20, 8, "#4ade80");
+  s += r(0, 16, 6, 8, "#444");
+  s += r(58, 16, 6, 8, "#444");
+  s += r(30, 10, 24, 4, "#bbf7d0");
   s += r(30, 24, 24, 3, "#1a1a2e");
   return svgURI(64, 32, s);
 }
@@ -700,8 +787,13 @@ export const ASSET_SPRITES: Record<AssetType, string> = {
   auto_miner: makeAutoMiner(),
   conveyor: makeConveyor(),
   conveyor_corner: makeConveyorCorner(),
+  conveyor_merger: makeConveyorMerger(),
+  conveyor_splitter: makeConveyorSplitter(),
+  conveyor_underground_in: makeConveyorUndergroundIn(),
+  conveyor_underground_out: makeConveyorUndergroundOut(),
   manual_assembler: makeManualAssembler(),
   auto_smelter: makeAutoSmelter(),
+  auto_assembler: makeAutoAssembler(),
   service_hub: makeServiceHub(),
 };
 

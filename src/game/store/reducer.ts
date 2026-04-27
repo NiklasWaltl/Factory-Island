@@ -170,6 +170,7 @@ import { handleMaintenanceAction } from "./action-handlers/maintenance-actions";
 import { handleGrowthAction } from "./action-handlers/growth-actions";
 import { handleHubTargetAction } from "./action-handlers/hub-target-actions";
 import { handleAutoSmelterAction } from "./action-handlers/auto-smelter-actions";
+import { handleAutoAssemblerAction } from "./action-handlers/auto-assembler-actions";
 import {
   handleDroneRoleAction,
   type DroneRoleActionDeps,
@@ -325,7 +326,13 @@ export { isUnderConstruction };
 
 // Conveyor constants live in ./constants/conveyor.
 // Imported for internal use and re-exported for backward compatibility.
-export { CONVEYOR_TILE_CAPACITY } from "./constants/conveyor";
+export {
+  CONVEYOR_TILE_CAPACITY,
+  MAX_UNDERGROUND_SPAN,
+  MIN_UNDERGROUND_SPAN,
+  undergroundSpanCellsInBounds,
+  undergroundSpanSteps,
+} from "./constants/conveyor";
 export { GRID_W, GRID_H, CELL_PX };
 
 // Building constants & input-buffer configuration live in ./constants/buildings.
@@ -549,7 +556,7 @@ export {
 };
 
 export function getConnectedDemandPerPeriod(
-  state: Pick<GameState, "assets" | "connectedAssetIds" | "autoSmelters">
+  state: Pick<GameState, "assets" | "connectedAssetIds" | "autoSmelters" | "autoAssemblers">,
 ): number {
   return getConnectedConsumerDrainEntries(state).reduce((sum, entry) => sum + entry.drain, 0);
 }
@@ -1390,6 +1397,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
   if (hubTargetResult !== null) return hubTargetResult;
   const autoSmelterResult = handleAutoSmelterAction(state, action);
   if (autoSmelterResult !== null) return autoSmelterResult;
+  const autoAssemblerResult = handleAutoAssemblerAction(state, action);
+  if (autoAssemblerResult !== null) return autoAssemblerResult;
   const droneRoleResult = handleDroneRoleAction(
     state,
     action,
@@ -1445,6 +1454,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     // AUTO_SMELTER_SET_RECIPE is handled above by
     // handleAutoSmelterAction (see action-handlers/auto-smelter-actions/index.ts).
+    // AUTO_ASSEMBLER_SET_RECIPE is handled above by handleAutoAssemblerAction.
 
     // TOGGLE_BUILD_MODE, SELECT_BUILD_BUILDING and SELECT_BUILD_FLOOR_TILE
     // are handled above by handleBuildModeAction

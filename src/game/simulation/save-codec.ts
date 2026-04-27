@@ -35,6 +35,7 @@ import {
   sanitizeKeepStockByWorkbench,
   sanitizeRecipeAutomationPolicies,
   sanitizeStarterDrone,
+  sanitizeConveyorUndergroundPeers,
 } from "./save-normalizer";
 import { isRuntimeGameStateSnapshot } from "./save-legacy";
 
@@ -67,7 +68,9 @@ export function serializeState(state: GameState): SaveGameLatest {
     floorMap: state.floorMap,
     autoMiners: state.autoMiners,
     conveyors: state.conveyors,
+    conveyorUndergroundPeers: state.conveyorUndergroundPeers,
     autoSmelters: state.autoSmelters,
+    autoAssemblers: state.autoAssemblers,
     manualAssembler: state.manualAssembler,
     machinePowerRatio: state.machinePowerRatio,
     saplingGrowAt: state.saplingGrowAt,
@@ -114,7 +117,12 @@ export function deserializeState(save: SaveGameLatest): GameState {
     floorMap: save.floorMap,
     autoMiners: save.autoMiners,
     conveyors: save.conveyors,
+    conveyorUndergroundPeers: sanitizeConveyorUndergroundPeers(
+      save.conveyorUndergroundPeers,
+      save.assets,
+    ),
     autoSmelters: save.autoSmelters,
+    autoAssemblers: save.autoAssemblers ?? {},
     manualAssembler: { ...save.manualAssembler, buildingId: save.manualAssembler?.buildingId ?? null },
     machinePowerRatio: save.machinePowerRatio,
     saplingGrowAt: save.saplingGrowAt,
@@ -237,6 +245,7 @@ export function deserializeState(save: SaveGameLatest): GameState {
     selectedPowerPoleId: null,
     selectedAutoMinerId: null,
     selectedAutoSmelterId: null,
+    selectedAutoAssemblerId: null,
     selectedGeneratorId: null,
     selectedServiceHubId: null,
     energyDebugOverlay: false,

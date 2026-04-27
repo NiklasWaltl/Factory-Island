@@ -56,6 +56,7 @@ export function handleUiAction(
         openPanel: null,
         selectedAutoMinerId: null,
         selectedAutoSmelterId: null,
+        selectedAutoAssemblerId: null,
         selectedGeneratorId: null,
         selectedWarehouseId: null,
         selectedCraftingBuildingId: null,

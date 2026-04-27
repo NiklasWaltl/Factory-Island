@@ -17,6 +17,7 @@ import { createInitialHotbar } from "./helpers/hotbar";
 import type {
   AssetType,
   AutoMinerEntry,
+  AutoAssemblerEntry,
   AutoSmelterEntry,
   ConveyorState,
   Direction,
@@ -125,6 +126,7 @@ export function createInitialState(mode: GameMode): GameState {
   const autoMiners: Record<string, AutoMinerEntry> = {};
   const conveyors: Record<string, ConveyorState> = {};
   const autoSmelters: Record<string, AutoSmelterEntry> = {};
+  const autoAssemblers: Record<string, AutoAssemblerEntry> = {};
   let selectedPowerPoleId: string | null = null;
 
   function removeNonFixedAssetAtCell(x: number, y: number) {
@@ -349,9 +351,12 @@ export function createInitialState(mode: GameMode): GameState {
     floorMap,
     autoMiners,
     conveyors,
+    conveyorUndergroundPeers: {},
     selectedAutoMinerId: null,
     autoSmelters,
     selectedAutoSmelterId: null,
+    autoAssemblers,
+    selectedAutoAssemblerId: null,
     selectedGeneratorId: null,
     selectedServiceHubId: null,
     manualAssembler: { processing: false, recipe: null, progress: 0, buildingId: null },

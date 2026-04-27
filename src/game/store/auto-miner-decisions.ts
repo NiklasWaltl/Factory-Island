@@ -91,7 +91,11 @@ export const decideAutoMinerOutputTarget = (
   ) {
     const outAssetId = input.state.cellMap[cellKey(input.outputX, input.outputY)] ?? null;
     const outAsset = outAssetId ? input.state.assets[outAssetId] : null;
-    if (outAsset?.type === "conveyor" || outAsset?.type === "conveyor_corner") {
+    if (
+      outAsset?.type === "conveyor" ||
+      outAsset?.type === "conveyor_corner" ||
+      outAsset?.type === "conveyor_underground_in"
+    ) {
       const outQueue = input.conveyors[outAssetId]?.queue ?? [];
       if (outQueue.length < CONVEYOR_TILE_CAPACITY) {
         return {

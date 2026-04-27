@@ -34,6 +34,7 @@ export type GameAction =
   | { type: "MANUAL_ASSEMBLER_START"; recipe: "metal_plate" | "gear" }
   | { type: "MANUAL_ASSEMBLER_TICK" }
   | { type: "AUTO_SMELTER_SET_RECIPE"; assetId: string; recipe: "iron" | "copper" }
+  | { type: "AUTO_ASSEMBLER_SET_RECIPE"; assetId: string; recipe: "metal_plate" | "gear" }
   | { type: "GROW_SAPLING"; assetId: string }
   | { type: "GROW_SAPLINGS"; assetIds: string[] }
   | { type: "NATURAL_SPAWN" }

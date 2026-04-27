@@ -5,6 +5,10 @@
 // ============================================================
 
 import {
+  AUTO_ASSEMBLER_IDLE_DRAIN_PER_PERIOD,
+  AUTO_ASSEMBLER_PROCESSING_DRAIN_PER_PERIOD,
+} from "../store/constants/energy/energy-assembler";
+import {
   AUTO_SMELTER_IDLE_DRAIN_PER_PERIOD,
   AUTO_SMELTER_PROCESSING_DRAIN_PER_PERIOD,
 } from "../store/constants/energy/energy-smelter";
@@ -19,7 +23,7 @@ import type {
 } from "../store/types";
 
 export function getConnectedConsumerDrainEntries(
-  state: Pick<GameState, "assets" | "connectedAssetIds" | "autoSmelters">,
+  state: Pick<GameState, "assets" | "connectedAssetIds" | "autoSmelters" | "autoAssemblers">,
 ): Array<{ id: string; drain: number }> {
   return state.connectedAssetIds
     .map((id) => state.assets[id])
@@ -30,7 +34,11 @@ export function getConnectedConsumerDrainEntries(
           ? (state.autoSmelters?.[asset.id]?.processing
               ? AUTO_SMELTER_PROCESSING_DRAIN_PER_PERIOD
               : AUTO_SMELTER_IDLE_DRAIN_PER_PERIOD)
-          : ENERGY_DRAIN[asset.type];
+          : asset.type === "auto_assembler"
+            ? (state.autoAssemblers?.[asset.id]?.processing
+                ? AUTO_ASSEMBLER_PROCESSING_DRAIN_PER_PERIOD
+                : AUTO_ASSEMBLER_IDLE_DRAIN_PER_PERIOD)
+            : ENERGY_DRAIN[asset.type];
       const boostMultiplier = !asset.boosted
         ? 1
         : asset.type === "auto_miner"

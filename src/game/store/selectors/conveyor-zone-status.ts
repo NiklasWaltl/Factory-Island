@@ -43,19 +43,23 @@ export function getConveyorZoneStatus(state: GameState, conveyorId: string): Con
 
   if (convAsset) {
     const dir = convAsset.direction ?? "east";
-    const [ox, oy] = directionOffset(dir);
-    const nextX = convAsset.x + ox;
-    const nextY = convAsset.y + oy;
-    if (nextX >= 0 && nextX < GRID_W && nextY >= 0 && nextY < GRID_H) {
-      const nextId = state.cellMap[cellKey(nextX, nextY)];
-      if (nextId) {
-        nextTileZone = state.buildingZoneIds[nextId] ?? null;
-        if (!areZonesTransportCompatible(zone, nextTileZone)) {
-          hasConflict = true;
-          const thisName = zoneName ?? zone ?? "Global";
-          const nextName = nextTileZone ? (state.productionZones[nextTileZone]?.name ?? nextTileZone) : "Global";
-          conflictReason = `Ziel-Zone mismatch: ${thisName} → ${nextName}`;
-        }
+    const nextId =
+      convAsset.type === "conveyor_underground_in"
+        ? state.conveyorUndergroundPeers[conveyorId] ?? null
+        : (() => {
+            const [ox, oy] = directionOffset(dir);
+            const nextX = convAsset.x + ox;
+            const nextY = convAsset.y + oy;
+            if (nextX < 0 || nextX >= GRID_W || nextY < 0 || nextY >= GRID_H) return null;
+            return state.cellMap[cellKey(nextX, nextY)] ?? null;
+          })();
+    if (nextId) {
+      nextTileZone = state.buildingZoneIds[nextId] ?? null;
+      if (!areZonesTransportCompatible(zone, nextTileZone)) {
+        hasConflict = true;
+        const thisName = zoneName ?? zone ?? "Global";
+        const nextName = nextTileZone ? (state.productionZones[nextTileZone]?.name ?? nextTileZone) : "Global";
+        conflictReason = `Ziel-Zone mismatch: ${thisName} → ${nextName}`;
       }
     }
   }

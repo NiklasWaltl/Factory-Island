@@ -29,7 +29,12 @@ export const POWER_POLE_RANGE_TYPES = new Set<AssetType>([
   "auto_miner",
   "conveyor",
   "conveyor_corner",
+  "conveyor_merger",
+  "conveyor_splitter",
+  "conveyor_underground_in",
+  "conveyor_underground_out",
   "auto_smelter",
+  "auto_assembler",
 ]);
 
 /**
@@ -39,9 +44,14 @@ export const POWER_POLE_RANGE_TYPES = new Set<AssetType>([
 export const ENERGY_ALLOCATION_RANK: Partial<Record<AssetType, number>> = {
   conveyor: 0,
   conveyor_corner: 0,
+  conveyor_merger: 0,
+  conveyor_splitter: 0,
+  conveyor_underground_in: 0,
+  conveyor_underground_out: 0,
   auto_miner: 1,
   smithy: 2,
   auto_smelter: 3,
+  auto_assembler: 4,
 };
 
 /**
@@ -53,5 +63,10 @@ export const ENERGY_DRAIN: Record<string, number> = {
   auto_miner: 5,
   conveyor: 1,
   conveyor_corner: 1,
+  conveyor_merger: 1,
+  conveyor_splitter: 1,
+  conveyor_underground_in: 1,
+  conveyor_underground_out: 1,
   auto_smelter: 5, // 5 J/period; actual drain computed dynamically in getConnectedConsumerDrainEntries
+  auto_assembler: 5, // same: dynamic idle/processing drain in getConnectedConsumerDrainEntries
 };

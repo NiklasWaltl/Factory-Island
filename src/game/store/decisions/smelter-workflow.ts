@@ -51,7 +51,9 @@ function canFlushPendingOutput(
     outputRoute.cellMap[cellKey(outputRoute.outputX, outputRoute.outputY)];
   const outAsset = outAssetId ? outputRoute.assets[outAssetId] : null;
   const hasOutputConveyor =
-    outAsset?.type === "conveyor" || outAsset?.type === "conveyor_corner";
+    outAsset?.type === "conveyor" ||
+    outAsset?.type === "conveyor_corner" ||
+    outAsset?.type === "conveyor_underground_in";
 
   if (hasOutputConveyor) {
     const outQueue = outputRoute.conveyors[outAssetId]?.queue ?? [];

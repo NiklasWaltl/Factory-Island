@@ -3,9 +3,10 @@ import { getCraftingSourceInventory } from "../../../../crafting/crafting-source
 import {
   decideConveyorTickEligibility,
   decideConveyorTargetSelection,
+  shouldDeferRightMergerInputToLeft,
 } from "../../../conveyor-decisions";
 import type { CraftingSource } from "../../../types";
-import type { ConveyorItem, Inventory } from "../../../types";
+import type { ConveyorItem, Inventory, PlacedAsset } from "../../../types";
 import { resolveBuildingSource } from "../../../building-source";
 import { addResources } from "../../../inventory-ops";
 import { CONVEYOR_TILE_CAPACITY } from "../../../constants/conveyor";
@@ -25,6 +26,38 @@ import {
 export function runConveyorPhase(ctx: LogisticsTickContext): void {
   const { state, deps } = ctx;
   const movedThisTick = new Set<string>();
+
+  const getActiveConveyors = () =>
+    ctx.newConveyorsL === state.conveyors ? state.conveyors : ctx.newConveyorsL;
+
+  const getActiveWarehouseInventories = () =>
+    ctx.newWarehouseInventoriesL === state.warehouseInventories
+      ? state.warehouseInventories
+      : ctx.newWarehouseInventoriesL;
+
+  const decideRoutingFor = (
+    convId: string,
+    conveyorAsset: PlacedAsset,
+    currentItem: ConveyorItem,
+  ) => {
+    const liveLogisticsState = getLiveLogisticsState(ctx);
+    return decideConveyorTargetSelection({
+      state,
+      liveState: liveLogisticsState,
+      convId,
+      convAsset: conveyorAsset,
+      currentItem,
+      conveyors: getActiveConveyors(),
+      warehouseInventories: getActiveWarehouseInventories(),
+      smithy: ctx.newSmithyL,
+      movedThisTick,
+      isValidWarehouseInput,
+      resolveBuildingSource,
+      getCraftingSourceInventory,
+      getSourceCapacity: (live, source) => getSourceCapacity(ctx, live, source),
+      getWarehouseCapacity,
+    });
+  };
 
   const dequeueConveyorFrontItemAndMarkChanged = (
     convId: string,
@@ -107,28 +140,7 @@ export function runConveyorPhase(ctx: LogisticsTickContext): void {
     if (preflight.kind === "blocked") continue;
     const { conveyorAsset } = preflight;
     const currentItem = queueHead;
-    const liveLogisticsState = getLiveLogisticsState(ctx);
-
-    const routingDecision = decideConveyorTargetSelection({
-      state,
-      liveState: liveLogisticsState,
-      convId,
-      convAsset: conveyorAsset,
-      currentItem,
-      conveyors:
-        ctx.newConveyorsL === state.conveyors ? state.conveyors : ctx.newConveyorsL,
-      warehouseInventories:
-        ctx.newWarehouseInventoriesL === state.warehouseInventories
-          ? state.warehouseInventories
-          : ctx.newWarehouseInventoriesL,
-      smithy: ctx.newSmithyL,
-      movedThisTick,
-      isValidWarehouseInput,
-      resolveBuildingSource,
-      getCraftingSourceInventory,
-      getSourceCapacity: (live, source) => getSourceCapacity(ctx, live, source),
-      getWarehouseCapacity,
-    });
+    const routingDecision = decideRoutingFor(convId, conveyorAsset, currentItem);
 
     if (routingDecision.kind === "no_target") continue;
 
@@ -158,6 +170,22 @@ export function runConveyorPhase(ctx: LogisticsTickContext): void {
 
     if (routingDecision.targetType === "next_conveyor") {
       const nextConveyorId = routingDecision.nextAssetId;
+      if (
+        shouldDeferRightMergerInputToLeft({
+          convId,
+          conveyorAsset,
+          targetMergerId: nextConveyorId,
+          assets: state.assets,
+          cellMap: state.cellMap,
+          connectedAssetIds: state.connectedAssetIds,
+          poweredSet: ctx.poweredSet,
+          movedThisTick,
+          conveyors: getActiveConveyors(),
+          decideRoutingFor,
+        })
+      ) {
+        continue;
+      }
       const nextConv =
         ctx.newConveyorsL === state.conveyors
           ? state.conveyors[nextConveyorId]

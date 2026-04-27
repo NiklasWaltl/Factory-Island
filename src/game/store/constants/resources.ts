@@ -40,7 +40,13 @@ export const RESOURCE_LABELS: Record<string, string> = {
   auto_miner: "Auto-Miner",
   conveyor: "F\u00f6rderband",
   conveyor_corner: "F\u00f6rderband-Ecke",
+  conveyor_merger: "F\u00f6rderband-Merger",
+  conveyor_splitter: "F\u00f6rderband-Splitter",
+  conveyor_underground_in: "Untergrund-Eingang",
+  conveyor_underground_out: "Untergrund-Ausgang",
   manual_assembler: "Manueller Assembler",
+  auto_smelter: "Auto Smelter",
+  auto_assembler: "Auto-Assembler",
 };
 
 export const RESOURCE_EMOJIS: Record<string, string> = {
@@ -67,5 +73,11 @@ export const RESOURCE_EMOJIS: Record<string, string> = {
   auto_miner: "\u2699\uFE0F",
   conveyor: "\u27A1\uFE0F",
   conveyor_corner: "\u21A9\uFE0F",
+  conveyor_merger: "\u{1F500}",
+  conveyor_splitter: "\u21C4",
+  conveyor_underground_in: "\u2B07\uFE0F",
+  conveyor_underground_out: "\u2B06\uFE0F",
   manual_assembler: "\u{1F9F0}",
+  auto_smelter: "\u{1F525}",
+  auto_assembler: "\u{1F528}",
 };

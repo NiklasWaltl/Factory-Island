@@ -1,12 +1,14 @@
 ﻿import React from "react";
+import type { GameState } from "../../store/types";
+import type { GameAction } from "../../store/actions";
 import {
-  MANUAL_ASSEMBLER_PROCESS_MS,
   RESOURCE_EMOJIS,
   RESOURCE_LABELS,
+} from "../../store/constants/resources";
+import {
+  MANUAL_ASSEMBLER_PROCESS_MS,
   getSourceStatusInfo,
   getCraftingSourceInventory,
-  type GameAction,
-  type GameState,
 } from "../../store/reducer";
 import { ZoneSourceSelector } from "./ZoneSourceSelector";
 

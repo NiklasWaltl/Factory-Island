@@ -1,33 +1,42 @@
 import React from "react";
+import type { BuildingType, GameState, Inventory } from "../../store/types";
+import type { GameAction } from "../../store/actions";
 import {
   RESOURCE_LABELS,
   RESOURCE_EMOJIS,
-  WAREHOUSE_CAPACITY,
+} from "../../store/constants/resources";
+import {
   MAX_ZONES,
   BUILDING_LABELS,
   getZoneWarehouseIds,
   getZoneBuildingIds,
   getZoneAggregateInventory,
   getZoneItemCapacity,
-  type GameState,
-  type GameAction,
-  type Inventory,
-  type BuildingType,
 } from "../../store/reducer";
+import { WAREHOUSE_CAPACITY } from "../../store/constants/buildings";
 
 interface WarehousePanelProps {
   state: GameState;
   dispatch: React.Dispatch<GameAction>;
 }
 
-const EQUIPPABLE_ITEMS: { key: keyof Inventory; kind: "axe" | "wood_pickaxe" | "stone_pickaxe" | "sapling" }[] = [
+type EquipKind = "axe" | "wood_pickaxe" | "stone_pickaxe" | "sapling";
+
+// Tools come from the workbench and are the primary action target in this panel.
+const TOOL_ITEMS: { key: keyof Inventory; kind: EquipKind }[] = [
   { key: "axe", kind: "axe" },
   { key: "wood_pickaxe", kind: "wood_pickaxe" },
   { key: "stone_pickaxe", kind: "stone_pickaxe" },
+];
+
+// Seeds are hotbar-eligible too, but visually grouped as a separate sub-section
+// so that the player understands they are not crafted tools.
+const SEED_ITEMS: { key: keyof Inventory; kind: EquipKind }[] = [
   { key: "sapling", kind: "sapling" },
 ];
 
-const TRANSFERABLE_ITEMS: (keyof Inventory)[] = [
+// Bulk materials are read-only here — auto-stocked by belts / miners.
+const MATERIAL_ITEMS: (keyof Inventory)[] = [
   "wood",
   "stone",
   "iron",
@@ -47,6 +56,14 @@ export const WarehousePanel: React.FC<WarehousePanelProps> = React.memo(({ state
     return null;
   }
 
+  const hasToolOrSeedStock = [...TOOL_ITEMS, ...SEED_ITEMS].some(
+    ({ key }) => (selectedWarehouseInv[key] as number) > 0,
+  );
+  const isWorkbenchTargetWarehouse = Object.values(state.assets).some(
+    (asset) => asset.type === "workbench" && state.buildingSourceWarehouseIds[asset.id] === selectedWarehouseId,
+  );
+  const shouldRenderToolsSection = isWorkbenchTargetWarehouse || hasToolOrSeedStock;
+
   return (
     <div
       className="fi-panel fi-warehouse"
@@ -59,48 +76,111 @@ export const WarehousePanel: React.FC<WarehousePanelProps> = React.memo(({ state
           : `Kapazität: ${whCap} / Ressource`}
       </p>
 
-      {/* ---- Lagerbestand: read-only ---- */}
-      <h3 className="fi-panel-section-title">Lagerbestand</h3>
-      <p className="fi-warehouse-hint">Wird automatisch durch Förderbänder und Abbaumaschinen befüllt</p>
-      <div className="fi-warehouse-transfer-list">
-        {TRANSFERABLE_ITEMS.map((key) => {
+      {/* ---- 1. Werkzeuge (immer für Werkbank-Ziellagerhaus, sonst nur bei Bestand) ---- */}
+      {shouldRenderToolsSection ? (
+        <>
+          <h3 className="fi-panel-section-title fi-warehouse-tools-title">🔨 Werkzeuge</h3>
+          {hasToolOrSeedStock ? (
+            <>
+              <p className="fi-warehouse-hint">Nur diese Items können in die Hotbar gelegt werden.</p>
+              <div className="fi-warehouse-tools-list" data-testid="wh-tools-list">
+                {TOOL_ITEMS.map(({ key, kind }) => {
+                  const amount = selectedWarehouseInv[key] as number;
+                  const inHotbar = state.hotbarSlots
+                    .filter((s) => s.toolKind === kind)
+                    .reduce((sum, s) => sum + s.amount, 0);
+                  const canEquip = amount > 0;
+                  return (
+                    <div key={key} className="fi-warehouse-tool-row">
+                      <span className="fi-warehouse-tool-emoji">{RESOURCE_EMOJIS[key] ?? "?"}</span>
+                      <div className="fi-warehouse-tool-meta">
+                        <span className="fi-warehouse-tool-name">{RESOURCE_LABELS[key] ?? key}</span>
+                        <span className="fi-warehouse-tool-counts">
+                          <span>Im Lager: <strong>{amount}</strong></span>
+                          <span className="fi-warehouse-tool-counts-sep">·</span>
+                          <span>In Hotbar: <strong>{inHotbar}</strong></span>
+                        </span>
+                      </div>
+                      <button
+                        className="fi-btn fi-btn-primary fi-warehouse-tool-btn"
+                        disabled={!canEquip}
+                        title={canEquip ? "In die Hotbar legen" : "Nicht im Lager"}
+                        onClick={() => dispatch({ type: "EQUIP_FROM_WAREHOUSE", itemKind: kind, amount: 1 })}
+                      >
+                        In Hotbar
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {/* Saatgut visuell klar getrennte Untersektion innerhalb des Werkzeug-Bereichs */}
+                <div className="fi-warehouse-seeds-subhead">Saatgut</div>
+                {SEED_ITEMS.map(({ key, kind }) => {
+                  const amount = selectedWarehouseInv[key] as number;
+                  const inHotbar = state.hotbarSlots
+                    .filter((s) => s.toolKind === kind)
+                    .reduce((sum, s) => sum + s.amount, 0);
+                  const canEquip = amount > 0;
+                  return (
+                    <div key={key} className="fi-warehouse-tool-row fi-warehouse-tool-row--seed">
+                      <span className="fi-warehouse-tool-emoji">{RESOURCE_EMOJIS[key] ?? "?"}</span>
+                      <div className="fi-warehouse-tool-meta">
+                        <span className="fi-warehouse-tool-name">{RESOURCE_LABELS[key] ?? key}</span>
+                        <span className="fi-warehouse-tool-counts">
+                          <span>Im Lager: <strong>{amount}</strong></span>
+                          <span className="fi-warehouse-tool-counts-sep">·</span>
+                          <span>In Hotbar: <strong>{inHotbar}</strong></span>
+                        </span>
+                      </div>
+                      <button
+                        className="fi-btn fi-btn-primary fi-warehouse-tool-btn"
+                        disabled={!canEquip}
+                        title={canEquip ? "In die Hotbar legen" : "Nicht im Lager"}
+                        onClick={() => dispatch({ type: "EQUIP_FROM_WAREHOUSE", itemKind: kind, amount: 1 })}
+                      >
+                        In Hotbar
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <div className="fi-warehouse-tools-empty" data-testid="wh-tools-empty-hint">
+              <p className="fi-warehouse-tools-empty-line">Werkzeuge aus der Werkbank landen hier.</p>
+              <p className="fi-warehouse-tools-empty-line fi-warehouse-tools-empty-line--muted">
+                Aktuell keine Werkzeuge eingelagert.
+              </p>
+            </div>
+          )}
+        </>
+      ) : null}
+
+      {/* ---- 2. Materialien (read-only, ruhige Übersicht) ---- */}
+      <h3 className="fi-panel-section-title fi-warehouse-materials-title">📦 Materialien</h3>
+      <p className="fi-warehouse-hint fi-warehouse-hint--quiet">Automatisch eingelagert.</p>
+      <ul className="fi-warehouse-materials-list" data-testid="wh-materials-list">
+        {MATERIAL_ITEMS.map((key) => {
           const whAmount = selectedWarehouseInv[key] as number;
           const isCapped = whCap !== Infinity && whAmount >= whCap;
           return (
-            <div key={key} className={`fi-warehouse-transfer-row${isCapped ? " fi-warehouse-item--full" : ""}`}>
-              <span className="fi-warehouse-emoji">{RESOURCE_EMOJIS[key] ?? "?"}</span>
-              <span className="fi-warehouse-name" style={{ flex: 1 }}>{RESOURCE_LABELS[key] ?? key}</span>
-              <span className="fi-warehouse-amount" style={{ minWidth: 40, textAlign: "right" }}>
+            <li
+              key={key}
+              className={`fi-warehouse-material-row${isCapped ? " fi-warehouse-material-row--full" : ""}`}
+            >
+              <span className="fi-warehouse-material-emoji">{RESOURCE_EMOJIS[key] ?? "?"}</span>
+              <span className="fi-warehouse-material-name">{RESOURCE_LABELS[key] ?? key}</span>
+              <span className="fi-warehouse-material-amount">
                 {whAmount}{whCap !== Infinity ? `/${whCap}` : ""}
               </span>
-            </div>
+            </li>
           );
         })}
-      </div>
-
-      {/* ---- Werkzeuge & Ausrüstung: read-only ---- */}
-      <h3 className="fi-panel-section-title" style={{ marginTop: 14 }}>Werkzeuge &amp; Ausrüstung</h3>
-      <div className="fi-warehouse-equip-list">
-        {EQUIPPABLE_ITEMS.map(({ key, kind }) => {
-          const amount = selectedWarehouseInv[key] as number;
-          const inHotbar = state.hotbarSlots
-            .filter((s) => s.toolKind === kind)
-            .reduce((sum, s) => sum + s.amount, 0);
-          return (
-            <div key={key} className="fi-warehouse-equip-row">
-              <span className="fi-warehouse-emoji">{RESOURCE_EMOJIS[key] ?? "?"}</span>
-              <span className="fi-warehouse-name" style={{ flex: 1 }}>{RESOURCE_LABELS[key] ?? key}</span>
-              <span className="fi-warehouse-amount" style={{ minWidth: 60, textAlign: "right" }}>
-                Lager: {amount} | Hotbar: {inHotbar}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      </ul>
 
       <hr style={{ borderColor: "rgba(255,255,255,0.1)", margin: "12px 0" }} />
 
-      {/* ---- Zone management ---- */}
+      {/* ---- 3. Produktionszone (technisches Detail, unten) ---- */}
       <h3 className="fi-panel-section-title">Produktionszone</h3>
       {(() => {
         const currentZoneId = selectedWarehouseId ? state.buildingZoneIds[selectedWarehouseId] ?? null : null;

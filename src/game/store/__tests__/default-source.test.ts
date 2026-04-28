@@ -2,6 +2,7 @@
 // Tests – Auto-assign nearest warehouse source on building placement
 // ============================================================
 
+import type { GameState, Inventory, PlacedAsset } from "../types";
 import {
   gameReducer,
   createInitialState,
@@ -11,9 +12,6 @@ import {
   BUILDINGS_WITH_DEFAULT_SOURCE,
   BUILDING_COSTS,
   cellKey,
-  type GameState,
-  type PlacedAsset,
-  type Inventory,
 } from "../reducer";
 
 // ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ Factory Island ist ein eigenständiges 2D-Fabrik-Aufbauspiel.
 - `simulation/game.ts` ist ein Re-Export-Wrapper (`export * from "../store/reducer"`) für bestehende Imports.
 - Rezepte gehören ausschließlich nach `src/game/simulation/recipes/`.
 - Neue UI-Elemente gehören in `src/game/ui/**`.
+- `BuildMenu.tsx` liegt unter `src/game/ui/menus/` (nicht unter `ui/panels/`).
 - Debug-Code nur hinter `import.meta.env.DEV`.
 
 ## Arbeitsweise

@@ -5,7 +5,7 @@
 // doesn't lose progress during development.
 // Tree-shaken in production.
 
-import type { GameState } from "../store/reducer";
+import type { GameState } from "../store/types";
 import { debugLog } from "./debugLogger";
 
 const HMR_STATE_KEY = "__FI_HMR_STATE__";
@@ -17,7 +17,7 @@ export function saveHmrState(state: GameState): void {
   try {
     (window as any)[HMR_STATE_KEY] = state;
   } catch {
-    // ignore � serialization failure is non-critical
+    // ignore - serialization failure is non-critical
   }
 }
 
@@ -41,7 +41,7 @@ export function recordHmrModule(modulePath: string): void {
   if (!import.meta.env.DEV) return;
   const list: string[] = (window as any)[HMR_MODULES_KEY] ?? [];
   const name = modulePath.replace(/^.*\/src\//, "src/");
-  list.push(`${new Date().toLocaleTimeString()} � ${name}`);
+  list.push(`${new Date().toLocaleTimeString()} - ${name}`);
   if (list.length > 50) list.splice(0, list.length - 50);
   (window as any)[HMR_MODULES_KEY] = list;
   debugLog.hmr(`Module reloaded: ${name}`);

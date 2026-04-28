@@ -133,6 +133,9 @@ export const DebugPanel: React.FC<DebugPanelProps> = ({
               <button style={mockBtnStyle} onClick={() => onMock("DEBUG_MOCK_RESOURCES")}>
                 🪵 Ressourcen (999)
               </button>
+              <button style={mockBtnStyle} onClick={() => onMock("DEBUG_MOCK_DRONE_HUB_INVENTORY")}>
+                🚁 Alle Drohnen-Hubs fuellen
+              </button>
               <button style={mockBtnStyle} onClick={() => onMock("DEBUG_MOCK_TOOLS")}>
                 🪓 Werkzeuge (alle)
               </button>

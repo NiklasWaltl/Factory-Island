@@ -1,18 +1,21 @@
 import React, { useState } from "react";
-import { RESOURCE_EMOJIS, RESOURCE_LABELS, type AutoDeliveryEntry } from "../../store/reducer";
+import type { AutoDeliveryEntry } from "../../store/types";
+import { RESOURCE_EMOJIS, RESOURCE_LABELS } from "../../store/constants/resources";
 
 interface Props {
   log: AutoDeliveryEntry[];
 }
 
 const SOURCE_EMOJI: Record<AutoDeliveryEntry["sourceType"], string> = {
-  auto_miner: "⛏️",
-  conveyor:   "🏭",
+  auto_miner:   "⛏️",
+  conveyor:     "🏭",
+  auto_smelter: "🔥",
 };
 
 const SOURCE_LABEL: Record<AutoDeliveryEntry["sourceType"], string> = {
-  auto_miner: "Auto-Miner",
-  conveyor:   "Förderband",
+  auto_miner:   "Auto-Miner",
+  conveyor:     "Förderband",
+  auto_smelter: "Auto-Smelter",
 };
 
 function relativeTime(timestamp: number): string {

@@ -1,20 +1,30 @@
 import React from "react";
+import type { BuildingType, FloorTileType, GameState, Inventory } from "../../store/types";
+import type { GameAction } from "../../store/actions";
+import { BUILDING_LABELS } from "../../store/constants/buildings";
 import {
-  BUILDING_COSTS,
-  BUILDING_LABELS,
-  BUILDING_SIZES,
+  BUILD_CATEGORIES,
+  getBuildingDef,
+} from "../../store/constants/buildings/registry";
+import {
+  FLOOR_TILE_DESCRIPTIONS,
+  FLOOR_TILE_LABELS,
+} from "../../store/constants/floor";
+import {
   RESOURCE_EMOJIS,
   RESOURCE_LABELS,
+} from "../../store/constants/resources";
+import {
+  BUILDING_COSTS,
+  BUILDING_SIZES,
   STACKABLE_BUILDINGS,
-  MAX_WAREHOUSES,
   FLOOR_TILE_COSTS,
-  FLOOR_TILE_LABELS,
-  FLOOR_TILE_DESCRIPTIONS,
-  type GameState,
-  type GameAction,
-  type BuildingType,
-  type FloorTileType,
+  hasResources,
+  selectBuildMenuInventoryView,
+  selectGlobalInventoryView,
+  hasResourcesInPhysicalStorage,
 } from "../../store/reducer";
+import { MAX_WAREHOUSES } from "../../store/constants/buildings";
 import { ASSET_SPRITES, FLOOR_SPRITES, GRASS_TILE_SPRITES } from "../../assets/sprites/sprites";
 
 interface BuildMenuProps {
@@ -22,54 +32,26 @@ interface BuildMenuProps {
   dispatch: React.Dispatch<GameAction>;
 }
 
-interface BuildCategory {
-  label: string;
-  emoji: string;
-  buildings: BuildingType[];
-}
-
 interface BuildMenuDebugSectionProps {
   energyDebugOverlay: boolean;
   onToggle: () => void;
 }
 
-const CATEGORIES: BuildCategory[] = [
-  { label: "Energie", emoji: "?", buildings: ["generator", "cable", "power_pole", "battery"] },
-  { label: "Produktion", emoji: "??", buildings: ["workbench", "smithy", "auto_miner", "manual_assembler", "auto_smelter"] },
-  { label: "Logistik", emoji: "??", buildings: ["conveyor", "conveyor_corner"] },
-  { label: "Lager", emoji: "??", buildings: ["warehouse"] },
-];
-
 const FLOOR_TILES: FloorTileType[] = ["stone_floor", "grass_block"];
-
-const BUILDING_DESCRIPTIONS: Record<BuildingType, string> = {
-  generator: "Verbrennt Holz und erzeugt Energie f�r das Netzwerk.",
-  cable: "Verbindet Generator mit Stromknoten (1�1).",
-  power_pole: "Verteilt Energie kabellos an Geb�ude in Reichweite (3 Felder).",
-  battery: "Speichert �bersch�ssige Energie f�r sp�ter.",
-  workbench: "Stelle Werkzeuge und Items her.",
-  smithy: "Schmelze Erze zu Barren.",
-  warehouse: "Erh�ht die Lagerkapazit�t f�r Ressourcen.",
-  auto_miner: "Baut automatisch Ressourcen von Vorkommen ab. Nur auf 2�2 Deposits. Ben�tigt Energie. R zum Drehen.",
-  manual_assembler: "Stellt per Hand Metallplatten und Zahnr�der her. Keine Energie n�tig.",
-  auto_smelter: "Automatisches Schmelzen per F�rderband. 2�1, rotierbar, Input/Output auf gegen�berliegenden Seiten.",
-  conveyor: "Transportiert Items automatisch in eine Richtung. Ben�tigt Energie. R zum Drehen.",
-  conveyor_corner: "Leitet Items in einer 90�-Ecke weiter. Ben�tigt Energie. R zum Drehen.",
-};
 
 const BuildMenuDebugSection: React.FC<BuildMenuDebugSectionProps> = ({
   energyDebugOverlay,
   onToggle,
 }) => (
   <div className="fi-build-category">
-    <h3 className="fi-build-category-title">?? Debug</h3>
+    <h3 className="fi-build-category-title">🧪 Debug</h3>
     <div className="fi-build-items">
       <div
         className={`fi-build-item ${energyDebugOverlay ? "fi-build-item--selected" : ""}`}
         onClick={onToggle}
         title="Stromnetz-Analyse ein/aus"
       >
-        <div className="fi-build-item-icon" style={{ fontSize: 28, display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36 }}>?</div>
+        <div className="fi-build-item-icon" style={{ fontSize: 28, display: "flex", alignItems: "center", justifyContent: "center", width: 36, height: 36 }}>⚡</div>
         <div className="fi-build-item-info">
           <div className="fi-build-item-name">Stromnetz-Analyse</div>
           <div className="fi-build-item-desc">Zeigt Stromknoten, Verbindungen, Verbraucher und Energie-Bilanz an.</div>
@@ -84,19 +66,26 @@ const BuildMenuDebugSection: React.FC<BuildMenuDebugSectionProps> = ({
 
 export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch }) => {
   const selected = state.selectedBuildingType;
+  const buildingInventoryView: Inventory = selectBuildMenuInventoryView(state);
+  const floorInventoryView: Inventory = selectGlobalInventoryView(state);
 
-  const canAfford = (bType: BuildingType): boolean => {
-    const costs = BUILDING_COSTS[bType];
-    return Object.entries(costs).every(
-      ([res, amt]) => (state.inventory[res as keyof typeof state.inventory] ?? 0) >= (amt ?? 0)
-    );
-  };
+  const canAfford = (bType: BuildingType): boolean =>
+    hasResources(buildingInventoryView, BUILDING_COSTS[bType] as Partial<Record<keyof Inventory, number>>);
 
-  const canAffordFloor = (tileType: FloorTileType): boolean => {
-    const costs = FLOOR_TILE_COSTS[tileType];
-    return Object.entries(costs).every(
-      ([res, amt]) => (state.inventory[res as keyof typeof state.inventory] ?? 0) >= (amt ?? 0)
-    );
+  const canAffordFloor = (tileType: FloorTileType): boolean =>
+    hasResourcesInPhysicalStorage(state, FLOOR_TILE_COSTS[tileType] as Partial<Record<keyof Inventory, number>>);
+
+  const getBuildSourceDebugTitle = (costs: Partial<Record<keyof Inventory, number>>): string => {
+    const missing = Object.entries(costs).flatMap(([res, amt]) => {
+      const required = amt ?? 0;
+      const available = (buildingInventoryView[res as keyof Inventory] ?? 0) as number;
+      const shortfall = required - available;
+      return shortfall > 0 ? [`${shortfall} ${RESOURCE_LABELS[res] ?? res}`] : [];
+    });
+
+    return missing.length === 0
+      ? "Bauquelle UI: Drohnen-Hub + Ressourcen-Drops. Lagerhaus/global werden ignoriert."
+      : `Bauquelle UI: Drohnen-Hub + Ressourcen-Drops. Fehlt: ${missing.join(", ")}. Lagerhaus/global werden ignoriert.`;
   };
 
   const isAlreadyPlaced = (bType: BuildingType): boolean => {
@@ -115,19 +104,19 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
   return (
     <div className="fi-build-menu" onClick={(e) => e.stopPropagation()}>
       <div className="fi-build-menu-header">
-        <h2>??? Bau-Men�</h2>
+        <h2>🏗️ Bau-Menü</h2>
         <button className="fi-btn fi-btn-sm" onClick={() => dispatch({ type: "TOGGLE_BUILD_MODE" })}>
-          ? Schlie�en
+          ✕ Schließen
         </button>
       </div>
 
       <div className="fi-build-menu-hint">
-        W�hle ein Geb�ude und klicke auf das Spielfeld zum Platzieren.
-        <br />Rechtsklick auf ein platziertes Geb�ude zum Entfernen.
+        Wähle ein Gebäude und klicke auf das Spielfeld zum Platzieren.
+        <br />Rechtsklick auf ein platziertes Gebäude zum Entfernen.
       </div>
 
-      {CATEGORIES.map((cat) => (
-        <div key={cat.label} className="fi-build-category">
+      {BUILD_CATEGORIES.map((cat) => (
+        <div key={cat.key} className="fi-build-category">
           <h3 className="fi-build-category-title">{cat.emoji} {cat.label}</h3>
           <div className="fi-build-items">
             {cat.buildings.map((bType) => {
@@ -141,8 +130,14 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
                 <div
                   key={bType}
                   className={`fi-build-item ${isSelected ? "fi-build-item--selected" : ""} ${placed ? "fi-build-item--placed" : ""} ${!affordable && !placed ? "fi-build-item--disabled" : ""}`}
+                  title={placed ? status.label : getBuildSourceDebugTitle(costs)}
                   onClick={() => {
-                    if (placed) return;
+                    if (placed || !affordable) {
+                      if (import.meta.env.DEV && !placed && !affordable) {
+                        console.debug(`[BuildMenu] Blocked ${bType}: ${getBuildSourceDebugTitle(costs)}`);
+                      }
+                      return;
+                    }
                     dispatch({ type: "SELECT_BUILD_BUILDING", buildingType: isSelected ? null : bType });
                   }}
                 >
@@ -150,12 +145,12 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
                   <div className="fi-build-item-info">
                     <div className="fi-build-item-name">
                       {BUILDING_LABELS[bType]}
-                      <span className="fi-build-item-size">{size}�{size}</span>
+                      <span className="fi-build-item-size">{size}×{size}</span>
                     </div>
-                    <div className="fi-build-item-desc">{BUILDING_DESCRIPTIONS[bType]}</div>
+                    <div className="fi-build-item-desc">{getBuildingDef(bType).description}</div>
                     <div className="fi-build-item-costs">
                       {Object.entries(costs).map(([res, amt]) => {
-                        const have = (state.inventory[res as keyof typeof state.inventory] ?? 0) as number;
+                        const have = (buildingInventoryView[res as keyof Inventory] ?? 0) as number;
                         const enough = have >= (amt ?? 0);
                         return (
                           <span key={res} className={`fi-build-cost ${enough ? "" : "fi-build-cost--lacking"}`}>
@@ -175,7 +170,7 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
 
       {/* ---- Boden ---- */}
       <div className="fi-build-category">
-        <h3 className="fi-build-category-title">?? Boden</h3>
+        <h3 className="fi-build-category-title">🧱 Boden</h3>
         <div className="fi-build-items">
           {FLOOR_TILES.map((tileType) => {
             const costs = FLOOR_TILE_COSTS[tileType];
@@ -193,12 +188,12 @@ export const BuildMenu: React.FC<BuildMenuProps> = React.memo(({ state, dispatch
                 <div className="fi-build-item-info">
                   <div className="fi-build-item-name">
                     {FLOOR_TILE_LABELS[tileType]}
-                    <span className="fi-build-item-size">1�1</span>
+                    <span className="fi-build-item-size">1×1</span>
                   </div>
                   <div className="fi-build-item-desc">{FLOOR_TILE_DESCRIPTIONS[tileType]}</div>
                   <div className="fi-build-item-costs">
                     {Object.entries(costs).map(([res, amt]) => {
-                      const have = (state.inventory[res as keyof typeof state.inventory] ?? 0) as number;
+                      const have = (floorInventoryView[res as keyof Inventory] ?? 0) as number;
                       const enough = have >= (amt ?? 0);
                       return (
                         <span key={res} className={`fi-build-cost ${enough ? "" : "fi-build-cost--lacking"}`}>

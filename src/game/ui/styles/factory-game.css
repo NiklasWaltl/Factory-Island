@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
    Factory Island - Styles
    ============================================================ */
 
@@ -223,18 +223,147 @@
   overflow-y: auto;
 }
 .fi-warehouse-capacity {
-  font-size: 12px;
-  color: #aaa;
-  margin-bottom: 12px;
-  background: rgba(255,255,255,0.05);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  margin: 0 0 12px;
+  background: rgba(255,255,255,0.03);
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: 4px 8px;
 }
 .fi-warehouse-hint {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.35);
-  margin: -6px 0 8px;
+  color: rgba(255, 255, 255, 0.45);
+  margin: -4px 0 8px;
 }
+.fi-warehouse-hint--quiet {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* ---- Werkzeuge (Primary action area) ---- */
+.fi-warehouse-tools-title {
+  margin-top: 4px;
+  color: #ffd27a;
+}
+.fi-warehouse-tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(255, 210, 122, 0.06);
+  border: 1px solid rgba(255, 210, 122, 0.18);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 14px;
+}
+.fi-warehouse-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.fi-warehouse-tool-row--seed {
+  background: rgba(80, 160, 80, 0.12);
+  border-color: rgba(120, 200, 120, 0.25);
+}
+.fi-warehouse-tool-emoji {
+  font-size: 26px;
+  line-height: 1;
+}
+.fi-warehouse-tool-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.fi-warehouse-tool-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+.fi-warehouse-tool-counts {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  display: flex;
+  gap: 6px;
+}
+.fi-warehouse-tool-counts-sep {
+  color: rgba(255, 255, 255, 0.3);
+}
+.fi-warehouse-tool-btn {
+  min-width: 96px;
+}
+.fi-warehouse-seeds-subhead {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.4);
+  margin: 6px 2px 2px;
+}
+.fi-warehouse-tools-empty {
+  background: rgba(255, 210, 122, 0.04);
+  border: 1px solid rgba(255, 210, 122, 0.14);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 4px 0 14px;
+}
+.fi-warehouse-tools-empty-line {
+  margin: 0;
+  font-size: 12px;
+  color: #cfd8e3;
+}
+.fi-warehouse-tools-empty-line--muted {
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ---- Materialien (ruhige Übersicht) ---- */
+.fi-warehouse-materials-title {
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+}
+.fi-warehouse-materials-list {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.fi-warehouse-material-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.78);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.fi-warehouse-material-row:last-child {
+  border-bottom: none;
+}
+.fi-warehouse-material-row--full {
+  color: #ff9e9e;
+}
+.fi-warehouse-material-emoji {
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+  opacity: 0.85;
+}
+.fi-warehouse-material-name {
+  flex: 1;
+}
+.fi-warehouse-material-amount {
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.9);
+  min-width: 56px;
+  text-align: right;
+}
+
+/* ---- Legacy classes (kept for backwards compatibility, no longer used) ---- */
 .fi-warehouse-item--full {
   border-color: rgba(255, 100, 100, 0.4);
   background: rgba(255, 50, 50, 0.08);
@@ -516,6 +645,121 @@
   white-space: nowrap;
   min-width: 26px;
   text-align: right;
+}
+
+/* ---- Production Status Feed ---- */
+.fi-production-status-feed {
+  position: absolute;
+  bottom: 300px;
+  right: 16px;
+  z-index: 150;
+  width: 300px;
+  background: rgba(14, 18, 26, 0.92);
+  border: 1px solid rgba(120, 150, 240, 0.35);
+  border-radius: 8px;
+  overflow: hidden;
+  pointer-events: all;
+  font-size: 12px;
+}
+
+.fi-production-status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 6px 10px;
+  background: rgba(26, 38, 70, 0.75);
+  border: none;
+  color: #c8d5ff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.fi-production-status-header:hover {
+  background: rgba(32, 46, 82, 0.82);
+}
+
+.fi-production-status-toggle {
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.fi-production-status-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.fi-production-status-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fi-production-status-title {
+  font-size: 11px;
+  color: #92a2d8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fi-production-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fi-production-status-entry {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fi-production-status-line {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.fi-production-status-line--sub {
+  color: #9ca8c8;
+  font-size: 11px;
+}
+
+.fi-production-status-badge {
+  background: rgba(124, 179, 245, 0.2);
+  border: 1px solid rgba(124, 179, 245, 0.45);
+  color: #cfe4ff;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.fi-production-status-status {
+  color: #f0f3ff;
+  font-weight: 600;
+}
+
+.fi-production-status-priority {
+  color: #9fb0da;
+  font-size: 11px;
+}
+
+.fi-production-status-reason {
+  color: #b7c0db;
+  font-size: 11px;
 }
 
 /* ---- Buttons ---- */
@@ -917,7 +1161,7 @@
   background: rgba(200, 40, 40, 0.35);
 }
 
-/* ── Build Mode Toggle Button ── */
+/* â”€â”€ Build Mode Toggle Button â”€â”€ */
 .fi-build-toggle {
   position: fixed;
   bottom: 80px;
@@ -945,7 +1189,7 @@
   color: #fff;
 }
 
-/* ── Build Menu ── */
+/* â”€â”€ Build Menu â”€â”€ */
 .fi-build-menu {
   position: fixed;
   top: 60px;

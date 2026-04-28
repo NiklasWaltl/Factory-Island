@@ -1,0 +1,38 @@
+import type { GameAction } from "../../actions";
+
+/** Action types handled by this module. */
+export type HandledActionType =
+  | "NETWORK_RESERVE_BATCH"
+  | "NETWORK_COMMIT_RESERVATION"
+  | "NETWORK_COMMIT_BY_OWNER"
+  | "NETWORK_CANCEL_RESERVATION"
+  | "NETWORK_CANCEL_BY_OWNER"
+  | "CRAFT_REQUEST_WITH_PREREQUISITES"
+  | "JOB_ENQUEUE"
+  | "JOB_CANCEL"
+  | "JOB_MOVE"
+  | "JOB_SET_PRIORITY"
+  | "JOB_TICK"
+  | "SET_KEEP_STOCK_TARGET"
+  | "SET_RECIPE_AUTOMATION_POLICY";
+
+export const HANDLED_ACTION_TYPES = new Set<string>([
+  "NETWORK_RESERVE_BATCH",
+  "NETWORK_COMMIT_RESERVATION",
+  "NETWORK_COMMIT_BY_OWNER",
+  "NETWORK_CANCEL_RESERVATION",
+  "NETWORK_CANCEL_BY_OWNER",
+  "CRAFT_REQUEST_WITH_PREREQUISITES",
+  "JOB_ENQUEUE",
+  "JOB_CANCEL",
+  "JOB_MOVE",
+  "JOB_SET_PRIORITY",
+  "JOB_TICK",
+  "SET_KEEP_STOCK_TARGET",
+  "SET_RECIPE_AUTOMATION_POLICY",
+]);
+
+export type CraftingQueueHandledAction = Extract<
+  GameAction,
+  { type: HandledActionType }
+>;

@@ -11,7 +11,13 @@ import {
   type SaveGameV1,
   type SaveGameLatest,
 } from "../save";
-import { createInitialState, type GameState } from "../../store/reducer";
+import {
+  createInitialState,
+  gameReducer,
+  type GameState,
+  type Inventory,
+  type PlacedAsset,
+} from "../../store/reducer";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -45,6 +51,37 @@ describe("serializeState", () => {
     expect(save.inventory.wood).toBe(42);
     expect(save.generators["test-gen-1"].fuel).toBe(10);
     expect(save.mode).toBe("release");
+  });
+
+  it("persists keep-in-stock targets", () => {
+    const state = createInitialState("release");
+    state.assets["wb-save"] = { id: "wb-save", type: "workbench", x: 1, y: 1, size: 1 };
+    state.keepStockByWorkbench = {
+      "wb-save": {
+        wood_pickaxe: { enabled: true, amount: 3 },
+      },
+    };
+
+    const save = serializeState(state);
+    expect(save.keepStockByWorkbench).toEqual({
+      "wb-save": {
+        wood_pickaxe: { enabled: true, amount: 3 },
+      },
+    });
+  });
+
+  it("persists recipe automation policy overrides", () => {
+    const state = createInitialState("release");
+    state.recipeAutomationPolicies = {
+      wood_pickaxe: { manualOnly: true },
+      axe: { autoCraftAllowed: false },
+    };
+
+    const save = serializeState(state);
+    expect(save.recipeAutomationPolicies).toEqual({
+      wood_pickaxe: { manualOnly: true },
+      axe: { autoCraftAllowed: false },
+    });
   });
 
   it("excludes derived/transient fields", () => {
@@ -85,6 +122,39 @@ describe("deserializeState", () => {
     const loaded = deserializeState(save);
     // Debug state has generators + cables → should have connectivity
     expect(loaded.connectedAssetIds.length).toBeGreaterThan(0);
+  });
+
+  it("restores keep-stock targets and drops stale workbench entries", () => {
+    const state = createInitialState("release");
+    state.assets["wb-valid"] = { id: "wb-valid", type: "workbench", x: 5, y: 5, size: 1 };
+    state.keepStockByWorkbench = {
+      "wb-valid": {
+        wood_pickaxe: { enabled: true, amount: 2 },
+      },
+      "wb-missing": {
+        wood_pickaxe: { enabled: true, amount: 2 },
+      },
+    };
+
+    const loaded = deserializeState(serializeState(state));
+    expect(loaded.keepStockByWorkbench).toEqual({
+      "wb-valid": {
+        wood_pickaxe: { enabled: true, amount: 2 },
+      },
+    });
+  });
+
+  it("restores recipe automation policies and drops default/no-op entries", () => {
+    const state = createInitialState("release");
+    state.recipeAutomationPolicies = {
+      wood_pickaxe: { keepInStockAllowed: false },
+      axe: { autoCraftAllowed: true },
+    };
+
+    const loaded = deserializeState(serializeState(state));
+    expect(loaded.recipeAutomationPolicies).toEqual({
+      wood_pickaxe: { keepInStockAllowed: false },
+    });
   });
 });
 
@@ -197,6 +267,55 @@ describe("migrateSave – missing fields get defaults", () => {
     expect(result!.battery).toBeDefined();
     expect(typeof result!.battery.stored).toBe("number");
   });
+
+  it("migrates v14 saves by seeding empty keep-stock config", () => {
+    const latest = serializeState(createInitialState("release"));
+    const {
+      keepStockByWorkbench: _dropKeepStock,
+      recipeAutomationPolicies: _dropPolicies,
+      ...legacyShape
+    } = latest as any;
+    const v14 = { ...legacyShape, version: 14 };
+
+    const result = migrateSave(v14);
+    expect(result).not.toBeNull();
+    expect(result!.version).toBe(CURRENT_SAVE_VERSION);
+    expect(result!.keepStockByWorkbench).toEqual({});
+    expect(result!.recipeAutomationPolicies).toEqual({});
+  });
+
+  it("migrates v15 saves by seeding empty automation policies", () => {
+    const latest = serializeState(createInitialState("release"));
+    const { recipeAutomationPolicies: _dropPolicies, ...legacyShape } = latest as any;
+    const v15 = { ...legacyShape, version: 15 };
+
+    const result = migrateSave(v15);
+    expect(result).not.toBeNull();
+    expect(result!.version).toBe(CURRENT_SAVE_VERSION);
+    expect(result!.recipeAutomationPolicies).toEqual({});
+  });
+
+  it("migrates v16 saves by seeding empty underground belt peer map", () => {
+    const latest = serializeState(createInitialState("release"));
+    const { conveyorUndergroundPeers: _dropPeers, ...legacyShape } = latest as any;
+    const v16 = { ...legacyShape, version: 16 };
+
+    const result = migrateSave(v16);
+    expect(result).not.toBeNull();
+    expect(result!.version).toBe(CURRENT_SAVE_VERSION);
+    expect(result!.conveyorUndergroundPeers).toEqual({});
+  });
+
+  it("migrates v17 saves by seeding empty auto-assemblers map", () => {
+    const latest = serializeState(createInitialState("release"));
+    const { autoAssemblers: _dropAsm, version: _ignoreVersion, ...legacyShape } = latest as any;
+    const v17 = { ...legacyShape, version: 17 };
+
+    const result = migrateSave(v17);
+    expect(result).not.toBeNull();
+    expect(result!.version).toBe(CURRENT_SAVE_VERSION);
+    expect(result!.autoAssemblers).toEqual({});
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -249,12 +368,25 @@ describe("loadAndHydrate", () => {
     expect(state.mode).toBe("release");
   });
 
-  it("loads a valid v1 save correctly", () => {
+  it("loads a valid v1 save correctly (physical keys migrate out of globalInventory post-load)", () => {
     const v1 = makeV1Save({ mode: "release" });
     v1.inventory.wood = 999;
     const state = loadAndHydrate(v1, "release");
-    expect(state.inventory.wood).toBe(999);
+    // Post-Phase-1: the auto-created proto-hub means `wood` has a physical
+    // home → globalInventory is re-derived and zeros it out.
+    expect(state.inventory.wood).toBe(0);
     expect(Array.isArray(state.connectedAssetIds)).toBe(true);
+  });
+
+  it("preserves a starter proto-hub as tier 1 when hydrating a raw runtime snapshot", () => {
+    const runtimeState = createInitialState("release");
+    const hubId = runtimeState.starterDrone.hubId;
+
+    expect(hubId).not.toBeNull();
+
+    const hydrated = loadAndHydrate(runtimeState, "release");
+
+    expect(hydrated.serviceHubs[hubId!]?.tier).toBe(1);
   });
 
   it("loads a legacy v0 save via migration", () => {
@@ -280,10 +412,76 @@ describe("round-trip", () => {
     const parsed = JSON.parse(json);
     const loaded = loadAndHydrate(parsed, "release");
 
-    expect(loaded.inventory.wood).toBe(123);
-    expect(loaded.inventory.ironIngot).toBe(7);
+    // Phase 1: release auto-creates a starter warehouse which is a physical
+    // home for every physical key (including ingots) → global is zeroed on load.
+    expect(loaded.inventory.wood).toBe(0);
+    expect(loaded.inventory.ironIngot).toBe(0);
     expect(loaded.generators["rt-gen-1"].fuel).toBe(5);
     expect(loaded.mode).toBe("release");
+  });
+
+  it("preserves crafting/network reservation linkage across save/load", () => {
+    const workbenchId = "wb-rt";
+    const warehouseId = "wh-rt";
+
+    let original = createInitialState("release");
+    const workbench: PlacedAsset = { id: workbenchId, type: "workbench", x: 8, y: 8, size: 1 };
+    const warehouse: PlacedAsset = { id: warehouseId, type: "warehouse", x: 6, y: 6, size: 2 };
+    const warehouseInventory: Inventory = { ...original.inventory, wood: 5 };
+
+    original = {
+      ...original,
+      assets: {
+        ...original.assets,
+        [workbenchId]: workbench,
+        [warehouseId]: warehouse,
+      },
+      warehouseInventories: {
+        ...original.warehouseInventories,
+        [warehouseId]: warehouseInventory,
+      },
+      buildingSourceWarehouseIds: {
+        ...original.buildingSourceWarehouseIds,
+        [workbenchId]: warehouseId,
+      },
+    };
+
+    original = gameReducer(original, {
+      type: "JOB_ENQUEUE",
+      recipeId: "wood_pickaxe",
+      workbenchId,
+      priority: "high",
+      source: "player",
+    });
+    original = gameReducer(original, { type: "JOB_TICK" });
+
+    const originalJob = original.crafting.jobs[0];
+    expect(originalJob?.status).toBe("reserved");
+    expect(original.network.reservations).toHaveLength(1);
+    if (!originalJob) {
+      throw new Error("Expected reserved workbench job before roundtrip.");
+    }
+
+    const json = JSON.stringify(serializeState(original));
+    const parsed = JSON.parse(json);
+    const loaded = loadAndHydrate(parsed, "release");
+
+    const loadedJob = loaded.crafting.jobs.find((job) => job.id === originalJob.id);
+    expect(loadedJob).toBeDefined();
+    expect(loadedJob?.status).toBe("reserved");
+
+    const expectedWood =
+      loadedJob?.ingredients.find((ingredient) => ingredient.itemId === "wood")?.count ?? 0;
+    const ownerReservations = loaded.network.reservations.filter(
+      (reservation) =>
+        reservation.ownerKind === "crafting_job" &&
+        reservation.ownerId === loadedJob?.reservationOwnerId &&
+        reservation.itemId === "wood",
+    );
+
+    expect(ownerReservations).toHaveLength(1);
+    expect(ownerReservations[0].amount).toBeGreaterThan(0);
+    expect(ownerReservations[0].amount).toBe(expectedWood);
   });
 
   it("debug state survives full save/load cycle", () => {
@@ -312,9 +510,10 @@ describe("round-trip", () => {
     const parsed = JSON.parse(json);
     const loaded = loadAndHydrate(parsed, "release");
 
-    // Global inventory preserved
-    expect(loaded.inventory.wood).toBe(50);
-    // Per-warehouse inventories preserved independently
+    // Phase 1: warehouses exist → physical keys in globalInventory are
+    // zeroed on load (warehouses are the source of truth).
+    expect(loaded.inventory.wood).toBe(0);
+    // Per-warehouse inventories preserved independently.
     expect(loaded.warehouseInventories["wh-1"].iron).toBe(15);
     expect(loaded.warehouseInventories["wh-1"].copper).toBe(8);
     expect(loaded.warehouseInventories["wh-2"].wood).toBe(3);
@@ -327,14 +526,16 @@ describe("round-trip", () => {
     original.warehouseInventories = {
       "wh-x": { ...original.inventory, iron: 5 },
     };
-    // The warehouse has 5 iron, global has 100 — they must stay separate.
+    // The warehouse has 5 iron, global has 100 - they must stay separate in the save.
 
     const save = serializeState(original);
     expect(save.inventory.iron).toBe(100);
     expect(save.warehouseInventories["wh-x"].iron).toBe(5);
 
     const loaded = deserializeState(save);
-    expect(loaded.inventory.iron).toBe(100);
+    // Phase 1: warehouses are authoritative after load → global iron is zeroed,
+    // warehouse iron stays intact.
+    expect(loaded.inventory.iron).toBe(0);
     expect(loaded.warehouseInventories["wh-x"].iron).toBe(5);
   });
 });

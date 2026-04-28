@@ -1,12 +1,8 @@
 ﻿import React from "react";
-import {
-  POWER_POLE_RANGE,
-  ASSET_EMOJIS,
-  ASSET_LABELS,
-  type GameState,
-  type GameAction,
-  type AssetType,
-} from "../../store/reducer";
+import type { AssetType, GameState } from "../../store/types";
+import type { GameAction } from "../../store/actions";
+import { ASSET_EMOJIS, ASSET_LABELS } from "../../store/constants/assets";
+import { POWER_POLE_RANGE } from "../../store/constants/energy/power-pole";
 
 interface PowerPolePanelProps {
   state: GameState;

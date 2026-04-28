@@ -1,15 +1,17 @@
 import React from "react";
+import type { GameState } from "../../store/types";
+import type { GameAction } from "../../store/actions";
 import {
   GENERATOR_TICKS_PER_WOOD,
   GENERATOR_ENERGY_PER_TICK,
   GENERATOR_TICK_MS,
+  GENERATOR_MAX_FUEL,
   ENERGY_NET_TICK_MS,
   getConnectedDemandPerPeriod,
   getEnergyProductionPerPeriod,
   getCraftingSourceInventory,
   getSourceStatusInfo,
-  type GameState,
-  type GameAction,
+  getInboundBuildingSupplyAmount,
 } from "../../store/reducer";
 import { ZoneSourceSelector } from "./ZoneSourceSelector";
 
@@ -25,7 +27,10 @@ const WOOD_PER_SEC = (1000 / GENERATOR_TICK_MS / GENERATOR_TICKS_PER_WOOD).toFix
 
 export const GeneratorPanel: React.FC<GeneratorPanelProps> = React.memo(({ state, dispatch }) => {
   const generatorId = state.selectedGeneratorId;
-  const g = (generatorId && state.generators[generatorId]) || { fuel: 0, progress: 0, running: false };
+  const g = (generatorId && state.generators[generatorId]) || { fuel: 0, progress: 0, running: false, requestedRefill: 0 };
+  const requestedOpen = g.requestedRefill ?? 0;
+  const inboundWood = generatorId ? getInboundBuildingSupplyAmount(state, generatorId, "wood") : 0;
+  const refillHeadroom = Math.max(0, GENERATOR_MAX_FUEL - g.fuel - requestedOpen);
 
   const sourceInfo = getSourceStatusInfo(state, generatorId);
   const sourceInv = getCraftingSourceInventory(state, sourceInfo.source);
@@ -101,10 +106,10 @@ export const GeneratorPanel: React.FC<GeneratorPanelProps> = React.memo(({ state
       </div>
 
       {/* Fuel slot */}
-      <div className="fi-generator-section-title">🪵 Brennstoff (Holz)</div>
+      <div className="fi-generator-section-title">🪵 Brennstoff (Holz) — lokales Inventar</div>
       <div className="fi-smithy-slot" style={{ marginBottom: 12 }}>
         <span>Holz im Generator</span>
-        <strong>{g.fuel}</strong>
+        <strong>{g.fuel} / {GENERATOR_MAX_FUEL}</strong>
 
         {g.running && g.fuel > 0 && (
           <div style={{ width: "100%" }}>
@@ -120,22 +125,58 @@ export const GeneratorPanel: React.FC<GeneratorPanelProps> = React.memo(({ state
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+        {g.fuel >= GENERATOR_MAX_FUEL && (
+          <div style={{ fontSize: 11, color: "#facc15", marginTop: 4 }}>
+            Lokales Holz-Inventar voll ({GENERATOR_MAX_FUEL}/{GENERATOR_MAX_FUEL}).
+          </div>
+        )}
+
+        {/* Manual refill request — drones deliver, no auto-refill */}
+        <div style={{ fontSize: 11, color: "#aaa", marginTop: 8 }}>
+          📦 Angefordert: <strong style={{ color: requestedOpen > 0 ? "#7CFF7C" : "#888" }}>{requestedOpen}</strong>
+          {" · "}🚁 Unterwegs: <strong style={{ color: inboundWood > 0 ? "#7CFF7C" : "#888" }}>{inboundWood}</strong>
+        </div>
+        <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
           <button
             className="fi-btn fi-btn-sm"
-            disabled={woodAvailable < 1}
-            onClick={() => dispatch({ type: "GENERATOR_ADD_FUEL", amount: 1 })}
+            disabled={refillHeadroom < 1}
+            title="Drohnen liefern 1 Holz aus dem Lager / Hub"
+            onClick={() => dispatch({ type: "GENERATOR_REQUEST_REFILL", amount: 1 })}
           >
-            +1 Holz
+            +1 anfordern
           </button>
           <button
             className="fi-btn fi-btn-sm"
-            disabled={woodAvailable < 5}
-            onClick={() => dispatch({ type: "GENERATOR_ADD_FUEL", amount: 5 })}
+            disabled={refillHeadroom < 1}
+            title="Drohnen liefern bis zu 5 Holz"
+            onClick={() => dispatch({ type: "GENERATOR_REQUEST_REFILL", amount: 5 })}
           >
-            +5 Holz
+            +5 anfordern
+          </button>
+          <button
+            className="fi-btn fi-btn-sm"
+            disabled={refillHeadroom < 1}
+            title="Drohnen liefern bis zu 10 Holz"
+            onClick={() => dispatch({ type: "GENERATOR_REQUEST_REFILL", amount: 10 })}
+          >
+            +10 anfordern
+          </button>
+          <button
+            className="fi-btn fi-btn-sm"
+            disabled={refillHeadroom < 1}
+            title="Drohnen füllen den Speicher bis zum Maximum"
+            onClick={() => dispatch({ type: "GENERATOR_REQUEST_REFILL", amount: "max" })}
+          >
+            ⛽ Bis voll
           </button>
         </div>
+        {refillHeadroom < 1 && (requestedOpen > 0 || g.fuel >= GENERATOR_MAX_FUEL) && (
+          <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>
+            {g.fuel >= GENERATOR_MAX_FUEL
+              ? "Speicher voll — keine weitere Anforderung möglich."
+              : `Bereits ${requestedOpen} Holz angefordert (deckt Restkapazität).`}
+          </div>
+        )}
       </div>
 
       {/* Controls */}

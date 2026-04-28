@@ -14,9 +14,9 @@ import {
   getCraftingSourceInventory,
   cleanBuildingZoneIds,
   hasStaleWarehouseAssignment,
-  WAREHOUSE_CAPACITY,
   MAX_ZONES,
 } from "../reducer";
+import { WAREHOUSE_CAPACITY } from "../constants/buildings";
 
 // ---------------------------------------------------------------------------
 // Helpers: build a minimal clean state for zone testing
@@ -28,7 +28,7 @@ function emptyInv() {
     ironIngot: 0, copperIngot: 0, metalPlate: 0, gear: 0,
     axe: 0, wood_pickaxe: 0, stone_pickaxe: 0,
     workbench: 0, warehouse: 0, smithy: 0, generator: 0,
-    cable: 0, battery: 0, power_pole: 0, manual_assembler: 0, auto_smelter: 0,
+    cable: 0, battery: 0, power_pole: 0, manual_assembler: 0, auto_smelter: 0, auto_assembler: 0,
   };
 }
 

@@ -9,9 +9,10 @@ import {
   GENERATOR_TICK_MS,
   ENERGY_NET_TICK_MS,
   LOGISTICS_TICK_MS,
-  type GameMode,
-  type GameState,
+  CRAFTING_TICK_MS,
+  DRONE_TICK_MS,
 } from "../store/reducer";
+import type { GameMode, GameState } from "../store/types";
 import { serializeState, loadAndHydrate } from "../simulation/save";
 import { ModeSelect } from "../ui/menus/ModeSelect";
 import { Grid } from "../grid/Grid";
@@ -25,10 +26,13 @@ import { BatteryPanel } from "../ui/panels/BatteryPanel";
 import { PowerPolePanel } from "../ui/panels/PowerPolePanel";
 import { AutoMinerPanel } from "../ui/panels/AutoMinerPanel";
 import { AutoSmelterPanel } from "../ui/panels/AutoSmelterPanel";
+import { AutoAssemblerPanel } from "../ui/panels/AutoAssemblerPanel";
 import { ManualAssemblerPanel } from "../ui/panels/ManualAssemblerPanel";
+import { ServiceHubPanel } from "../ui/panels/ServiceHubPanel";
 import { BuildMenu } from "../ui/menus/BuildMenu";
 import { Notifications } from "../ui/hud/Notifications";
 import { AutoDeliveryFeed } from "../ui/hud/AutoDeliveryFeed";
+import { ProductionStatusFeed } from "../ui/hud/ProductionStatusFeed";
 import { ResourceBar } from "../ui/hud/ResourceBar";
 import "../ui/styles/factory-game.css";
 
@@ -265,12 +269,39 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
     return () => clearInterval(id);
   }, []);
 
+  const hasPendingCraftingJobs = state.crafting.jobs.some(
+    (job) => job.status !== "done" && job.status !== "cancelled",
+  );
+
+  const hasActiveKeepStockTargets = Object.values(state.keepStockByWorkbench ?? {}).some(
+    (recipes) => Object.values(recipes).some((target) => !!target.enabled && target.amount > 0),
+  );
+
+  const shouldRunCraftingTick = hasPendingCraftingJobs || hasActiveKeepStockTargets;
+
+  useEffect(() => {
+    if (!shouldRunCraftingTick) return;
+    const id = setInterval(() => {
+      dispatch({ type: "JOB_TICK" });
+    }, CRAFTING_TICK_MS);
+    return () => clearInterval(id);
+  }, [shouldRunCraftingTick]);
+
+  // Drone tick: task selection, movement, pickup, deposit
+  useEffect(() => {
+    const id = setInterval(() => {
+      dispatch({ type: "DRONE_TICK" });
+    }, DRONE_TICK_MS);
+    return () => clearInterval(id);
+  }, []);
+
   return (
     <>
       <Grid state={state} dispatch={dispatch} />
       <ResourceBar state={state} />
       <Notifications notifications={state.notifications} />
       <AutoDeliveryFeed log={state.autoDeliveryLog} />
+      <ProductionStatusFeed state={state} />
 
       {state.openPanel === "map_shop" && (
         <MapShopPanel state={state} dispatch={dispatch} />
@@ -299,8 +330,14 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
       {state.openPanel === "auto_smelter" && (
         <AutoSmelterPanel state={state} dispatch={dispatch} />
       )}
+      {state.openPanel === "auto_assembler" && (
+        <AutoAssemblerPanel state={state} dispatch={dispatch} />
+      )}
       {state.openPanel === "manual_assembler" && (
         <ManualAssemblerPanel state={state} dispatch={dispatch} />
+      )}
+      {state.openPanel === "service_hub" && (
+        <ServiceHubPanel state={state} dispatch={dispatch} />
       )}
 
       <Hotbar state={state} dispatch={dispatch} />
@@ -309,9 +346,9 @@ const GameInner: React.FC<{ mode: GameMode }> = ({ mode }) => {
       <button
         className={`fi-build-toggle ${state.buildMode ? "fi-build-toggle--active" : ""}`}
         onClick={() => dispatch({ type: "TOGGLE_BUILD_MODE" })}
-        title="Bau-Men� �ffnen/schlie�en (B)"
+        title="Bau-Menü öffnen/schließen (B)"
       >
-        ??? {state.buildMode ? "Bauen aktiv" : "Bauen"}
+        🏗️ {state.buildMode ? "Bauen aktiv" : "Bauen"}
       </button>
 
       {/* Build Menu overlay */}

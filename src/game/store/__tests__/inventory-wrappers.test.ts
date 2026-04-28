@@ -9,8 +9,8 @@ import {
   addResources,
   devAssertInventoryNonNegative,
   createInitialState,
-  type Inventory,
 } from "../reducer";
+import type { Inventory } from "../types";
 
 // ---------------------------------------------------------------------------
 // Helpers

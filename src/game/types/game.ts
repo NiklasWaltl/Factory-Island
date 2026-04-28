@@ -18,9 +18,12 @@ export type {
   AutoSmelterStatus,
   AutoSmelterProcessing,
   AutoSmelterEntry,
+  AutoAssemblerRecipeId,
+  AutoAssemblerStatus,
+  AutoAssemblerEntry,
   UIPanel,
   BatteryState,
   GeneratorState,
   GameNotification,
   GameState,
-} from "../store/reducer";
+} from "../store/types";

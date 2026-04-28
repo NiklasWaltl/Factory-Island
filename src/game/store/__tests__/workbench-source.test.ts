@@ -2,15 +2,13 @@
 // Tests – Workbench Resource Source (per-building, global vs. warehouse)
 // ============================================================
 
+import type { GameState, Inventory, PlacedAsset } from "../types";
 import {
   gameReducer,
   createInitialState,
   addResources,
   resolveBuildingSource,
   cellKey,
-  type GameState,
-  type PlacedAsset,
-  type Inventory,
 } from "../reducer";
 
 // ---------------------------------------------------------------------------
@@ -126,187 +124,22 @@ describe("SET_BUILDING_SOURCE (workbench)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 3. CRAFT_WORKBENCH with global source (unchanged behavior)
-// ---------------------------------------------------------------------------
 
-describe("CRAFT_WORKBENCH – global source", () => {
-  it("consumes from global inventory and produces into hotbar", () => {
+// ---------------------------------------------------------------------------
+// 3. CRAFT_WORKBENCH - deprecated action
+// ---------------------------------------------------------------------------
+// The synchronous CRAFT_WORKBENCH reducer case is a no-op (see reducer.ts).
+// Crafting now flows through the queue (ENQUEUE / CRAFT_TICK), which has its
+// own dedicated tests in src/game/crafting/__tests__/. Source resolution is
+// covered by the resolveBuildingSource describe above, so we only assert the
+// deprecation contract here.
+
+describe("CRAFT_WORKBENCH (deprecated) - no-op contract", () => {
+  it("returns the same state reference", () => {
     const before = stateWithWorkbenches();
     before.inventory = addResources(emptyInv(), { wood: 20 });
-
-    const after = gameReducer(before, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(after.inventory.wood).toBe(15);
-    expect(after.hotbarSlots.some((s) => s.toolKind === "wood_pickaxe" && s.amount >= 1)).toBe(true);
-  });
-
-  it("does not touch warehouse inventories when source is global", () => {
-    const before = stateWithWorkbenches();
-    before.inventory = addResources(emptyInv(), { wood: 20 });
-    before.warehouseInventories["wh-A"] = addResources(emptyInv(), { wood: 99 });
-
-    const after = gameReducer(before, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(after.warehouseInventories["wh-A"].wood).toBe(99);
-    expect(after.inventory.wood).toBe(15);
-  });
-
-  it("blocks crafting when global resources insufficient", () => {
-    const before = stateWithWorkbenches();
-    before.inventory = addResources(emptyInv(), { wood: 2 });
-
     const after = gameReducer(before, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
     expect(after).toBe(before);
   });
 });
 
-// ---------------------------------------------------------------------------
-// 4. CRAFT_WORKBENCH with warehouse source
-// ---------------------------------------------------------------------------
-
-describe("CRAFT_WORKBENCH – warehouse source", () => {
-  it("consumes from assigned warehouse, not global", () => {
-    const before = stateWithWorkbenches();
-    before.buildingSourceWarehouseIds = { "wb-1": "wh-A" };
-    before.warehouseInventories["wh-A"] = addResources(emptyInv(), { wood: 10 });
-    before.inventory = addResources(emptyInv(), { wood: 50 });
-
-    const after = gameReducer(before, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(after.warehouseInventories["wh-A"].wood).toBe(5);
-    expect(after.inventory.wood).toBe(50);
-    expect(after.hotbarSlots.some((s) => s.toolKind === "wood_pickaxe" && s.amount >= 1)).toBe(true);
-  });
-
-  it("blocks crafting when warehouse has insufficient resources", () => {
-    const before = stateWithWorkbenches();
-    before.buildingSourceWarehouseIds = { "wb-1": "wh-A" };
-    before.warehouseInventories["wh-A"] = addResources(emptyInv(), { wood: 2 });
-    before.inventory = addResources(emptyInv(), { wood: 999 });
-
-    const after = gameReducer(before, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(after).toBe(before);
-  });
-
-  it("does not affect warehouse B when crafting from warehouse A", () => {
-    const before = stateWithWorkbenches();
-    before.buildingSourceWarehouseIds = { "wb-1": "wh-A" };
-    before.warehouseInventories["wh-A"] = addResources(emptyInv(), { wood: 10 });
-    before.warehouseInventories["wh-B"] = addResources(emptyInv(), { wood: 7 });
-
-    const after = gameReducer(before, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(after.warehouseInventories["wh-B"].wood).toBe(7);
-    expect(after.warehouseInventories["wh-A"].wood).toBe(5);
-  });
-
-  it("falls back to global when assigned warehouse is invalid", () => {
-    const before = stateWithWorkbenches();
-    before.buildingSourceWarehouseIds = { "wb-1": "nonexistent" };
-    before.inventory = addResources(emptyInv(), { wood: 20 });
-
-    const after = gameReducer(before, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(after.inventory.wood).toBe(15);
-  });
-
-  it("produces non-tool output into the warehouse source", () => {
-    const before = stateWithWorkbenches();
-    before.buildingSourceWarehouseIds = { "wb-1": "wh-A" };
-    before.warehouseInventories["wh-A"] = addResources(emptyInv(), { wood: 10 });
-    before.hotbarSlots = before.hotbarSlots.map(() => ({
-      toolKind: "axe" as const,
-      durability: 100,
-      maxDurability: 100,
-      amount: 99,
-    }));
-
-    const after = gameReducer(before, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(after.warehouseInventories["wh-A"].wood_pickaxe).toBe(1);
-    expect(after.warehouseInventories["wh-A"].wood).toBe(5);
-    expect(after.inventory.wood_pickaxe).toBe(before.inventory.wood_pickaxe);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 5. Per-building isolation: two workbenches, different sources
-// ---------------------------------------------------------------------------
-
-describe("Per-building isolation (workbench)", () => {
-  it("wb-1 uses warehouse A, wb-2 uses global", () => {
-    const s = stateWithWorkbenches();
-    s.buildingSourceWarehouseIds = { "wb-1": "wh-A" };
-    s.selectedCraftingBuildingId = "wb-1";
-    s.warehouseInventories["wh-A"] = addResources(emptyInv(), { wood: 10 });
-    s.inventory = addResources(emptyInv(), { wood: 50 });
-
-    const afterWb1 = gameReducer(s, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(afterWb1.warehouseInventories["wh-A"].wood).toBe(5);
-    expect(afterWb1.inventory.wood).toBe(50);
-
-    const s2 = { ...afterWb1, selectedCraftingBuildingId: "wb-2" };
-    const afterWb2 = gameReducer(s2, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(afterWb2.inventory.wood).toBe(45);
-    expect(afterWb2.warehouseInventories["wh-A"].wood).toBe(5);
-  });
-
-  it("wb-1 and wb-2 use different warehouses", () => {
-    const s = stateWithWorkbenches();
-    s.buildingSourceWarehouseIds = { "wb-1": "wh-A", "wb-2": "wh-B" };
-    s.selectedCraftingBuildingId = "wb-1";
-    s.warehouseInventories["wh-A"] = addResources(emptyInv(), { wood: 10 });
-    s.warehouseInventories["wh-B"] = addResources(emptyInv(), { wood: 20 });
-
-    const afterWb1 = gameReducer(s, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(afterWb1.warehouseInventories["wh-A"].wood).toBe(5);
-    expect(afterWb1.warehouseInventories["wh-B"].wood).toBe(20);
-
-    const s2 = { ...afterWb1, selectedCraftingBuildingId: "wb-2" };
-    const afterWb2 = gameReducer(s2, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(afterWb2.warehouseInventories["wh-A"].wood).toBe(5);
-    expect(afterWb2.warehouseInventories["wh-B"].wood).toBe(15);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 6. Edge cases / invariants
-// ---------------------------------------------------------------------------
-
-describe("CRAFT_WORKBENCH – edge cases", () => {
-  it("no negative values after crafting from warehouse", () => {
-    const before = stateWithWorkbenches();
-    before.buildingSourceWarehouseIds = { "wb-1": "wh-A" };
-    before.warehouseInventories["wh-A"] = addResources(emptyInv(), { wood: 5 });
-
-    const after = gameReducer(before, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    for (const val of Object.values(after.warehouseInventories["wh-A"])) {
-      expect(val as number).toBeGreaterThanOrEqual(0);
-    }
-  });
-
-  it("crafting blocked when workbench has no power", () => {
-    const before = stateWithWorkbenches();
-    before.poweredMachineIds = [];
-    before.inventory = addResources(emptyInv(), { wood: 999 });
-
-    const after = gameReducer(before, { type: "CRAFT_WORKBENCH", recipeKey: "wood_pickaxe" });
-    expect(after.inventory.wood).toBe(999);
-    expect(after.notifications.length).toBeGreaterThan(before.notifications.length);
-  });
-
-  it("multi-resource recipe (stone_pickaxe) works from warehouse", () => {
-    const before = stateWithWorkbenches();
-    before.buildingSourceWarehouseIds = { "wb-1": "wh-A" };
-    before.warehouseInventories["wh-A"] = addResources(emptyInv(), { wood: 10, stone: 5 });
-
-    const after = gameReducer(before, { type: "CRAFT_WORKBENCH", recipeKey: "stone_pickaxe" });
-    expect(after.warehouseInventories["wh-A"].wood).toBe(0);
-    expect(after.warehouseInventories["wh-A"].stone).toBe(0);
-    expect(after.hotbarSlots.some((s) => s.toolKind === "stone_pickaxe" && s.amount >= 1)).toBe(true);
-  });
-
-  it("multi-resource recipe blocks if one resource is missing in warehouse", () => {
-    const before = stateWithWorkbenches();
-    before.buildingSourceWarehouseIds = { "wb-1": "wh-A" };
-    before.warehouseInventories["wh-A"] = addResources(emptyInv(), { wood: 10, stone: 2 });
-
-    const after = gameReducer(before, { type: "CRAFT_WORKBENCH", recipeKey: "stone_pickaxe" });
-    expect(after).toBe(before);
-  });
-});

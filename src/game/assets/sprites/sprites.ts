@@ -1,10 +1,10 @@
 /**
  * Pixel-art SVG sprites for Factory Island.
  *
- * Each sprite is a data-URI pointing to a 32�32 (or 64�64 for 2�2 buildings)
+ * Each sprite is a data-URI pointing to a 32x32 (or 64x64 for 2x2 buildings)
  * SVG that uses crisp <rect> elements for a clean pixel-art look.
- * Grid cells are 64 px, so 1�1 assets map to 32?64 (2� scale) and
- * 2�2 assets to 64?128 (also 2� scale), keeping everything sharp.
+ * Grid cells are 64 px, so 1x1 assets map to 32x64 (2x scale) and
+ * 2x2 assets to 64x128 (also 2x scale), keeping everything sharp.
  *
  * Palette (shared across ALL assets for visual consistency):
  *   dark outline   #1a1a2e   light outline  #3a3a5e
@@ -20,7 +20,7 @@
  *   purple-dark    #4a3a80   purple-mid     #6a5acd  purple-light #8a7ae8
  */
 
-import type { AssetType, FloorTileType } from "../../store/reducer";
+import type { AssetType, FloorTileType } from "../../store/types";
 import warehousePng from "./images/warehouse.png";
 
 // ---------------------------------------------------------------------------
@@ -563,6 +563,80 @@ function makeConveyorCorner(): string {
   return svgURI(32, 32, s);
 }
 
+function makeConveyorMerger(): string {
+  let s = "";
+  // Center merge chamber, output points east by default.
+  s += r(4, 10, 24, 12, "#6a6a7a");
+  s += r(8, 12, 16, 8, "#8a8a9a");
+  // Side input lanes.
+  s += r(10, 2, 12, 10, "#6a6a7a");
+  s += r(10, 20, 12, 10, "#6a6a7a");
+  s += r(12, 4, 8, 8, "#8a8a9a");
+  s += r(12, 20, 8, 8, "#8a8a9a");
+  // Merge arrows: top/bottom inputs and single east output.
+  s += r(14, 5, 4, 8, "#ffa500");
+  s += r(12, 11, 8, 4, "#ffa500");
+  s += r(14, 19, 4, 8, "#ffa500");
+  s += r(12, 17, 8, 4, "#ffa500");
+  s += r(20, 14, 6, 4, "#ffd700");
+  s += r(24, 12, 4, 8, "#ffd700");
+  // Rails / shadow.
+  s += r(8, 0, 16, 2, "#4a4a5a");
+  s += r(8, 30, 16, 2, "#1a1a2e");
+  s += r(2, 8, 28, 2, "#4a4a5a");
+  s += r(2, 22, 28, 2, "#4a4a5a");
+  return svgURI(32, 32, s);
+}
+
+/** Splitter: back input (west), lateral outputs (north/south when facing east). Teal accent vs merger orange. */
+function makeConveyorSplitter(): string {
+  let s = "";
+  s += r(4, 10, 24, 12, "#5a6a6a");
+  s += r(8, 12, 16, 8, "#7a9a9a");
+  s += r(2, 12, 8, 8, "#5a6a6a");
+  s += r(6, 14, 4, 4, "#7a9a9a");
+  s += r(10, 2, 12, 10, "#5a6a6a");
+  s += r(10, 20, 12, 10, "#5a6a6a");
+  s += r(12, 4, 8, 8, "#7a9a9a");
+  s += r(12, 20, 8, 8, "#7a9a9a");
+  s += r(2, 16, 6, 2, "#14b8a6");
+  s += r(14, 5, 4, 6, "#14b8a6");
+  s += r(14, 21, 4, 6, "#14b8a6");
+  s += r(8, 0, 16, 2, "#4a5a5a");
+  s += r(8, 30, 16, 2, "#1a1a2e");
+  s += r(2, 8, 28, 2, "#4a5a5a");
+  s += r(2, 22, 28, 2, "#4a5a5a");
+  return svgURI(32, 32, s);
+}
+
+/** Underground belt entrance: darker trench, forward flow accent (rotation in Phaser). */
+function makeConveyorUndergroundIn(): string {
+  let s = "";
+  s += r(4, 4, 24, 24, "#3d2914");
+  s += r(6, 6, 20, 20, "#2a1a0c");
+  s += r(8, 8, 16, 16, "#1a1208");
+  s += r(10, 14, 12, 4, "#6b5344");
+  s += r(12, 10, 8, 4, "#c4a574");
+  s += r(12, 18, 8, 4, "#8b7355");
+  s += r(8, 0, 16, 2, "#5c4033");
+  s += r(8, 30, 16, 2, "#1a1a2e");
+  return svgURI(32, 32, s);
+}
+
+/** Underground belt exit: lighter rim suggesting surface exit. */
+function makeConveyorUndergroundOut(): string {
+  let s = "";
+  s += r(4, 4, 24, 24, "#4a3528");
+  s += r(6, 6, 20, 20, "#3d2914");
+  s += r(8, 8, 16, 16, "#2a1a0c");
+  s += r(10, 12, 12, 8, "#6b5344");
+  s += r(12, 10, 8, 4, "#d4c4a8");
+  s += r(12, 20, 8, 4, "#a89878");
+  s += r(8, 0, 16, 2, "#6b5344");
+  s += r(8, 30, 16, 2, "#1a1a2e");
+  return svgURI(32, 32, s);
+}
+
 function makeManualAssembler(): string {
   let s = "";
   // Housing
@@ -605,6 +679,19 @@ function makeAutoSmelter(): string {
   return svgURI(64, 32, s);
 }
 
+function makeAutoAssembler(): string {
+  let s = "";
+  s += r(2, 8, 60, 24, "#14532d");
+  s += r(4, 10, 56, 20, "#166534");
+  s += r(18, 12, 28, 16, "#0f2918");
+  s += r(22, 16, 20, 8, "#4ade80");
+  s += r(0, 16, 6, 8, "#444");
+  s += r(58, 16, 6, 8, "#444");
+  s += r(30, 10, 24, 4, "#bbf7d0");
+  s += r(30, 24, 24, 3, "#1a1a2e");
+  return svgURI(64, 32, s);
+}
+
 // ---------------------------------------------------------------------------
 // WAREHOUSE INPUT TILE  (32�32 SVG)
 // ---------------------------------------------------------------------------
@@ -636,6 +723,46 @@ function makeWarehouseInputTile(): string {
 }
 
 // ---------------------------------------------------------------------------
+// SERVICE HUB (Drone Hub) — 2×2 (64×64 SVG)
+// ---------------------------------------------------------------------------
+
+function makeServiceHub(): string {
+  // 2x2 building (64x64)
+  let s = "";
+  // Dark blue background
+  s += r(2, 2, 60, 60, "#1a2a5e");
+  s += r(4, 4, 56, 56, "#2a3e8c");
+  // Border
+  s += r(0, 0, 64, 2, "#4169E1");
+  s += r(0, 62, 64, 2, "#4169E1");
+  s += r(0, 0, 2, 64, "#4169E1");
+  s += r(62, 0, 2, 64, "#4169E1");
+  // Drone body (center hexagon approximation)
+  s += r(24, 28, 16, 8, "#a0c8ff");
+  s += r(20, 30, 24, 4, "#c8e0ff");
+  // Drone arms
+  s += r(10, 26, 12, 4, "#7aa8d8");
+  s += r(42, 26, 12, 4, "#7aa8d8");
+  s += r(10, 34, 12, 4, "#7aa8d8");
+  s += r(42, 34, 12, 4, "#7aa8d8");
+  // Rotor circles (approximate)
+  s += r(8, 22, 8, 8, "#3a6aaa");
+  s += r(48, 22, 8, 8, "#3a6aaa");
+  s += r(8, 34, 8, 8, "#3a6aaa");
+  s += r(48, 34, 8, 8, "#3a6aaa");
+  // Highlight dot on rotors
+  s += r(10, 24, 2, 2, "#90c0ff");
+  s += r(50, 24, 2, 2, "#90c0ff");
+  s += r(10, 36, 2, 2, "#90c0ff");
+  s += r(50, 36, 2, 2, "#90c0ff");
+  // Signal arc above hub
+  s += r(26, 10, 12, 2, "#5af");
+  s += r(22, 14, 20, 2, "#48a0ff");
+  s += r(18, 18, 28, 2, "#3080e0");
+  return svgURI(64, 64, s);
+}
+
+// ---------------------------------------------------------------------------
 // EXPORT MAPS
 // ---------------------------------------------------------------------------
 
@@ -660,8 +787,14 @@ export const ASSET_SPRITES: Record<AssetType, string> = {
   auto_miner: makeAutoMiner(),
   conveyor: makeConveyor(),
   conveyor_corner: makeConveyorCorner(),
+  conveyor_merger: makeConveyorMerger(),
+  conveyor_splitter: makeConveyorSplitter(),
+  conveyor_underground_in: makeConveyorUndergroundIn(),
+  conveyor_underground_out: makeConveyorUndergroundOut(),
   manual_assembler: makeManualAssembler(),
   auto_smelter: makeAutoSmelter(),
+  auto_assembler: makeAutoAssembler(),
+  service_hub: makeServiceHub(),
 };
 
 /** Grass tile variants (0 / 1 for checkerboard) */

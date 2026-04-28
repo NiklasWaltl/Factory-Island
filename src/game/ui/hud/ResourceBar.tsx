@@ -1,10 +1,10 @@
 ﻿import React from "react";
+import { RESOURCE_EMOJIS } from "../../store/constants/resources";
 import {
-  RESOURCE_EMOJIS,
   getCapacityPerResource,
-  type GameState,
-  type Inventory,
+  selectGlobalInventoryView,
 } from "../../store/reducer";
+import type { GameState, Inventory } from "../../store/types";
 
 interface ResourceBarProps {
   state: GameState;
@@ -23,18 +23,20 @@ const CORE_RESOURCES: (keyof Inventory)[] = [
 export const ResourceBar: React.FC<ResourceBarProps> = React.memo(({ state }) => {
   const cap = getCapacityPerResource(state);
   const capLabel = cap === Infinity ? "∞" : String(cap);
+  // Phase 1: HUD reads the derived view so warehouse + hub stocks are visible.
+  const inventoryView = selectGlobalInventoryView(state);
 
   return (
     <div className="fi-resource-bar">
       {/* Coins — no capacity cap */}
       <div className="fi-resource-item fi-resource-item--coins">
         <span>{RESOURCE_EMOJIS["coins"]}</span>
-        <strong>{state.inventory.coins}</strong>
+        <strong>{inventoryView.coins}</strong>
       </div>
 
       {/* Core resources with capacity indicator */}
       {CORE_RESOURCES.map((key) => {
-        const amount = state.inventory[key] as number;
+        const amount = inventoryView[key] as number;
         const atCap = cap !== Infinity && amount >= cap;
         const nearCap = !atCap && cap !== Infinity && amount >= cap * 0.9;
         return (

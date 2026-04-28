@@ -12,7 +12,7 @@ import {
 function makeJob(overrides: Partial<CraftingJob>): CraftingJob {
   const base: CraftingJob = {
     id: "job-1",
-    recipeId: "wood_plank",
+    recipeId: "wood",
     workbenchId: "wb-1",
     inventorySource: { kind: "global" },
     status: "queued",
@@ -23,7 +23,7 @@ function makeJob(overrides: Partial<CraftingJob>): CraftingJob {
     finishesAt: null,
     progress: 0,
     ingredients: [{ itemId: "wood", count: 1 }],
-    output: { itemId: "wood_plank", count: 1 },
+    output: { itemId: "wood", count: 1 },
     processingTime: 0,
     reservationOwnerId: "job-1",
   };
@@ -99,19 +99,19 @@ describe("crafting/jobStatus", () => {
   describe("getGuaranteedPendingOutput", () => {
     it("aggregates only matching item, source, and pending status", () => {
       const jobs: CraftingJob[] = [
-        makeJob({ id: "j1", status: "crafting", output: { itemId: "plank", count: 2 } }),
-        makeJob({ id: "j2", status: "delivering", output: { itemId: "plank", count: 1 } }),
-        makeJob({ id: "j3", status: "queued", output: { itemId: "plank", count: 9 } }),
-        makeJob({ id: "j4", status: "done", output: { itemId: "plank", count: 9 } }),
+        makeJob({ id: "j1", status: "crafting", output: { itemId: "wood", count: 2 } }),
+        makeJob({ id: "j2", status: "delivering", output: { itemId: "wood", count: 1 } }),
+        makeJob({ id: "j3", status: "queued", output: { itemId: "wood", count: 9 } }),
+        makeJob({ id: "j4", status: "done", output: { itemId: "wood", count: 9 } }),
         makeJob({ id: "j5", status: "crafting", output: { itemId: "other", count: 9 } }),
         makeJob({
           id: "j6",
           status: "crafting",
           inventorySource: { kind: "warehouse", warehouseId: "wh-a" },
-          output: { itemId: "plank", count: 4 },
+          output: { itemId: "wood", count: 4 },
         }),
       ];
-      expect(getGuaranteedPendingOutput(jobs, { kind: "global" }, "plank")).toBe(3);
+      expect(getGuaranteedPendingOutput(jobs, { kind: "global" }, "wood")).toBe(3);
     });
   });
 
@@ -129,18 +129,18 @@ describe("crafting/jobStatus", () => {
 
   describe("isKeepStockTrackedJob (UI-Semantik)", () => {
     it("requires automation source AND configured/enabled keep-stock target", () => {
-      const job = makeJob({ source: "automation", workbenchId: "wb-1", recipeId: "plank" });
+      const job = makeJob({ source: "automation", workbenchId: "wb-1", recipeId: "wood" });
       const stateWith = {
-        keepStockByWorkbench: { "wb-1": { plank: { enabled: true, amount: 5 } } },
+        keepStockByWorkbench: { "wb-1": { wood: { enabled: true, amount: 5 } } },
       };
       const stateMissingTarget = {
         keepStockByWorkbench: { "wb-1": { other: { enabled: true, amount: 5 } } },
       };
       const stateDisabled = {
-        keepStockByWorkbench: { "wb-1": { plank: { enabled: false, amount: 5 } } },
+        keepStockByWorkbench: { "wb-1": { wood: { enabled: false, amount: 5 } } },
       };
       const stateZeroAmount = {
-        keepStockByWorkbench: { "wb-1": { plank: { enabled: true, amount: 0 } } },
+        keepStockByWorkbench: { "wb-1": { wood: { enabled: true, amount: 0 } } },
       };
       expect(isKeepStockTrackedJob(stateWith, job)).toBe(true);
       expect(isKeepStockTrackedJob(stateMissingTarget, job)).toBe(false);
@@ -149,21 +149,21 @@ describe("crafting/jobStatus", () => {
     });
     it("does NOT enforce open status (display also covers done jobs)", () => {
       const state = {
-        keepStockByWorkbench: { "wb-1": { plank: { enabled: true, amount: 5 } } },
+        keepStockByWorkbench: { "wb-1": { wood: { enabled: true, amount: 5 } } },
       };
       const doneJob = makeJob({
         source: "automation",
         workbenchId: "wb-1",
-        recipeId: "plank",
+        recipeId: "wood",
         status: "done",
       });
       expect(isKeepStockTrackedJob(state, doneJob)).toBe(true);
     });
     it("never matches player-source jobs", () => {
       const state = {
-        keepStockByWorkbench: { "wb-1": { plank: { enabled: true, amount: 5 } } },
+        keepStockByWorkbench: { "wb-1": { wood: { enabled: true, amount: 5 } } },
       };
-      const playerJob = makeJob({ source: "player", workbenchId: "wb-1", recipeId: "plank" });
+      const playerJob = makeJob({ source: "player", workbenchId: "wb-1", recipeId: "wood" });
       expect(isKeepStockTrackedJob(state, playerJob)).toBe(false);
     });
   });
@@ -171,7 +171,7 @@ describe("crafting/jobStatus", () => {
   describe("semantic separation (Reducer vs UI)", () => {
     it("isAutomationCraftingJob and isKeepStockTrackedJob are NOT interchangeable", () => {
       // Automation job WITHOUT a keep-stock target: counts for reducer cap, not for UI.
-      const job = makeJob({ source: "automation", workbenchId: "wb-1", recipeId: "plank", status: "crafting" });
+      const job = makeJob({ source: "automation", workbenchId: "wb-1", recipeId: "wood", status: "crafting" });
       const stateNoTarget = { keepStockByWorkbench: {} };
       expect(isAutomationCraftingJob(job)).toBe(true);
       expect(isKeepStockTrackedJob(stateNoTarget, job)).toBe(false);
